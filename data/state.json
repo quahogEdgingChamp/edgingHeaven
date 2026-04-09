@@ -1,0 +1,22 @@
+{
+  "mediaDirectory": "/Volumes/Lexar/baza",
+  "ratings": {},
+  "settings": {
+    "clipLength": 60,
+    "clipStartMode": "fixed",
+    "clipStartSeconds": 0,
+    "photoInterval": 3,
+    "streamFolders": [],
+    "swipeFolders": [
+      "bitemyhippp/simp"
+    ],
+    "theme": "velvet",
+    "toktinderFolders": [
+      "bitemyhippp/simp"
+    ],
+    "toktinderUnratedOnly": false,
+    "unratedOnly": false,
+    "videoCount": 2,
+    "videoVolume": 1
+  }
+}

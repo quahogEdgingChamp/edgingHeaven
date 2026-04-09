@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Edging Heaven</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Edging Heaven</p>
+          <h1>Edging Heaven</h1>
+          <p id="libraryMeta" class="subtle">Loading library...</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="pill-row">
+            <span id="imageCount" class="pill">0 images</span>
+            <span id="videoCount" class="pill">0 videos</span>
+            <span id="ratingCount" class="pill">0 liked</span>
+          </div>
+          <div class="topbar-buttons">
+            <button id="changeLibraryButton" class="ghost-button">Change Folder</button>
+            <button id="rescanButton" class="ghost-button">Rescan Library</button>
+          </div>
+        </div>
+      </header>
+
+      <section id="setupPanel" class="panel setup-panel" hidden>
+        <div class="setup-copy">
+          <p class="panel-label">Library Setup</p>
+          <h2>Choose a media folder</h2>
+          <p id="setupMessage" class="subtle">
+            Start the server with `python3 server.py`, then choose your media folder here.
+          </p>
+        </div>
+
+        <label class="setup-path">
+          <span>Folder Path</span>
+          <input
+            id="mediaDirInput"
+            type="text"
+            placeholder="/Volumes/Lexar/baza"
+            autocomplete="off"
+          />
+        </label>
+
+        <div class="setup-actions">
+          <button id="mediaDirApplyButton" class="primary-button">Use This Folder</button>
+        </div>
+
+        <div class="panel-block">
+          <p class="panel-label">Quick Picks</p>
+          <div id="mediaDirChoices" class="choice-list"></div>
+        </div>
+      </section>
+
+      <nav id="modeSwitch" class="mode-switch" aria-label="Modes">
+        <button class="mode-button active" data-mode="swipe">Tinder</button>
+        <button class="mode-button" data-mode="toktinder">TindTok</button>
+        <button class="mode-button" data-mode="stream">Stream</button>
+      </nav>
+
+      <main id="mainContent">
+        <section id="swipeMode" class="mode-panel active">
+          <div class="swipe-layout">
+            <div class="swipe-stage">
+              <div class="stage-toolbar">
+                <button id="swipeFocusToggle" class="ghost-button">Focus Mode</button>
+                <button id="swipeDrawerToggle" class="ghost-button">Tinder Controls</button>
+              </div>
+              <div id="swipeCard" class="swipe-card" data-swipe-mode="swipe">
+                <span class="stamp stamp-left">Keep</span>
+                <span class="stamp stamp-right">Pass</span>
+                <img id="swipeImage" alt="" draggable="false" />
+                <div class="swipe-scrim"></div>
+              </div>
+
+              <div class="swipe-actions">
+                <button id="dislikeButton" class="danger-button">Swipe Left</button>
+                <button id="skipButton" class="ghost-button">Skip</button>
+                <button id="likeButton" class="primary-button">Swipe Right</button>
+              </div>
+              <div class="panel stage-meta">
+                <p class="panel-label">Current</p>
+                <h2 id="swipeName">No photos found</h2>
+                <p id="swipeFolder" class="subtle"></p>
+                <p id="swipeStatus" class="subtle">Preparing deck...</p>
+              </div>
+            </div>
+
+            <aside id="swipeDrawer" class="panel drawer inspector" aria-hidden="true">
+              <div class="drawer-header">
+                <div>
+                  <p class="panel-label">Tinder Controls</p>
+                  <h2>Deck Options</h2>
+                </div>
+                <button id="swipeDrawerClose" class="ghost-button">Close</button>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Appearance</p>
+                <label>
+                  <span>Theme</span>
+                  <select id="swipeThemeSelect">
+                    <option value="ember">Ember Room</option>
+                    <option value="velvet">Velvet Night</option>
+                    <option value="afterglow">Afterglow</option>
+                    <option value="paper">Paper Light</option>
+                    <option value="sage">Sage Studio</option>
+                    <option value="slate">Slate Office</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="panel-block">
+                <div class="filter-header">
+                  <p class="panel-label">Folders</p>
+                  <button id="swipeFoldersAllButton" class="ghost-button small-button">Use All</button>
+                </div>
+                <p id="swipeFolderSummary" class="subtle">Using all folders.</p>
+                <div id="swipeFolderFilters" class="folder-list"></div>
+              </div>
+
+              <div class="panel-block">
+                <label class="toggle-row">
+                  <span>Show only unrated photos</span>
+                  <input id="unratedOnly" type="checkbox" />
+                </label>
+                <button id="shuffleButton" class="ghost-button full-width">
+                  Shuffle Deck
+                </button>
+                <button id="resetRatingsButton" class="danger-button full-width">
+                  Reset All Ratings
+                </button>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Shortcuts</p>
+                <p class="subtle">Left arrow = pass, right arrow = keep, down arrow or swipe down = skip.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="toktinderMode" class="mode-panel">
+          <div class="swipe-layout video-swipe-layout">
+            <div class="swipe-stage">
+              <div class="stage-toolbar">
+                <button id="toktinderFocusToggle" class="ghost-button">Focus Mode</button>
+                <button id="toktinderDrawerToggle" class="ghost-button">TindTok Controls</button>
+              </div>
+              <div id="toktinderCard" class="swipe-card video-swipe-card" data-swipe-mode="toktinder">
+                <span class="stamp stamp-left">Keep</span>
+                <span class="stamp stamp-right">Pass</span>
+                <video id="toktinderVideo" playsinline preload="metadata"></video>
+                <div class="swipe-scrim"></div>
+              </div>
+
+              <div class="swipe-actions">
+                <button id="toktinderDislikeButton" class="danger-button">Swipe Left</button>
+                <button id="toktinderSkipButton" class="ghost-button">Skip</button>
+                <button id="toktinderLikeButton" class="primary-button">Swipe Right</button>
+              </div>
+              <div class="panel stage-meta">
+                <p class="panel-label">Now Playing</p>
+                <h2 id="toktinderName">No videos found</h2>
+                <p id="toktinderFolder" class="subtle"></p>
+                <p id="toktinderStatus" class="subtle">Preparing video deck...</p>
+              </div>
+            </div>
+
+            <aside id="toktinderDrawer" class="panel drawer inspector" aria-hidden="true">
+              <div class="drawer-header">
+                <div>
+                  <p class="panel-label">TindTok Controls</p>
+                  <h2>Video Deck</h2>
+                </div>
+                <button id="toktinderDrawerClose" class="ghost-button">Close</button>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Appearance</p>
+                <label>
+                  <span>Theme</span>
+                  <select id="toktinderThemeSelect">
+                    <option value="ember">Ember Room</option>
+                    <option value="velvet">Velvet Night</option>
+                    <option value="afterglow">Afterglow</option>
+                    <option value="paper">Paper Light</option>
+                    <option value="sage">Sage Studio</option>
+                    <option value="slate">Slate Office</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="panel-block">
+                <div class="filter-header">
+                  <p class="panel-label">Folders</p>
+                  <button id="toktinderFoldersAllButton" class="ghost-button small-button">
+                    Use All
+                  </button>
+                </div>
+                <p id="toktinderFolderSummary" class="subtle">Using all folders.</p>
+                <div id="toktinderFolderFilters" class="folder-list"></div>
+              </div>
+
+              <div class="panel-block">
+                <label class="toggle-row">
+                  <span>Show only unrated videos</span>
+                  <input id="toktinderUnratedOnly" type="checkbox" />
+                </label>
+                <button id="toktinderAudioToggleButton" class="ghost-button full-width">
+                  Enable Sound
+                </button>
+                <p id="toktinderAudioHint" class="subtle">
+                  Mobile browsers often require a tap before videos can play with sound.
+                </p>
+                <button id="toktinderShuffleButton" class="ghost-button full-width">
+                  Shuffle Deck
+                </button>
+                <button id="toktinderResetRatingsButton" class="danger-button full-width">
+                  Reset All Ratings
+                </button>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Shortcuts</p>
+                <p class="subtle">Left arrow = pass, right arrow = keep, down arrow or swipe down = skip.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="streamMode" class="mode-panel">
+          <div class="stream-layout">
+            <div class="stage-toolbar">
+              <button id="streamFocusToggle" class="ghost-button">Focus Mode</button>
+              <button id="streamDrawerToggle" class="ghost-button">Stream Controls</button>
+            </div>
+            <div class="stream-stage panel">
+              <img id="streamPhoto" alt="" />
+              <div id="videoOverlay"></div>
+            </div>
+
+            <div class="panel stage-meta">
+              <p class="panel-label">Now Showing</p>
+              <h2 id="streamPhotoName">Waiting for image</h2>
+              <p id="streamPhotoFolder" class="subtle"></p>
+            </div>
+
+            <aside id="streamDrawer" class="panel drawer control-panel" aria-hidden="true">
+              <div class="drawer-header">
+                <div>
+                  <p class="panel-label">Stream Controls</p>
+                  <h2>Playback Options</h2>
+                </div>
+                <button id="streamDrawerClose" class="ghost-button">Close</button>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Appearance</p>
+                <label>
+                  <span>Theme</span>
+                  <select id="streamThemeSelect">
+                    <option value="ember">Ember Room</option>
+                    <option value="velvet">Velvet Night</option>
+                    <option value="afterglow">Afterglow</option>
+                    <option value="paper">Paper Light</option>
+                    <option value="sage">Sage Studio</option>
+                    <option value="slate">Slate Office</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="panel-block">
+                <div class="filter-header">
+                  <p class="panel-label">Folders</p>
+                  <button id="streamFoldersAllButton" class="ghost-button small-button">Use All</button>
+                </div>
+                <p id="streamFolderSummary" class="subtle">Using all folders.</p>
+                <div id="streamFolderFilters" class="folder-list"></div>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Photo Rotation</p>
+                <label>
+                  <span>Interval</span>
+                  <input id="photoInterval" type="range" min="3" max="60" step="1" />
+                  <strong id="photoIntervalValue"></strong>
+                </label>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Corner Videos</p>
+                <label>
+                  <span>Count</span>
+                  <input id="videoSlots" type="range" min="0" max="2" step="1" />
+                  <strong id="videoSlotsValue"></strong>
+                </label>
+                <label>
+                  <span>Volume</span>
+                  <input id="videoVolume" type="range" min="0" max="1" step="0.01" />
+                  <strong id="videoVolumeValue"></strong>
+                </label>
+                <button id="audioToggleButton" class="ghost-button full-width">
+                  Enable Sound
+                </button>
+                <p id="audioHint" class="subtle">
+                  Mobile browsers often require a tap before videos can play with sound.
+                </p>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Clip Start</p>
+                <label>
+                  <span>Mode</span>
+                  <select id="clipStartMode">
+                    <option value="random">Random point</option>
+                    <option value="fixed">Fixed second</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Fixed Start</span>
+                  <input id="clipStartSeconds" type="number" min="0" max="3600" step="1" />
+                </label>
+              </div>
+
+              <div class="panel-block">
+                <button id="refreshStreamButton" class="primary-button full-width">
+                  Refresh Stream
+                </button>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+
+    <template id="videoSlotTemplate">
+      <div class="video-slot">
+        <video playsinline preload="metadata"></video>
+      </div>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
