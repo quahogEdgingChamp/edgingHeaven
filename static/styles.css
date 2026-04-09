@@ -469,10 +469,10 @@ button {
 }
 
 .video-swipe-card {
-  max-width: min(100%, 520px);
+  width: min(100%, 520px);
   height: min(82vh, calc(100vh - 230px));
   min-height: 480px;
-  aspect-ratio: 9 / 16;
+  max-width: 100%;
   touch-action: pan-x pan-y;
 }
 
@@ -481,6 +481,18 @@ button {
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.12), transparent 36%),
     linear-gradient(180deg, rgba(7, 7, 7, 0.96), rgba(18, 12, 8, 0.94));
+}
+
+.video-swipe-card[data-video-shape="square"] {
+  width: min(100%, 720px);
+  height: min(78vh, calc(100vh - 240px));
+  min-height: 420px;
+}
+
+.video-swipe-card[data-video-shape="landscape"] {
+  width: min(100%, 1180px);
+  height: min(72vh, calc(100vh - 280px));
+  min-height: 360px;
 }
 
 .video-swipe-layout .stage-meta {
@@ -599,6 +611,9 @@ button {
   position: relative;
   min-height: min(82vh, calc(100vh - 210px));
   overflow: hidden;
+  --stream-corner-width: clamp(190px, 18vw, 320px);
+  --stream-corner-offset: clamp(14px, 1.5vw, 22px);
+  --stream-corner-lower-offset: clamp(126px, 14vh, 148px);
 }
 
 #streamPhoto {
@@ -616,7 +631,7 @@ button {
 
 .video-slot {
   position: absolute;
-  width: min(22vw, 240px);
+  width: var(--stream-corner-width);
   aspect-ratio: 16 / 9;
   overflow: hidden;
 }
@@ -625,30 +640,30 @@ button {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 22px;
+  border-radius: clamp(16px, 1.8vw, 22px);
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: var(--video-bg);
   box-shadow: var(--shadow);
 }
 
 .corner-0 {
-  top: 18px;
-  left: 18px;
+  top: var(--stream-corner-offset);
+  left: var(--stream-corner-offset);
 }
 
 .corner-1 {
-  top: 18px;
-  right: 18px;
+  top: var(--stream-corner-offset);
+  right: var(--stream-corner-offset);
 }
 
 .corner-2 {
-  bottom: 138px;
-  left: 18px;
+  bottom: var(--stream-corner-lower-offset);
+  left: var(--stream-corner-offset);
 }
 
 .corner-3 {
-  bottom: 138px;
-  right: 18px;
+  bottom: var(--stream-corner-lower-offset);
+  right: var(--stream-corner-offset);
 }
 
 input[type="range"] {
@@ -742,6 +757,16 @@ body.focus-mode .video-swipe-card {
   height: min(92vh, 1100px);
 }
 
+body.focus-mode .video-swipe-card[data-video-shape="square"] {
+  width: min(100vw - 48px, 900px);
+  height: min(88vh, 900px);
+}
+
+body.focus-mode .video-swipe-card[data-video-shape="landscape"] {
+  width: min(100vw - 48px, 1500px);
+  height: min(82vh, 900px);
+}
+
 body.focus-mode .stream-stage {
   min-height: 0;
   height: min(92vh, 1200px);
@@ -750,6 +775,12 @@ body.focus-mode .stream-stage {
 @media (max-width: 1100px) {
   .stream-stage {
     min-height: 64vh;
+  }
+}
+
+@media (min-width: 1280px) {
+  .stream-stage {
+    --stream-corner-width: clamp(260px, 20vw, 420px);
   }
 }
 
@@ -782,8 +813,21 @@ body.focus-mode .stream-stage {
   }
 
   .video-swipe-card {
-    min-height: 400px;
+    width: 100%;
     height: min(72vh, calc(100vh - 250px));
+    min-height: 400px;
+  }
+
+  .video-swipe-card[data-video-shape="square"] {
+    width: 100%;
+    height: min(64vh, calc(100vw - 48px));
+    min-height: 320px;
+  }
+
+  .video-swipe-card[data-video-shape="landscape"] {
+    width: 100%;
+    height: clamp(220px, 52vw, 320px);
+    min-height: 220px;
   }
 
   .drawer {
@@ -795,13 +839,10 @@ body.focus-mode .stream-stage {
     max-height: min(72vh, 680px);
   }
 
-  .video-slot {
-    width: 40vw;
-  }
-
-  .corner-2,
-  .corner-3 {
-    bottom: 170px;
+  .stream-stage {
+    --stream-corner-width: clamp(96px, 28vw, 136px);
+    --stream-corner-offset: 12px;
+    --stream-corner-lower-offset: 170px;
   }
 
   body.focus-mode .swipe-stage {
@@ -809,11 +850,28 @@ body.focus-mode .stream-stage {
   }
 
   body.focus-mode .stage-toolbar {
-    top: 10px;
-    right: 10px;
-    left: 10px;
-    justify-content: flex-end;
-    flex-wrap: wrap;
+    top: max(10px, env(safe-area-inset-top));
+    right: auto;
+    left: 50%;
+    bottom: auto;
+    transform: translateX(-50%);
+    justify-content: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    width: auto;
+    max-width: calc(100vw - 20px);
+    padding: 6px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(8, 6, 6, 0.48);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  }
+
+  body.focus-mode .stage-toolbar .ghost-button {
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    white-space: nowrap;
   }
 
   body.focus-mode .swipe-card,
@@ -823,6 +881,16 @@ body.focus-mode .stream-stage {
 
   body.focus-mode .swipe-card {
     height: min(88vh, 900px);
+  }
+
+  body.focus-mode .video-swipe-card[data-video-shape="square"] {
+    width: calc(100vw - 20px);
+    height: min(84vh, calc(100vw - 20px));
+  }
+
+  body.focus-mode .video-swipe-card[data-video-shape="landscape"] {
+    width: calc(100vw - 20px);
+    height: clamp(220px, 52vw, 420px);
   }
 
   body.focus-mode .stream-stage {

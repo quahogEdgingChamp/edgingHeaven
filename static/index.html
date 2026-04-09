@@ -22,7 +22,7 @@
           </div>
           <div class="topbar-buttons">
             <button id="changeLibraryButton" class="ghost-button">Change Folder</button>
-            <button id="rescanButton" class="ghost-button">Rescan Library</button>
+            <button id="themeButton" class="ghost-button">Hub</button>
           </div>
         </div>
       </header>
@@ -53,6 +53,30 @@
         <div class="panel-block">
           <p class="panel-label">Quick Picks</p>
           <div id="mediaDirChoices" class="choice-list"></div>
+        </div>
+      </section>
+
+      <section id="themePanel" class="panel setup-panel" hidden>
+        <div class="setup-copy">
+          <p class="panel-label">Hub</p>
+          <h2>Global controls</h2>
+          <p id="themeSummary" class="subtle">Current theme: Velvet Night.</p>
+        </div>
+
+        <div class="panel-block">
+          <p class="panel-label">Themes</p>
+          <div id="themeChoices" class="choice-list"></div>
+        </div>
+
+        <div class="panel-block">
+          <p class="panel-label">Library</p>
+          <div class="setup-actions">
+            <button id="rescanButton" class="ghost-button">Rescan Library</button>
+            <button id="resetRatingsButton" class="danger-button">Clear All Saved JSON</button>
+          </div>
+          <p class="subtle">
+            This fully clears saved JSON state for all modes, themes, filters, ratings, and the current library path.
+          </p>
         </div>
       </section>
 
@@ -100,21 +124,6 @@
               </div>
 
               <div class="panel-block">
-                <p class="panel-label">Appearance</p>
-                <label>
-                  <span>Theme</span>
-                  <select id="swipeThemeSelect">
-                    <option value="ember">Ember Room</option>
-                    <option value="velvet">Velvet Night</option>
-                    <option value="afterglow">Afterglow</option>
-                    <option value="paper">Paper Light</option>
-                    <option value="sage">Sage Studio</option>
-                    <option value="slate">Slate Office</option>
-                  </select>
-                </label>
-              </div>
-
-              <div class="panel-block">
                 <div class="filter-header">
                   <p class="panel-label">Folders</p>
                   <button id="swipeFoldersAllButton" class="ghost-button small-button">Use All</button>
@@ -131,8 +140,8 @@
                 <button id="shuffleButton" class="ghost-button full-width">
                   Shuffle Deck
                 </button>
-                <button id="resetRatingsButton" class="danger-button full-width">
-                  Reset All Ratings
+                <button id="swipeResetModeButton" class="danger-button full-width">
+                  Reset Photo Ratings
                 </button>
               </div>
 
@@ -181,21 +190,6 @@
               </div>
 
               <div class="panel-block">
-                <p class="panel-label">Appearance</p>
-                <label>
-                  <span>Theme</span>
-                  <select id="toktinderThemeSelect">
-                    <option value="ember">Ember Room</option>
-                    <option value="velvet">Velvet Night</option>
-                    <option value="afterglow">Afterglow</option>
-                    <option value="paper">Paper Light</option>
-                    <option value="sage">Sage Studio</option>
-                    <option value="slate">Slate Office</option>
-                  </select>
-                </label>
-              </div>
-
-              <div class="panel-block">
                 <div class="filter-header">
                   <p class="panel-label">Folders</p>
                   <button id="toktinderFoldersAllButton" class="ghost-button small-button">
@@ -220,8 +214,8 @@
                 <button id="toktinderShuffleButton" class="ghost-button full-width">
                   Shuffle Deck
                 </button>
-                <button id="toktinderResetRatingsButton" class="danger-button full-width">
-                  Reset All Ratings
+                <button id="toktinderResetModeButton" class="danger-button full-width">
+                  Reset Video Ratings
                 </button>
               </div>
 
@@ -257,21 +251,6 @@
                   <h2>Playback Options</h2>
                 </div>
                 <button id="streamDrawerClose" class="ghost-button">Close</button>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Appearance</p>
-                <label>
-                  <span>Theme</span>
-                  <select id="streamThemeSelect">
-                    <option value="ember">Ember Room</option>
-                    <option value="velvet">Velvet Night</option>
-                    <option value="afterglow">Afterglow</option>
-                    <option value="paper">Paper Light</option>
-                    <option value="sage">Sage Studio</option>
-                    <option value="slate">Slate Office</option>
-                  </select>
-                </label>
               </div>
 
               <div class="panel-block">

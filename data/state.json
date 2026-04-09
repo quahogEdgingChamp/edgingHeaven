@@ -1,19 +1,22 @@
 {
-  "mediaDirectory": "/Volumes/Lexar/baza",
-  "ratings": {},
+  "mediaDirectory": "/Volumes/Lexar/testing",
+  "ratings": {
+    "amber_forest/photo_067.jpeg": "like",
+    "hidden_brook/photo_066.jpeg": "dislike",
+    "ivory_forest/photo_007.jpeg": "dislike",
+    "misty_canopy/photo_046.jpeg": "like",
+    "rustic_hollow/photo_004.jpeg": "dislike",
+    "solstice_shore/photo_040.jpeg": "like"
+  },
   "settings": {
     "clipLength": 60,
     "clipStartMode": "fixed",
     "clipStartSeconds": 0,
     "photoInterval": 3,
     "streamFolders": [],
-    "swipeFolders": [
-      "bitemyhippp/simp"
-    ],
+    "swipeFolders": [],
     "theme": "velvet",
-    "toktinderFolders": [
-      "bitemyhippp/simp"
-    ],
+    "toktinderFolders": [],
     "toktinderUnratedOnly": false,
     "unratedOnly": false,
     "videoCount": 2,

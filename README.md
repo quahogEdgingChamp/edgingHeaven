@@ -16,8 +16,8 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 - Per-mode folder filters for `Tinder`, `TindTok`, and `Stream`
 - `Show only unrated` filters for both swipe decks
 - Shared appearance system with 6 themes:
-  - `Ember Room`
   - `Velvet Night`
+  - `Ember Room`
   - `Afterglow`
   - `Paper Light`
   - `Sage Studio`
@@ -62,8 +62,9 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 ### Global
 
 - `Change Folder`: reopen the folder picker and switch libraries
-- `Rescan Library`: rescan the current media folder recursively
-- `Theme`: changing the theme in any drawer updates the whole app
+- `Hub`: open the shared global panel for themes and library-wide actions
+- `Rescan Library`: available inside the hub
+- `Clear All Saved JSON`: available inside the hub and fully clears the saved JSON state, including ratings, filters, theme, settings, and the current library path
 - `Focus Mode`: available in all 3 modes
 - Keyboard:
   - `F`: toggle focus mode
@@ -81,7 +82,7 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   - folder filter
   - `Show only unrated photos`
   - `Shuffle Deck`
-  - `Reset All Ratings`
+  - `Reset Photo Ratings`
 
 ### TindTok
 
@@ -92,7 +93,7 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   - `Show only unrated videos`
   - `Enable Sound` / `Mute Videos`
   - `Shuffle Deck`
-  - `Reset All Ratings`
+  - `Reset Video Ratings`
 
 ### Stream
 

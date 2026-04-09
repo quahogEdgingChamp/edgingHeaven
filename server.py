@@ -41,7 +41,7 @@ DEFAULT_SETTINGS = {
     "videoVolume": 0.18,
     "clipStartMode": "random",
     "clipStartSeconds": 0,
-    "theme": "ember",
+    "theme": "velvet",
     "swipeFolders": [],
     "toktinderFolders": [],
     "streamFolders": [],
@@ -138,6 +138,9 @@ class MediaLibrary:
             "settings": self.state["settings"],
             "mediaDirectory": self.state.get("mediaDirectory"),
         }
+        self._write_state_payload(payload)
+
+    def _write_state_payload(self, payload: dict) -> None:
         with self.state_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
 
@@ -297,6 +300,31 @@ class MediaLibrary:
                 item["rating"] = None
             self._save_state()
 
+    def reset_saved_data(self) -> None:
+        with self.lock:
+            self.media_dir = None
+            self.catalog = {"images": [], "videos": [], "updatedAt": None}
+            self.state["ratings"] = {}
+            self.state["settings"] = dict(DEFAULT_SETTINGS)
+            self.state["mediaDirectory"] = None
+            self._write_state_payload({})
+
+    def reset_mode_data(self, mode: str) -> bool:
+        with self.lock:
+            if mode == "swipe":
+                for item in self.catalog["images"]:
+                    item["rating"] = None
+                    self.state["ratings"].pop(item["path"], None)
+            elif mode == "toktinder":
+                for item in self.catalog["videos"]:
+                    item["rating"] = None
+                    self.state["ratings"].pop(item["path"], None)
+            else:
+                return False
+
+            self._save_state()
+            return True
+
     def resolve_media_path(self, relative_path: str) -> Optional[Path]:
         if self.media_dir is None:
             return None
@@ -427,6 +455,23 @@ class RequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/reset-ratings":
             self.server.library.clear_ratings()
             self._send_json({"ok": True, "library": self.server.library.library_payload()})
+            return
+
+        if parsed.path == "/api/reset-state":
+            self.server.library.reset_saved_data()
+            self._send_json({"ok": True, "state": self.server.library.state_payload()})
+            return
+
+        if parsed.path == "/api/reset-mode-data":
+            mode = payload.get("mode")
+            if not isinstance(mode, str):
+                self._send_json({"error": "Missing mode."}, HTTPStatus.BAD_REQUEST)
+                return
+            ok = self.server.library.reset_mode_data(mode)
+            if not ok:
+                self._send_json({"error": "Unknown mode."}, HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, "state": self.server.library.state_payload()})
             return
 
         self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)

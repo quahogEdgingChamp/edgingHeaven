@@ -12,6 +12,7 @@ const state = {
   mediaChoices: [],
   currentMediaDirectory: "",
   setupVisible: false,
+  themePanelVisible: false,
   activeDrawer: null,
   focusMode: false,
   audioUnlocked: false,
@@ -28,7 +29,15 @@ const state = {
 
 const controls = {};
 let settingsSaveTimer = null;
-const THEMES = new Set(["ember", "velvet", "afterglow", "paper", "sage", "slate"]);
+const THEME_OPTIONS = [
+  { value: "velvet", label: "Velvet Night" },
+  { value: "ember", label: "Ember Room" },
+  { value: "afterglow", label: "Afterglow" },
+  { value: "paper", label: "Paper Light" },
+  { value: "sage", label: "Sage Studio" },
+  { value: "slate", label: "Slate Office" },
+];
+const THEMES = new Set(THEME_OPTIONS.map((theme) => theme.value));
 
 document.addEventListener("DOMContentLoaded", () => {
   cacheDom();
@@ -47,6 +56,9 @@ function cacheDom() {
     "mediaDirInput",
     "mediaDirApplyButton",
     "mediaDirChoices",
+    "themePanel",
+    "themeSummary",
+    "themeChoices",
     "modeSwitch",
     "mainContent",
     "libraryMeta",
@@ -54,6 +66,7 @@ function cacheDom() {
     "videoCount",
     "ratingCount",
     "changeLibraryButton",
+    "themeButton",
     "rescanButton",
     "swipeCard",
     "swipeImage",
@@ -64,12 +77,12 @@ function cacheDom() {
     "swipeDrawerToggle",
     "swipeDrawerClose",
     "swipeFocusToggle",
-    "swipeThemeSelect",
     "swipeFoldersAllButton",
     "swipeFolderSummary",
     "swipeFolderFilters",
     "unratedOnly",
     "shuffleButton",
+    "swipeResetModeButton",
     "resetRatingsButton",
     "skipButton",
     "dislikeButton",
@@ -83,7 +96,6 @@ function cacheDom() {
     "toktinderDrawerToggle",
     "toktinderDrawerClose",
     "toktinderFocusToggle",
-    "toktinderThemeSelect",
     "toktinderFoldersAllButton",
     "toktinderFolderSummary",
     "toktinderFolderFilters",
@@ -91,7 +103,7 @@ function cacheDom() {
     "toktinderAudioToggleButton",
     "toktinderAudioHint",
     "toktinderShuffleButton",
-    "toktinderResetRatingsButton",
+    "toktinderResetModeButton",
     "toktinderSkipButton",
     "toktinderDislikeButton",
     "toktinderLikeButton",
@@ -102,7 +114,6 @@ function cacheDom() {
     "streamDrawerToggle",
     "streamDrawerClose",
     "streamFocusToggle",
-    "streamThemeSelect",
     "streamFoldersAllButton",
     "streamFolderSummary",
     "streamFolderFilters",
@@ -142,22 +153,18 @@ function bindEvents() {
 
   controls.changeLibraryButton.addEventListener("click", () => {
     state.setupVisible = !state.setupVisible;
+    state.themePanelVisible = false;
+    syncLibraryChrome();
+  });
+
+  controls.themeButton.addEventListener("click", () => {
+    state.themePanelVisible = !state.themePanelVisible;
+    state.setupVisible = false;
     syncLibraryChrome();
   });
 
   controls.rescanButton.addEventListener("click", async () => {
-    if (!state.libraryReady) {
-      controls.setupMessage.textContent = "Choose a media folder first.";
-      return;
-    }
-    try {
-      setStatus("Rescanning library...");
-      await postJson("/api/rescan", {});
-      await loadState();
-    } catch (error) {
-      console.error(error);
-      setStatus("Rescan failed.");
-    }
+    await rescanLibrary();
   });
 
   controls.likeButton.addEventListener("click", () => rateCurrent("like"));
@@ -214,16 +221,6 @@ function bindEvents() {
     queueSettingsSave();
   });
 
-  [controls.swipeThemeSelect, controls.toktinderThemeSelect, controls.streamThemeSelect].forEach((select) => {
-    select.addEventListener("change", (event) => {
-      const nextTheme = sanitizeTheme(event.target.value);
-      state.settings.theme = nextTheme;
-      syncThemeControls();
-      applyTheme();
-      queueSettingsSave();
-    });
-  });
-
   controls.shuffleButton.addEventListener("click", () => {
     shuffleArray(state.swipeItems);
     state.swipeIndex = 0;
@@ -231,22 +228,13 @@ function bindEvents() {
   });
 
   controls.resetRatingsButton.addEventListener("click", async () => {
-    const shouldReset = window.confirm(
-      "Clear all saved media ratings and restart from unrated items?"
-    );
-    if (!shouldReset) {
-      return;
-    }
-
-    try {
-      setStatus("Clearing saved ratings...");
-      await postJson("/api/reset-ratings", {});
-      await loadState();
-      setStatus("All ratings cleared.");
-    } catch (error) {
-      console.error(error);
-      setStatus("Could not clear ratings.");
-    }
+    await resetSavedData();
+  });
+  controls.swipeResetModeButton.addEventListener("click", async () => {
+    await resetModeData("swipe");
+  });
+  controls.toktinderResetModeButton.addEventListener("click", async () => {
+    await resetModeData("toktinder");
   });
 
   controls.refreshStreamButton.addEventListener("click", () => {
@@ -260,25 +248,6 @@ function bindEvents() {
     shuffleArray(state.toktinderItems);
     state.toktinderIndex = 0;
     renderToktinder();
-  });
-
-  controls.toktinderResetRatingsButton.addEventListener("click", async () => {
-    const shouldReset = window.confirm(
-      "Clear all saved media ratings and restart from unrated items?"
-    );
-    if (!shouldReset) {
-      return;
-    }
-
-    try {
-      setStatus("Clearing saved ratings...");
-      await postJson("/api/reset-ratings", {});
-      await loadState();
-      setStatus("All ratings cleared.");
-    } catch (error) {
-      console.error(error);
-      setStatus("Could not clear ratings.");
-    }
   });
 
   bindRangeSetting(controls.photoInterval, "photoInterval", (value) => `${value}s`);
@@ -307,6 +276,7 @@ function bindEvents() {
   controls.toktinderCard.addEventListener("pointerup", onSwipePointerUp);
   controls.toktinderCard.addEventListener("pointercancel", resetSwipeCard);
   controls.toktinderVideo.addEventListener("loadedmetadata", () => {
+    syncToktinderVideoShape();
     if (state.currentMode === "toktinder") {
       playToktinderVideo();
     }
@@ -403,6 +373,7 @@ async function loadState() {
   state.settings.streamFolders = sanitizeFolderSelection(state.settings.streamFolders, state.library.folders || []);
   state.settings.toktinderUnratedOnly = !!state.settings.toktinderUnratedOnly;
 
+  renderThemeChoices();
   syncLibraryChrome();
   syncCounts();
   syncControls();
@@ -588,6 +559,7 @@ function setDeckMedia(mode, item) {
   }
 
   controls.toktinderVideo.pause();
+  clearToktinderVideoShape();
   controls.toktinderVideo.dataset.path = item.path;
   controls.toktinderVideo.src = mediaUrl(item.path);
   controls.toktinderVideo.loop = true;
@@ -612,6 +584,7 @@ function clearDeckMedia(mode) {
   }
 
   pauseToktinderVideo();
+  clearToktinderVideoShape();
   controls.toktinderVideo.removeAttribute("src");
   controls.toktinderVideo.removeAttribute("data-path");
   controls.toktinderVideo.load();
@@ -725,13 +698,130 @@ function syncFocusMode() {
 
 function syncThemeControls() {
   const value = sanitizeTheme(state.settings.theme);
-  controls.swipeThemeSelect.value = value;
-  controls.toktinderThemeSelect.value = value;
-  controls.streamThemeSelect.value = value;
+  const currentTheme = THEME_OPTIONS.find((theme) => theme.value === value) || THEME_OPTIONS[0];
+  controls.themeSummary.textContent = `Current theme: ${currentTheme.label}.`;
+  controls.themeChoices.querySelectorAll("[data-theme-choice]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.themeChoice === value);
+  });
+}
+
+function clearToktinderVideoShape() {
+  delete controls.toktinderCard.dataset.videoShape;
+}
+
+function syncToktinderVideoShape() {
+  const { videoWidth, videoHeight } = controls.toktinderVideo;
+  if (!videoWidth || !videoHeight) {
+    clearToktinderVideoShape();
+    return;
+  }
+
+  const ratio = videoWidth / videoHeight;
+  let shape = "portrait";
+  if (ratio > 1.08) {
+    shape = "landscape";
+  } else if (ratio >= 0.92) {
+    shape = "square";
+  }
+
+  controls.toktinderCard.dataset.videoShape = shape;
 }
 
 function applyTheme() {
   document.body.dataset.theme = sanitizeTheme(state.settings.theme);
+}
+
+function renderThemeChoices() {
+  controls.themeChoices.innerHTML = "";
+  THEME_OPTIONS.forEach((theme) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost-button choice-button";
+    button.dataset.themeChoice = theme.value;
+    button.textContent = theme.label;
+    button.addEventListener("click", () => {
+      state.settings.theme = theme.value;
+      state.themePanelVisible = false;
+      syncThemeControls();
+      applyTheme();
+      syncLibraryChrome();
+      queueSettingsSave();
+    });
+    controls.themeChoices.appendChild(button);
+  });
+}
+
+async function rescanLibrary() {
+  if (!state.libraryReady) {
+    controls.setupMessage.textContent = "Choose a media folder first.";
+    return;
+  }
+
+  try {
+    setStatus("Rescanning library...");
+    await postJson("/api/rescan", {});
+    await loadState();
+  } catch (error) {
+    console.error(error);
+    setStatus("Rescan failed.");
+  }
+}
+
+async function resetSavedData() {
+  const shouldReset = window.confirm(
+    "Clear all saved JSON data? This removes the current library path, theme, filters, settings, likes, and dislikes."
+  );
+  if (!shouldReset) {
+    return;
+  }
+
+  try {
+    setStatus("Clearing saved JSON...");
+    state.themePanelVisible = false;
+    await postJson("/api/reset-state", {});
+    await loadState();
+    setStatus("All saved JSON cleared.");
+  } catch (error) {
+    console.error(error);
+    setStatus("Could not clear saved JSON.");
+  }
+}
+
+async function resetModeData(mode) {
+  const messages = {
+    swipe: {
+      confirm: "Reset Tinder data? This clears saved likes and dislikes for photos only.",
+      busy: "Clearing photo ratings...",
+      done: "Photo ratings cleared.",
+      failed: "Could not clear photo ratings.",
+    },
+    toktinder: {
+      confirm: "Reset TindTok data? This clears saved likes and dislikes for videos only.",
+      busy: "Clearing video ratings...",
+      done: "Video ratings cleared.",
+      failed: "Could not clear video ratings.",
+    },
+  };
+
+  const config = messages[mode];
+  if (!config) {
+    return;
+  }
+
+  const shouldReset = window.confirm(config.confirm);
+  if (!shouldReset) {
+    return;
+  }
+
+  try {
+    setStatus(config.busy);
+    await postJson("/api/reset-mode-data", { mode });
+    await loadState();
+    setStatus(config.done);
+  } catch (error) {
+    console.error(error);
+    setStatus(config.failed);
+  }
 }
 
 function toggleDrawer(name) {
@@ -1081,12 +1171,16 @@ function setStatus(message) {
 
 function syncLibraryChrome() {
   const setupOpen = !state.libraryReady || state.setupVisible;
+  const themeOpen = state.libraryReady && state.themePanelVisible;
   controls.setupPanel.hidden = !setupOpen;
+  controls.themePanel.hidden = !themeOpen;
   controls.modeSwitch.hidden = !state.libraryReady;
   controls.mainContent.hidden = !state.libraryReady;
   controls.rescanButton.disabled = !state.libraryReady;
   controls.changeLibraryButton.hidden = !state.libraryReady;
+  controls.themeButton.hidden = !state.libraryReady;
   controls.changeLibraryButton.textContent = setupOpen ? "Hide Folder Picker" : "Change Folder";
+  controls.themeButton.textContent = themeOpen ? "Hide Hub" : "Hub";
   controls.mediaDirInput.value = state.currentMediaDirectory || "";
 
   if (state.libraryReady) {
@@ -1249,7 +1343,7 @@ function clampNumber(value, min, max) {
 }
 
 function sanitizeTheme(value) {
-  return THEMES.has(value) ? value : "ember";
+  return THEMES.has(value) ? value : "velvet";
 }
 
 function sanitizeFolderSelection(value, availableFolders) {
