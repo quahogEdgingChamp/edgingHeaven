@@ -7,6 +7,11 @@ const state = {
   toktinderIndex: 0,
   streamPhotoTimer: null,
   streamVideoSlots: [],
+  escalationTimer: null,
+  escalationBurstTimer: null,
+  escalationRecentPaths: [],
+  escalationSessionStartedAt: 0,
+  escalationCurrentIntervalMs: 0,
   currentMode: "swipe",
   libraryReady: false,
   mediaChoices: [],
@@ -129,6 +134,34 @@ function cacheDom() {
     "clipStartMode",
     "clipStartSeconds",
     "refreshStreamButton",
+    "escalationStage",
+    "escalationPhoto",
+    "escalationVideo",
+    "escalationName",
+    "escalationFolder",
+    "escalationStatus",
+    "escalationPhaseBadge",
+    "escalationTelemetry",
+    "escalationDrawer",
+    "escalationDrawerToggle",
+    "escalationDrawerClose",
+    "escalationFocusToggle",
+    "escalationFoldersAllButton",
+    "escalationFolderSummary",
+    "escalationFolderFilters",
+    "escalationBaseInterval",
+    "escalationBaseIntervalValue",
+    "escalationMinInterval",
+    "escalationMinIntervalValue",
+    "escalationRampSeconds",
+    "escalationRampSecondsValue",
+    "escalationMaxSpeed",
+    "escalationMaxSpeedValue",
+    "escalationVideoVolume",
+    "escalationVideoVolumeValue",
+    "escalationAudioToggleButton",
+    "escalationAudioHint",
+    "escalationRestartButton",
     "drawerBackdrop",
   ].forEach((id) => {
     controls[id] = document.getElementById(id);
@@ -182,6 +215,9 @@ function bindEvents() {
   controls.streamDrawerToggle.addEventListener("click", () => toggleDrawer("stream"));
   controls.streamDrawerClose.addEventListener("click", closeDrawers);
   controls.streamFocusToggle.addEventListener("click", toggleFocusMode);
+  controls.escalationDrawerToggle.addEventListener("click", () => toggleDrawer("escalation"));
+  controls.escalationDrawerClose.addEventListener("click", closeDrawers);
+  controls.escalationFocusToggle.addEventListener("click", toggleFocusMode);
   controls.drawerBackdrop.addEventListener("click", closeDrawers);
 
   controls.unratedOnly.addEventListener("change", async (event) => {
@@ -221,6 +257,15 @@ function bindEvents() {
     queueSettingsSave();
   });
 
+  controls.escalationFoldersAllButton.addEventListener("click", () => {
+    state.settings.escalationFolders = [];
+    renderFolderFilters();
+    if (state.currentMode === "escalation") {
+      startEscalation();
+    }
+    queueSettingsSave();
+  });
+
   controls.shuffleButton.addEventListener("click", () => {
     shuffleArray(state.swipeItems);
     state.swipeIndex = 0;
@@ -243,6 +288,7 @@ function bindEvents() {
 
   controls.audioToggleButton.addEventListener("click", toggleVideoAudio);
   controls.toktinderAudioToggleButton.addEventListener("click", toggleVideoAudio);
+  controls.escalationAudioToggleButton.addEventListener("click", toggleVideoAudio);
 
   controls.toktinderShuffleButton.addEventListener("click", () => {
     shuffleArray(state.toktinderItems);
@@ -253,6 +299,15 @@ function bindEvents() {
   bindRangeSetting(controls.photoInterval, "photoInterval", (value) => `${value}s`);
   bindRangeSetting(controls.videoSlots, "videoCount", (value) => `${value}`);
   bindRangeSetting(controls.videoVolume, "videoVolume", (value) => `${Math.round(value * 100)}%`);
+  bindRangeSetting(controls.escalationBaseInterval, "escalationBaseInterval", (value) => `${value}s`);
+  bindRangeSetting(controls.escalationMinInterval, "escalationMinInterval", (value) => `${value}s`);
+  bindRangeSetting(controls.escalationRampSeconds, "escalationRampSeconds", (value) => `${value}s`);
+  bindRangeSetting(controls.escalationMaxSpeed, "escalationMaxSpeed", (value) => `${Number(value).toFixed(1)}x`);
+  bindRangeSetting(
+    controls.escalationVideoVolume,
+    "escalationVideoVolume",
+    (value) => `${Math.round(value * 100)}%`
+  );
 
   controls.clipStartMode.addEventListener("change", (event) => {
     state.settings.clipStartMode = event.target.value;
@@ -280,6 +335,16 @@ function bindEvents() {
     if (state.currentMode === "toktinder") {
       playToktinderVideo();
     }
+  });
+  controls.escalationVideo.addEventListener("loadedmetadata", configureEscalationVideo);
+  controls.escalationVideo.addEventListener("ended", () => {
+    if (state.currentMode === "escalation") {
+      refreshEscalationMedia(true);
+    }
+  });
+
+  controls.escalationRestartButton.addEventListener("click", () => {
+    startEscalation();
   });
 
   window.addEventListener("keydown", (event) => {
@@ -320,11 +385,14 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stopStream();
+      stopEscalation();
       pauseAllVideos();
       pauseToktinderVideo();
     } else if (state.currentMode === "stream") {
       startStream();
       playAllVideos();
+    } else if (state.currentMode === "escalation") {
+      startEscalation();
     } else if (state.currentMode === "toktinder") {
       playToktinderVideo();
     }
@@ -351,6 +419,20 @@ function bindRangeSetting(element, settingKey, formatValue) {
     if (settingKey === "videoVolume") {
       applyVideoVolume();
     }
+    if (
+      [
+        "escalationBaseInterval",
+        "escalationMinInterval",
+        "escalationRampSeconds",
+        "escalationMaxSpeed",
+        "escalationVideoVolume",
+      ].includes(settingKey)
+    ) {
+      applyEscalationAudio();
+      if (state.currentMode === "escalation") {
+        startEscalation();
+      }
+    }
   };
 
   element.addEventListener("input", handler);
@@ -371,7 +453,16 @@ async function loadState() {
     state.library.folders || []
   );
   state.settings.streamFolders = sanitizeFolderSelection(state.settings.streamFolders, state.library.folders || []);
+  state.settings.escalationFolders = sanitizeFolderSelection(
+    state.settings.escalationFolders,
+    state.library.folders || []
+  );
   state.settings.toktinderUnratedOnly = !!state.settings.toktinderUnratedOnly;
+  state.settings.escalationBaseInterval = clampNumber(Number(state.settings.escalationBaseInterval ?? 12), 4, 24);
+  state.settings.escalationMinInterval = clampNumber(Number(state.settings.escalationMinInterval ?? 2), 1, 8);
+  state.settings.escalationRampSeconds = clampNumber(Number(state.settings.escalationRampSeconds ?? 90), 20, 240);
+  state.settings.escalationMaxSpeed = clampNumber(Number(state.settings.escalationMaxSpeed ?? 2.2), 1, 3);
+  state.settings.escalationVideoVolume = clampNumber(Number(state.settings.escalationVideoVolume ?? 0.32), 0, 1);
 
   renderThemeChoices();
   syncLibraryChrome();
@@ -386,6 +477,12 @@ async function loadState() {
   rebuildToktinderDeck();
   renderToktinder();
   refreshStreamMedia(false);
+  if (state.currentMode === "escalation") {
+    startEscalation();
+  } else {
+    clearEscalationMedia();
+    renderEscalationIdle();
+  }
 }
 
 function syncCounts() {
@@ -407,6 +504,18 @@ function syncControls() {
   controls.videoVolumeValue.textContent = `${Math.round((state.settings.videoVolume ?? 0) * 100)}%`;
   controls.clipStartMode.value = state.settings.clipStartMode ?? "random";
   controls.clipStartSeconds.value = String(state.settings.clipStartSeconds ?? 0);
+  controls.escalationBaseInterval.value = String(state.settings.escalationBaseInterval ?? 12);
+  controls.escalationBaseIntervalValue.textContent = `${controls.escalationBaseInterval.value}s`;
+  controls.escalationMinInterval.value = String(state.settings.escalationMinInterval ?? 2);
+  controls.escalationMinIntervalValue.textContent = `${controls.escalationMinInterval.value}s`;
+  controls.escalationRampSeconds.value = String(state.settings.escalationRampSeconds ?? 90);
+  controls.escalationRampSecondsValue.textContent = `${controls.escalationRampSeconds.value}s`;
+  controls.escalationMaxSpeed.value = String(state.settings.escalationMaxSpeed ?? 2.2);
+  controls.escalationMaxSpeedValue.textContent = `${Number(controls.escalationMaxSpeed.value).toFixed(1)}x`;
+  controls.escalationVideoVolume.value = String(state.settings.escalationVideoVolume ?? 0.32);
+  controls.escalationVideoVolumeValue.textContent = `${Math.round(
+    (state.settings.escalationVideoVolume ?? 0) * 100
+  )}%`;
 }
 
 function isDeckMode(mode) {
@@ -662,15 +771,23 @@ function setMode(mode) {
   });
 
   if (mode === "stream") {
+    stopEscalation();
     startStream();
     pauseToktinderVideo();
     playAllVideos();
+  } else if (mode === "escalation") {
+    stopStream();
+    pauseAllVideos();
+    pauseToktinderVideo();
+    startEscalation();
   } else if (mode === "toktinder") {
     stopStream();
+    stopEscalation();
     pauseAllVideos();
     playToktinderVideo();
   } else {
     stopStream();
+    stopEscalation();
     pauseAllVideos();
     pauseToktinderVideo();
   }
@@ -691,9 +808,11 @@ function syncFocusMode() {
   controls.swipeFocusToggle.textContent = label;
   controls.toktinderFocusToggle.textContent = label;
   controls.streamFocusToggle.textContent = label;
+  controls.escalationFocusToggle.textContent = label;
   controls.swipeFocusToggle.classList.toggle("active", state.focusMode);
   controls.toktinderFocusToggle.classList.toggle("active", state.focusMode);
   controls.streamFocusToggle.classList.toggle("active", state.focusMode);
+  controls.escalationFocusToggle.classList.toggle("active", state.focusMode);
 }
 
 function syncThemeControls() {
@@ -846,6 +965,7 @@ function syncDrawers() {
   const swipeOpen = state.activeDrawer === "swipe";
   const toktinderOpen = state.activeDrawer === "toktinder";
   const streamOpen = state.activeDrawer === "stream";
+  const escalationOpen = state.activeDrawer === "escalation";
 
   controls.swipeDrawer.classList.toggle("open", swipeOpen);
   controls.swipeDrawer.setAttribute("aria-hidden", String(!swipeOpen));
@@ -859,10 +979,284 @@ function syncDrawers() {
   controls.streamDrawer.setAttribute("aria-hidden", String(!streamOpen));
   controls.streamDrawerToggle.classList.toggle("active", streamOpen);
 
-  const drawerOpen = swipeOpen || toktinderOpen || streamOpen;
+  controls.escalationDrawer.classList.toggle("open", escalationOpen);
+  controls.escalationDrawer.setAttribute("aria-hidden", String(!escalationOpen));
+  controls.escalationDrawerToggle.classList.toggle("active", escalationOpen);
+
+  const drawerOpen = swipeOpen || toktinderOpen || streamOpen || escalationOpen;
   controls.drawerBackdrop.hidden = !drawerOpen;
   controls.drawerBackdrop.classList.toggle("open", drawerOpen);
   document.body.classList.toggle("drawer-open", drawerOpen);
+}
+
+function startEscalation() {
+  stopEscalation();
+  state.escalationRecentPaths = [];
+  state.escalationSessionStartedAt = Date.now();
+  refreshEscalationMedia(true);
+}
+
+function stopEscalation() {
+  if (state.escalationTimer) {
+    window.clearTimeout(state.escalationTimer);
+    state.escalationTimer = null;
+  }
+  if (state.escalationBurstTimer) {
+    window.clearInterval(state.escalationBurstTimer);
+    state.escalationBurstTimer = null;
+  }
+  state.escalationCurrentIntervalMs = 0;
+  state.escalationSessionStartedAt = 0;
+  pauseEscalationVideo();
+}
+
+function renderEscalationIdle() {
+  controls.escalationName.textContent = "Waiting for media";
+  controls.escalationFolder.textContent = "";
+  controls.escalationStatus.textContent = "Building pressure...";
+  controls.escalationPhaseBadge.textContent = "Warmup";
+  controls.escalationTelemetry.textContent = "Swap 12.0s • 1.0x";
+}
+
+function refreshEscalationMedia(force) {
+  const mediaItems = getEscalationMediaItems();
+
+  if (!mediaItems.length) {
+    clearEscalationMedia();
+    controls.escalationName.textContent = "No escalation media available";
+    controls.escalationFolder.textContent = "";
+    controls.escalationStatus.textContent =
+      "Add images or videos, or widen the folder filter to start the ramp.";
+    controls.escalationPhaseBadge.textContent = "Idle";
+    controls.escalationTelemetry.textContent = "No media";
+    return;
+  }
+
+  const currentPath = controls.escalationStage.dataset.path;
+  if (!force && currentPath) {
+    updateEscalationTelemetry();
+    scheduleEscalationSwap();
+    return;
+  }
+
+  const chosen = pickEscalationItem(mediaItems);
+  if (!chosen) {
+    return;
+  }
+
+  if (chosen.kind === "photo") {
+    showEscalationPhoto(chosen);
+  } else {
+    loadEscalationVideoClip(chosen);
+  }
+  updateEscalationTelemetry();
+  scheduleEscalationSwap();
+}
+
+function scheduleEscalationSwap() {
+  if (state.currentMode !== "escalation") {
+    return;
+  }
+  if (state.escalationTimer) {
+    window.clearTimeout(state.escalationTimer);
+  }
+  state.escalationCurrentIntervalMs = currentEscalationIntervalMs();
+  state.escalationTimer = window.setTimeout(() => {
+    refreshEscalationMedia(true);
+  }, state.escalationCurrentIntervalMs);
+}
+
+function showEscalationPhoto(item) {
+  if (!item) {
+    controls.escalationPhoto.removeAttribute("src");
+    controls.escalationPhoto.alt = "";
+    return;
+  }
+
+  if (state.escalationBurstTimer) {
+    window.clearInterval(state.escalationBurstTimer);
+    state.escalationBurstTimer = null;
+  }
+
+  pauseEscalationVideo();
+  controls.escalationVideo.removeAttribute("src");
+  controls.escalationVideo.removeAttribute("data-path");
+  controls.escalationVideo.playbackRate = 1;
+  controls.escalationVideo.load();
+
+  controls.escalationStage.dataset.activeKind = "photo";
+  controls.escalationStage.dataset.path = item.path;
+  controls.escalationPhoto.dataset.path = item.path;
+  controls.escalationPhoto.src = mediaUrl(item.path);
+  controls.escalationPhoto.alt = item.name;
+  controls.escalationName.textContent = item.name;
+  controls.escalationFolder.textContent = item.folder || "Library root";
+}
+
+function loadEscalationVideoClip(chosen) {
+  const video = controls.escalationVideo;
+  if (!chosen) {
+    if (state.escalationBurstTimer) {
+      window.clearInterval(state.escalationBurstTimer);
+      state.escalationBurstTimer = null;
+    }
+    pauseEscalationVideo();
+    video.removeAttribute("src");
+    video.removeAttribute("data-path");
+    video.playbackRate = 1;
+    video.load();
+    return;
+  }
+
+  if (state.escalationBurstTimer) {
+    window.clearInterval(state.escalationBurstTimer);
+    state.escalationBurstTimer = null;
+  }
+
+  pauseEscalationVideo();
+  controls.escalationStage.dataset.activeKind = "video";
+  controls.escalationStage.dataset.path = chosen.path;
+  controls.escalationPhoto.removeAttribute("src");
+  controls.escalationPhoto.removeAttribute("data-path");
+  controls.escalationPhoto.alt = "";
+  video.dataset.path = chosen.path;
+  video.src = mediaUrl(chosen.path);
+  video.loop = false;
+  video.playsInline = true;
+  applyEscalationAudio();
+  video.load();
+
+  controls.escalationName.textContent = chosen.name;
+  controls.escalationFolder.textContent = chosen.folder || "Library root";
+}
+
+function configureEscalationVideo() {
+  if (state.currentMode !== "escalation" || !controls.escalationVideo.src) {
+    return;
+  }
+
+  const video = controls.escalationVideo;
+  const duration = Number.isFinite(video.duration) ? video.duration : 0;
+  const progress = getEscalationProgress();
+  const speed = currentEscalationSpeed(progress);
+  const hotStart =
+    duration > 0
+      ? duration * (0.35 + Math.random() * 0.5)
+      : 0;
+
+  try {
+    video.currentTime = clampNumber(hotStart, 0, Math.max(0, duration - 0.4));
+  } catch (error) {
+    console.error(error);
+  }
+
+  video.playbackRate = speed;
+  applyEscalationAudio();
+  restartEscalationBurst(duration, progress);
+  updateEscalationTelemetry(progress);
+  playEscalationVideo();
+}
+
+function restartEscalationBurst(duration, progress) {
+  if (state.escalationBurstTimer) {
+    window.clearInterval(state.escalationBurstTimer);
+    state.escalationBurstTimer = null;
+  }
+  if (progress < 0.58 || duration < 8) {
+    return;
+  }
+
+  const burstProgress = clampNumber((progress - 0.58) / 0.42, 0, 1);
+  const cadence = Math.round(lerp(460, 110, burstProgress));
+  state.escalationBurstTimer = window.setInterval(() => {
+    if (state.currentMode !== "escalation" || document.hidden || !controls.escalationVideo.src) {
+      return;
+    }
+
+    const video = controls.escalationVideo;
+    const maxTime = Math.max(duration * 0.4, duration - 0.6);
+    const minTime = duration * 0.35;
+    if (maxTime <= minTime) {
+      return;
+    }
+
+    const forwardJump = duration * lerp(0.04, 0.14, burstProgress) * (0.8 + Math.random() * 0.9);
+    let target = video.currentTime + forwardJump;
+    if (target >= maxTime || Math.random() > lerp(0.82, 0.42, burstProgress)) {
+      target = minTime + Math.random() * (maxTime - minTime);
+    }
+
+    try {
+      video.currentTime = clampNumber(target, minTime, maxTime);
+    } catch (error) {
+      console.error(error);
+    }
+  }, cadence);
+}
+
+function updateEscalationTelemetry(progress = getEscalationProgress()) {
+  const intervalMs = currentEscalationIntervalMs(progress);
+  const speed = currentEscalationSpeed(progress);
+  const phase = escalationPhaseLabel(progress);
+  const burstActive = progress >= 0.58 && !!controls.escalationVideo.src;
+
+  controls.escalationPhaseBadge.textContent = phase;
+  controls.escalationTelemetry.textContent = `Swap ${(intervalMs / 1000).toFixed(1)}s • ${speed.toFixed(1)}x${
+    burstActive ? " • Burst" : ""
+  }`;
+  if (controls.escalationVideo.src) {
+    controls.escalationStatus.textContent = `${phase} active. Hot-seeking and compressing clips as the swap timer drops.`;
+  } else if (controls.escalationPhoto.src) {
+    controls.escalationStatus.textContent = `${phase} active. Mixing stills between video bursts while the swap timer tightens.`;
+  }
+}
+
+function escalationPhaseLabel(progress) {
+  if (progress >= 0.82) {
+    return "Burst Mode";
+  }
+  if (progress >= 0.58) {
+    return "Overclock";
+  }
+  if (progress >= 0.28) {
+    return "Drive";
+  }
+  return "Warmup";
+}
+
+function currentEscalationIntervalMs(progress = getEscalationProgress()) {
+  const minSeconds = clampNumber(Number(state.settings.escalationMinInterval ?? 2), 1, 12);
+  const baseSeconds = Math.max(minSeconds, clampNumber(Number(state.settings.escalationBaseInterval ?? 12), 1, 30));
+  const eased = 1 - (1 - progress) ** 2;
+  return lerp(baseSeconds * 1000, minSeconds * 1000, eased);
+}
+
+function currentEscalationSpeed(progress = getEscalationProgress()) {
+  const maxSpeed = clampNumber(Number(state.settings.escalationMaxSpeed ?? 2.2), 1, 3);
+  const eased = progress ** 1.15;
+  return lerp(1, maxSpeed, eased);
+}
+
+function getEscalationProgress() {
+  const rampMs = clampNumber(Number(state.settings.escalationRampSeconds ?? 90), 20, 300) * 1000;
+  if (!state.escalationSessionStartedAt) {
+    return 0;
+  }
+  return clampNumber((Date.now() - state.escalationSessionStartedAt) / rampMs, 0, 1);
+}
+
+function clearEscalationMedia() {
+  stopEscalation();
+  state.escalationRecentPaths = [];
+  controls.escalationStage.dataset.activeKind = "idle";
+  controls.escalationStage.removeAttribute("data-path");
+  controls.escalationPhoto.removeAttribute("src");
+  controls.escalationPhoto.removeAttribute("data-path");
+  controls.escalationPhoto.alt = "";
+  controls.escalationVideo.removeAttribute("src");
+  controls.escalationVideo.removeAttribute("data-path");
+  controls.escalationVideo.playbackRate = 1;
+  controls.escalationVideo.load();
 }
 
 function startStream() {
@@ -984,6 +1378,12 @@ function applyToktinderAudio() {
   controls.toktinderVideo.muted = !state.audioUnlocked;
 }
 
+function applyEscalationAudio() {
+  controls.escalationVideo.volume = clampNumber(Number(state.settings.escalationVideoVolume ?? 0.32), 0, 1);
+  controls.escalationVideo.muted =
+    !state.audioUnlocked || Number(state.settings.escalationVideoVolume ?? 0.32) === 0;
+}
+
 function pauseAllVideos() {
   state.streamVideoSlots.forEach(({ video }) => video.pause());
 }
@@ -998,6 +1398,10 @@ function pauseToktinderVideo() {
   controls.toktinderVideo.pause();
 }
 
+function pauseEscalationVideo() {
+  controls.escalationVideo.pause();
+}
+
 function playToktinderVideo() {
   if (state.currentMode !== "toktinder" || !controls.toktinderVideo.src) {
     return;
@@ -1006,13 +1410,23 @@ function playToktinderVideo() {
   controls.toktinderVideo.play().catch(() => {});
 }
 
+function playEscalationVideo() {
+  if (state.currentMode !== "escalation" || !controls.escalationVideo.src) {
+    return;
+  }
+  applyEscalationAudio();
+  controls.escalationVideo.play().catch(() => {});
+}
+
 function toggleVideoAudio() {
   state.audioUnlocked = !state.audioUnlocked;
   syncAudioButton();
   applyVideoVolume();
   applyToktinderAudio();
+  applyEscalationAudio();
   playAllVideos();
   playToktinderVideo();
+  playEscalationVideo();
 }
 
 function onSwipePointerDown(event) {
@@ -1102,6 +1516,8 @@ function syncAudioButton() {
   controls.audioHint.textContent = hint;
   controls.toktinderAudioToggleButton.textContent = label;
   controls.toktinderAudioHint.textContent = hint;
+  controls.escalationAudioToggleButton.textContent = label;
+  controls.escalationAudioHint.textContent = hint;
 }
 
 function pickRandom(items, avoidPath) {
@@ -1167,6 +1583,7 @@ function formatTimestamp(value) {
 function setStatus(message) {
   controls.swipeStatus.textContent = message;
   controls.toktinderStatus.textContent = message;
+  controls.escalationStatus.textContent = message;
 }
 
 function syncLibraryChrome() {
@@ -1190,6 +1607,7 @@ function syncLibraryChrome() {
   }
 
   stopStream();
+  stopEscalation();
   pauseAllVideos();
   pauseToktinderVideo();
   if (state.currentMediaDirectory) {
@@ -1248,6 +1666,7 @@ function renderFolderFilters() {
   renderFolderFilter("swipe");
   renderFolderFilter("toktinder");
   renderFolderFilter("stream");
+  renderFolderFilter("escalation");
 }
 
 function renderFolderFilter(mode) {
@@ -1311,6 +1730,12 @@ function updateFolderSelection(mode, folder, checked) {
   } else if (mode === "toktinder") {
     rebuildToktinderDeck();
     renderToktinder();
+  } else if (mode === "escalation") {
+    if (state.currentMode === "escalation") {
+      startEscalation();
+    } else {
+      renderEscalationIdle();
+    }
   } else {
     refreshStreamMedia(true);
   }
@@ -1335,11 +1760,62 @@ function getStreamVideos() {
   return (state.library.videos || []).filter((item) => matchesFolderSelection(item, selectedFolders));
 }
 
+function getEscalationImages() {
+  const selectedFolders = normalizedFolderSelection("escalationFolders");
+  return (state.library.images || []).filter((item) => matchesFolderSelection(item, selectedFolders));
+}
+
+function getEscalationVideos() {
+  const selectedFolders = normalizedFolderSelection("escalationFolders");
+  return (state.library.videos || []).filter((item) => matchesFolderSelection(item, selectedFolders));
+}
+
+function getEscalationMediaItems() {
+  return [
+    ...getEscalationImages().map((item) => ({ ...item, kind: "photo" })),
+    ...getEscalationVideos().map((item) => ({ ...item, kind: "video" })),
+  ];
+}
+
+function pickEscalationItem(items) {
+  if (!items.length) {
+    return null;
+  }
+
+  const historyCap = Math.min(Math.max(3, Math.floor(items.length / 3)), 10);
+  const recentPaths = state.escalationRecentPaths.slice(-historyCap);
+  let candidates = items.filter((item) => !recentPaths.includes(item.path));
+
+  if (!candidates.length) {
+    const currentPath = controls.escalationStage?.dataset.path;
+    candidates = items.filter((item) => item.path !== currentPath);
+  }
+
+  if (!candidates.length) {
+    candidates = items;
+  }
+
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+  if (!chosen) {
+    return null;
+  }
+
+  state.escalationRecentPaths.push(chosen.path);
+  if (state.escalationRecentPaths.length > historyCap) {
+    state.escalationRecentPaths.splice(0, state.escalationRecentPaths.length - historyCap);
+  }
+  return chosen;
+}
+
 function clampNumber(value, min, max) {
   if (Number.isNaN(value)) {
     return min;
   }
   return Math.min(max, Math.max(min, value));
+}
+
+function lerp(start, end, progress) {
+  return start + (end - start) * progress;
 }
 
 function sanitizeTheme(value) {

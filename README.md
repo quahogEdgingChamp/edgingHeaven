@@ -4,16 +4,17 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 
 ## Features
 
-- Three browser modes:
+- Four browser modes:
   - `Tinder`: swipe-style photo deck for rating images
   - `TindTok`: swipe-style video deck for rating videos
   - `Stream`: rotating fullscreen photos with up to 2 corner videos
+  - `Escalation`: accelerating photo/video playback that ramps from slow-burn into burst-mode overload
 - Web-based library setup and switching:
   - start with `python3 server.py`
   - pick the media folder in the browser
   - switch libraries later with `Change Folder`
   - quick-pick suggestions for common folders and mounted drives
-- Per-mode folder filters for `Tinder`, `TindTok`, and `Stream`
+- Per-mode folder filters for `Tinder`, `TindTok`, `Stream`, and `Escalation`
 - `Show only unrated` filters for both swipe decks
 - Shared appearance system with 6 themes:
   - `Velvet Night`
@@ -29,6 +30,7 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   - theme selection
   - folder filters
   - stream playback settings
+  - escalation playback settings
   - last selected media directory
 - LAN-friendly playback with HTTP range support for videos
 - No build step and no external Python packages
@@ -65,7 +67,7 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 - `Hub`: open the shared global panel for themes and library-wide actions
 - `Rescan Library`: available inside the hub
 - `Clear All Saved JSON`: available inside the hub and fully clears the saved JSON state, including ratings, filters, theme, settings, and the current library path
-- `Focus Mode`: available in all 3 modes
+- `Focus Mode`: available in all 4 modes
 - Keyboard:
   - `F`: toggle focus mode
   - `Escape`: close the active drawer or exit focus mode
@@ -107,6 +109,21 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   - `Enable Sound` / `Mute Videos`
   - `Clip Start`: random point or fixed second
   - `Refresh Stream`
+
+### Escalation
+
+- Accelerating fullscreen playback built to intensify over time
+- Uses a filtered image backdrop plus a foreground video lane
+- Videos hot-seek into later timestamps on load, ramp playback speed, and enter burst-style timestamp skipping near the end of the ramp
+- Controls:
+  - folder filter
+  - `Start Interval`
+  - `Fastest Interval`
+  - `Ramp Length`
+  - `Top Speed`
+  - `Volume`: Escalation-only video volume
+  - `Enable Sound` / `Mute Videos`
+  - `Restart Escalation`
 
 ## Notes
 

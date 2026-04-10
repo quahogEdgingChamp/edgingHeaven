@@ -84,6 +84,7 @@
         <button class="mode-button active" data-mode="swipe">Tinder</button>
         <button class="mode-button" data-mode="toktinder">TindTok</button>
         <button class="mode-button" data-mode="stream">Stream</button>
+        <button class="mode-button" data-mode="escalation">Escalation</button>
       </nav>
 
       <main id="mainContent">
@@ -309,6 +310,98 @@
               <div class="panel-block">
                 <button id="refreshStreamButton" class="primary-button full-width">
                   Refresh Stream
+                </button>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="escalationMode" class="mode-panel">
+          <div class="stream-layout escalation-layout">
+            <div class="stage-toolbar">
+              <button id="escalationFocusToggle" class="ghost-button">Focus Mode</button>
+              <button id="escalationDrawerToggle" class="ghost-button">Escalation Controls</button>
+            </div>
+            <div id="escalationStage" class="stream-stage escalation-stage panel" data-active-kind="idle">
+              <img id="escalationPhoto" alt="" />
+              <div class="escalation-stage-glow"></div>
+              <div class="escalation-stage-scan"></div>
+              <div class="escalation-video-shell">
+                <video id="escalationVideo" playsinline preload="metadata"></video>
+              </div>
+              <div class="escalation-live-chip">
+                <span id="escalationPhaseBadge" class="escalation-phase-badge">Warmup</span>
+                <strong id="escalationTelemetry">Swap 12.0s • 1.0x</strong>
+              </div>
+            </div>
+
+            <div class="panel stage-meta">
+              <p class="panel-label">Escalation</p>
+              <h2 id="escalationName">Waiting for media</h2>
+              <p id="escalationFolder" class="subtle"></p>
+              <p id="escalationStatus" class="subtle">Building pressure...</p>
+            </div>
+
+            <aside id="escalationDrawer" class="panel drawer control-panel" aria-hidden="true">
+              <div class="drawer-header">
+                <div>
+                  <p class="panel-label">Escalation Controls</p>
+                  <h2>Momentum Engine</h2>
+                </div>
+                <button id="escalationDrawerClose" class="ghost-button">Close</button>
+              </div>
+
+              <div class="panel-block">
+                <div class="filter-header">
+                  <p class="panel-label">Folders</p>
+                  <button id="escalationFoldersAllButton" class="ghost-button small-button">Use All</button>
+                </div>
+                <p id="escalationFolderSummary" class="subtle">Using all folders.</p>
+                <div id="escalationFolderFilters" class="folder-list"></div>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Pacing</p>
+                <label>
+                  <span>Start Interval</span>
+                  <input id="escalationBaseInterval" type="range" min="4" max="24" step="1" />
+                  <strong id="escalationBaseIntervalValue"></strong>
+                </label>
+                <label>
+                  <span>Fastest Interval</span>
+                  <input id="escalationMinInterval" type="range" min="1" max="8" step="1" />
+                  <strong id="escalationMinIntervalValue"></strong>
+                </label>
+                <label>
+                  <span>Ramp Length</span>
+                  <input id="escalationRampSeconds" type="range" min="20" max="240" step="5" />
+                  <strong id="escalationRampSecondsValue"></strong>
+                </label>
+              </div>
+
+              <div class="panel-block">
+                <p class="panel-label">Video Logic</p>
+                <label>
+                  <span>Top Speed</span>
+                  <input id="escalationMaxSpeed" type="range" min="1" max="3" step="0.1" />
+                  <strong id="escalationMaxSpeedValue"></strong>
+                </label>
+                <label>
+                  <span>Volume</span>
+                  <input id="escalationVideoVolume" type="range" min="0" max="1" step="0.01" />
+                  <strong id="escalationVideoVolumeValue"></strong>
+                </label>
+                <button id="escalationAudioToggleButton" class="ghost-button full-width">
+                  Enable Sound
+                </button>
+                <p id="escalationAudioHint" class="subtle">
+                  Mobile browsers often require a tap before videos can play with sound.
+                </p>
+              </div>
+
+              <div class="panel-block">
+                <button id="escalationRestartButton" class="primary-button full-width">
+                  Restart Escalation
                 </button>
               </div>
             </aside>

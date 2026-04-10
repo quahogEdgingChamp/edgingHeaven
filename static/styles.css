@@ -623,6 +623,140 @@ button {
   filter: saturate(0.92) contrast(1.04);
 }
 
+.escalation-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at center, rgba(255, 143, 143, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(8, 4, 7, 0.82), rgba(3, 2, 4, 0.94));
+}
+
+#escalationPhoto {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  object-fit: contain;
+  filter: saturate(1.08) contrast(1.04) brightness(0.92);
+  transform: scale(0.96);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    filter 180ms ease;
+}
+
+.escalation-stage-glow,
+.escalation-stage-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.escalation-stage-glow {
+  background:
+    radial-gradient(circle at center, rgba(255, 130, 130, 0.18), transparent 24%),
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.08), transparent 58%);
+  mix-blend-mode: screen;
+}
+
+.escalation-stage-scan {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 22%, rgba(255, 255, 255, 0.04) 72%, transparent),
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.02) 0,
+      rgba(255, 255, 255, 0.02) 2px,
+      transparent 2px,
+      transparent 7px
+    );
+  opacity: 0.75;
+}
+
+.escalation-video-shell {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 1480px);
+  aspect-ratio: 16 / 9;
+  max-height: min(88vh, 1080px);
+  overflow: hidden;
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(5, 4, 6, 0.7);
+  box-shadow:
+    0 34px 90px rgba(0, 0, 0, 0.48),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.97);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+#escalationVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 36%),
+    linear-gradient(180deg, rgba(5, 4, 6, 0.98), rgba(15, 7, 11, 0.96));
+}
+
+.escalation-stage[data-active-kind="photo"] #escalationPhoto {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: clamp(10px, 1.8vw, 22px);
+  box-sizing: border-box;
+  z-index: 1;
+  opacity: 1;
+  border-radius: 28px;
+  background: rgba(5, 4, 6, 0.72);
+  box-shadow:
+    0 34px 90px rgba(0, 0, 0, 0.48),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: none;
+}
+
+.escalation-stage[data-active-kind="video"] .escalation-video-shell {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.escalation-live-chip {
+  position: absolute;
+  left: 20px;
+  bottom: 20px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(9, 7, 9, 0.62);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
+}
+
+.escalation-phase-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 137, 169, 0.32), rgba(255, 105, 97, 0.24));
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 #videoOverlay {
   position: absolute;
   inset: 0;
@@ -843,6 +977,25 @@ body.focus-mode .stream-stage {
     --stream-corner-width: clamp(96px, 28vw, 136px);
     --stream-corner-offset: 12px;
     --stream-corner-lower-offset: 170px;
+  }
+
+  .escalation-video-shell {
+    width: min(calc(100vw - 14px), 100%);
+    max-height: min(90vh, 100%);
+    border-radius: 24px;
+  }
+
+  .escalation-stage[data-active-kind="photo"] #escalationPhoto {
+    padding: 8px;
+    border-radius: 22px;
+  }
+
+  .escalation-live-chip {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    gap: 8px;
+    padding: 8px 12px;
   }
 
   body.focus-mode .swipe-stage {

@@ -41,10 +41,16 @@ DEFAULT_SETTINGS = {
     "videoVolume": 0.18,
     "clipStartMode": "random",
     "clipStartSeconds": 0,
+    "escalationBaseInterval": 12,
+    "escalationMinInterval": 2,
+    "escalationRampSeconds": 90,
+    "escalationMaxSpeed": 2.2,
+    "escalationVideoVolume": 0.32,
     "theme": "velvet",
     "swipeFolders": [],
     "toktinderFolders": [],
     "streamFolders": [],
+    "escalationFolders": [],
 }
 
 STATIC_DIR = Path(__file__).parent / "static"
