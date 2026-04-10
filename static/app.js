@@ -888,21 +888,21 @@ async function rescanLibrary() {
 
 async function resetSavedData() {
   const shouldReset = window.confirm(
-    "Clear all saved JSON data? This removes the current library path, theme, filters, settings, likes, and dislikes."
+    "Clear all saved likes and dislikes? Your folder path, theme, filters, and settings will stay as they are."
   );
   if (!shouldReset) {
     return;
   }
 
   try {
-    setStatus("Clearing saved JSON...");
+    setStatus("Clearing all likes and dislikes...");
     state.themePanelVisible = false;
-    await postJson("/api/reset-state", {});
+    await postJson("/api/reset-ratings", {});
     await loadState();
-    setStatus("All saved JSON cleared.");
+    setStatus("All likes and dislikes cleared.");
   } catch (error) {
     console.error(error);
-    setStatus("Could not clear saved JSON.");
+    setStatus("Could not clear likes and dislikes.");
   }
 }
 

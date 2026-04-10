@@ -2,8 +2,7 @@
   "mediaDirectory": "/Volumes/Lexar/testing",
   "ratings": {},
   "settings": {
-    "clipLength": 60,
-    "clipStartMode": "fixed",
+    "clipStartMode": "random",
     "clipStartSeconds": 0,
     "escalationBaseInterval": 12,
     "escalationFolders": [],
@@ -11,7 +10,7 @@
     "escalationMinInterval": 2,
     "escalationRampSeconds": 90,
     "escalationVideoVolume": 0.32,
-    "photoInterval": 3,
+    "photoInterval": 14,
     "streamFolders": [],
     "swipeFolders": [],
     "theme": "velvet",
@@ -19,6 +18,6 @@
     "toktinderUnratedOnly": false,
     "unratedOnly": false,
     "videoCount": 2,
-    "videoVolume": 1
+    "videoVolume": 0.18
   }
 }

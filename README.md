@@ -66,7 +66,7 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 - `Change Folder`: reopen the folder picker and switch libraries
 - `Hub`: open the shared global panel for themes and library-wide actions
 - `Rescan Library`: available inside the hub
-- `Clear All Saved JSON`: available inside the hub and fully clears the saved JSON state, including ratings, filters, theme, settings, and the current library path
+- `Clear All Likes + Dislikes`: available inside the hub and clears saved ratings for all photos and videos without changing the current folder, theme, filters, or settings
 - `Focus Mode`: available in all 4 modes
 - Keyboard:
   - `F`: toggle focus mode
