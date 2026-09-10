@@ -4,18 +4,24 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 
 ## Features
 
-- Four browser modes:
+- Eight browser modes:
   - `Tinder`: swipe-style photo deck for rating images
-  - `TindTok`: swipe-style video deck for rating videos
+  - `TindTok`: swipe-style video deck for rating videos, with a scrub bar
   - `Stream`: rotating fullscreen photos with up to 2 corner videos
   - `Escalation`: accelerating photo/video playback that ramps from slow-burn into burst-mode overload
+  - `Session`: paced build/hold rounds; builds shorten and holds lengthen as the session runs, and the media freezes while you hold
+  - `Gallery`: paged contact sheet with search, sort and a lightbox — the only mode for finding something specific
+  - `Mosaic`: a wall of 4, 6 or 9 clips playing at once, one of them audible
+  - `Feed`: vertical snap-scrolling video feed with rate-and-advance
 - Web-based library setup and switching:
   - start with `python3 server.py`
   - pick the media folder in the browser
   - switch libraries later with `Change Folder`
   - quick-pick suggestions for common folders and mounted drives
-- Per-mode folder filters for `Tinder`, `TindTok`, `Stream`, and `Escalation`
-- `Show only unrated` filters for both swipe decks
+- Per-mode folder filters for every mode
+- `All` / `Unrated` / `Liked` filters for the swipe decks, gallery and feed
+- Undo for the swipe decks (`U`), covering both ratings and skips
+- Unreadable files are skipped automatically and hidden from every mode; retry them from the Hub
 - Shared appearance system with 6 themes:
   - `Velvet Night`
   - `Ember Room`
@@ -31,8 +37,11 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   - folder filters
   - stream playback settings
   - escalation playback settings
+  - session, gallery, mosaic and feed settings
+  - the list of unreadable files
   - last selected media directory
 - LAN-friendly playback with HTTP range support for videos
+- Phone and tablet layout: bottom tab bar, safe-area insets, bottom-sheet controls, 44px touch targets
 - No build step and no external Python packages
 
 ## Supported Media
@@ -130,6 +139,7 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 - Ratings and settings are stored in `data/state.json`.
 - If you switch to a different media directory, saved ratings are cleared so the state matches the new library.
 - The app scans folders recursively, so very large libraries can take longer to refresh.
-- If a previously selected drive is disconnected, the app will show the saved path as unavailable until you reconnect it or choose another folder.
+- If a previously selected drive is disconnected, the app shows the saved path as unavailable. While the page is open, it checks every 5 seconds and rescans automatically when that folder returns. Ratings survive reconnecting the same library. The operating system must mount the drive at the same path first.
+- `--media-dir` can point to a disconnected drive: the server starts and waits for that folder to become available.
 - Sound unlock is per browser session. On phones and some desktop browsers, autoplay with sound is blocked until you tap `Enable Sound`.
 - The app is local-first. Anyone who can reach the LAN URL can open the gallery, so only run it on trusted networks.

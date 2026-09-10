@@ -1,0 +1,24 @@
+[Unit]
+Description=Edging Heaven media browser
+After=network.target
+
+[Service]
+Type=exec
+User=qwerty
+Group=qwerty
+WorkingDirectory=/home/qwerty/git/edgingHeaven
+ExecStart=/usr/bin/python3 -u /home/qwerty/git/edgingHeaven/server.py --host 127.0.0.1 --port 8420 --data-dir /home/qwerty/.local/share/edging-heaven
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/qwerty/.local/share/edging-heaven
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

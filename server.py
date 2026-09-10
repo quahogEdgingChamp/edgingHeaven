@@ -5,7 +5,9 @@ import mimetypes
 import os
 import re
 import socket
+import stat
 import threading
+import time
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,8 +36,13 @@ VIDEO_EXTENSIONS = {
 }
 
 DEFAULT_SETTINGS = {
+    # Legacy booleans, kept so old state.json files still load. The client
+    # migrates them into the *RatingFilter keys below on first run.
     "unratedOnly": False,
     "toktinderUnratedOnly": False,
+    # "all" | "unrated" | "liked"
+    "swipeRatingFilter": "all",
+    "toktinderRatingFilter": "all",
     "photoInterval": 14,
     "videoCount": 2,
     "videoVolume": 0.18,
@@ -51,6 +58,28 @@ DEFAULT_SETTINGS = {
     "toktinderFolders": [],
     "streamFolders": [],
     "escalationFolders": [],
+    # Session
+    "sessionFolders": [],
+    "sessionRounds": 5,
+    "sessionBuildSeconds": 60,
+    "sessionHoldSeconds": 15,
+    "sessionIncludeVideos": True,
+    "sessionVideoVolume": 0.3,
+    # Gallery
+    "galleryFolders": [],
+    "galleryRatingFilter": "all",
+    "galleryKind": "all",
+    "gallerySort": "name",
+    # Mosaic
+    "mosaicFolders": [],
+    "mosaicTiles": 4,
+    "mosaicSwapSeconds": 12,
+    "mosaicIncludePhotos": False,
+    "mosaicVolume": 0.3,
+    # Feed
+    "feedFolders": [],
+    "feedRatingFilter": "all",
+    "feedVolume": 1.0,
 }
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -74,6 +103,11 @@ def local_ip_address() -> str:
 
 def suggested_media_directories() -> list[str]:
     candidates = []
+    for mount_root in (Path("/media") / Path.home().name, Path("/run/media") / Path.home().name, Path("/mnt")):
+        try:
+            candidates.extend(sorted(mount_root.iterdir()))
+        except OSError:
+            pass
     volumes_dir = Path("/Volumes")
     if volumes_dir.exists():
         candidates.extend(
@@ -115,6 +149,8 @@ class MediaLibrary:
         self.lock = threading.RLock()
         self.state = self._load_state()
         self.catalog = {"images": [], "videos": [], "updatedAt": None}
+        self._directory_identity = None
+        self._last_availability_check = 0.0
         configured_media_dir = (
             str(media_dir.expanduser().resolve()) if media_dir is not None else self.state.get("mediaDirectory")
         )
@@ -132,10 +168,12 @@ class MediaLibrary:
                 loaded = {}
         else:
             loaded = {}
+        broken = loaded.get("brokenPaths", [])
         return {
             "ratings": loaded.get("ratings", {}),
             "settings": {**DEFAULT_SETTINGS, **loaded.get("settings", {})},
             "mediaDirectory": loaded.get("mediaDirectory"),
+            "brokenPaths": set(broken) if isinstance(broken, list) else set(),
         }
 
     def _save_state(self) -> None:
@@ -143,6 +181,7 @@ class MediaLibrary:
             "ratings": self.state["ratings"],
             "settings": self.state["settings"],
             "mediaDirectory": self.state.get("mediaDirectory"),
+            "brokenPaths": sorted(self.state.get("brokenPaths", set())),
         }
         self._write_state_payload(payload)
 
@@ -151,6 +190,44 @@ class MediaLibrary:
             json.dump(payload, handle, indent=2, sort_keys=True)
 
     def scan(self) -> None:
+        with self.lock:
+            configured = self.state.get("mediaDirectory")
+            self._directory_identity = self._media_directory_identity()
+            if configured and self._directory_identity is not None:
+                self._activate_media_directory(configured)
+            else:
+                self.media_dir = None
+            self._scan_locked()
+
+    def _media_directory_identity(self):
+        configured = self.state.get("mediaDirectory")
+        if not configured:
+            return None
+        try:
+            path = Path(configured)
+            # Access inside the directory to trigger Linux automounts even
+            # when the library is the mount root itself.
+            info = os.stat(str(path) + "/.")
+            if not stat.S_ISDIR(info.st_mode):
+                return None
+            return (info.st_dev, info.st_ino)
+        except OSError:
+            return None
+
+    def availability_payload(self) -> dict:
+        with self.lock:
+            now = time.monotonic()
+            if now - self._last_availability_check >= 5:
+                self._last_availability_check = now
+                if self._media_directory_identity() != self._directory_identity:
+                    self.scan()
+            return {
+                "libraryReady": self.media_dir is not None,
+                "mediaDirectory": self.state.get("mediaDirectory"),
+                "updatedAt": self.catalog["updatedAt"],
+            }
+
+    def _scan_locked(self) -> None:
         if self.media_dir is None or not self.media_dir.exists() or not self.media_dir.is_dir():
             with self.lock:
                 self.catalog = {"images": [], "videos": [], "updatedAt": None}
@@ -159,16 +236,33 @@ class MediaLibrary:
 
         images = []
         videos = []
+        broken = self.state.get("brokenPaths", set())
 
-        for file_path in sorted(self.media_dir.rglob("*")):
-            if not file_path.is_file():
+        try:
+            file_paths = sorted(self.media_dir.rglob("*"))
+        except OSError:
+            file_paths = []
+        for file_path in file_paths:
+            try:
+                if not file_path.is_file():
+                    continue
+                file_stat = file_path.stat()
+                file_size = file_stat.st_size
+            except OSError:
                 continue
 
             ext = file_path.suffix.lower()
             if ext not in IMAGE_EXTENSIONS and ext not in VIDEO_EXTENSIONS:
                 continue
 
+            # A zero-byte file is always a failed copy or a stub. Cheap to
+            # detect here; the browser would only show a broken-image glyph.
+            if file_size == 0:
+                continue
+
             relative_path = file_path.relative_to(self.media_dir).as_posix()
+            if relative_path in broken:
+                continue
             folder = ""
             if file_path.parent != self.media_dir:
                 folder = file_path.parent.relative_to(self.media_dir).as_posix()
@@ -177,7 +271,9 @@ class MediaLibrary:
                 "path": relative_path,
                 "name": file_path.name,
                 "folder": folder,
-                "size": file_path.stat().st_size,
+                "size": file_size,
+                # Epoch seconds; the gallery sorts on it.
+                "mtime": int(file_stat.st_mtime),
                 "rating": self.state["ratings"].get(relative_path),
             }
 
@@ -187,6 +283,15 @@ class MediaLibrary:
                 videos.append(payload)
 
         with self.lock:
+            # Forget entries whose file is gone: either it was deleted, or it
+            # was flagged in error and the path never existed. Only prune when
+            # the scan actually saw files, so a disconnected drive cannot wipe
+            # the list.
+            if broken and (images or videos):
+                present = {path for path in broken if (self.media_dir / path).exists()}
+                if present != broken:
+                    self.state["brokenPaths"] = present
+
             self.catalog = {
                 "images": images,
                 "videos": videos,
@@ -224,12 +329,14 @@ class MediaLibrary:
             }
 
     def state_payload(self) -> dict:
+        self.availability_payload()
         with self.lock:
             return {
                 "library": self.library_payload(),
                 "settings": dict(self.state["settings"]),
                 "mediaDirectory": self.state.get("mediaDirectory"),
                 "libraryReady": self.media_dir is not None,
+                "brokenCount": len(self.state.get("brokenPaths", set())),
                 "mediaChoices": suggested_media_directories(),
             }
 
@@ -299,6 +406,33 @@ class MediaLibrary:
             self._save_state()
             return dict(self.state["settings"])
 
+    def mark_broken(self, relative_path: str) -> bool:
+        """Record a file the browser could not decode and drop it from the
+        catalog, so it stops turning up while browsing."""
+        if self.resolve_media_path(relative_path) is None:
+            return False
+
+        with self.lock:
+            broken = self.state.setdefault("brokenPaths", set())
+            if relative_path in broken:
+                return True
+            broken.add(relative_path)
+            for key in ("images", "videos"):
+                self.catalog[key] = [
+                    item for item in self.catalog[key] if item["path"] != relative_path
+                ]
+            self._save_state()
+            return True
+
+    def clear_broken(self) -> int:
+        with self.lock:
+            count = len(self.state.get("brokenPaths", set()))
+            self.state["brokenPaths"] = set()
+            self._save_state()
+        if count:
+            self.scan()
+        return count
+
     def clear_ratings(self) -> None:
         with self.lock:
             self.state["ratings"] = {}
@@ -313,6 +447,7 @@ class MediaLibrary:
             self.state["ratings"] = {}
             self.state["settings"] = dict(DEFAULT_SETTINGS)
             self.state["mediaDirectory"] = None
+            self.state["brokenPaths"] = set()
             self._write_state_payload({})
 
     def reset_mode_data(self, mode: str) -> bool:
@@ -362,6 +497,10 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/library-status":
+            self._send_json(self.server.library.availability_payload())
+            return
 
         if parsed.path == "/api/state":
             self._send_json(self.server.library.state_payload())
@@ -441,6 +580,20 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "settings": settings})
             return
 
+        if parsed.path == "/api/broken":
+            relative_path = payload.get("path")
+            if not isinstance(relative_path, str) or not relative_path:
+                self._send_json({"error": "Missing media path."}, HTTPStatus.BAD_REQUEST)
+                return
+            self.server.library.mark_broken(relative_path)
+            self._send_json({"ok": True})
+            return
+
+        if parsed.path == "/api/clear-broken":
+            cleared = self.server.library.clear_broken()
+            self._send_json({"ok": True, "cleared": cleared, "state": self.server.library.state_payload()})
+            return
+
         if parsed.path == "/api/rescan":
             self.server.library.scan()
             self._send_json({"ok": True, "library": self.server.library.library_payload()})
@@ -506,16 +659,21 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not path.exists():
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        self._serve_file(path, send_body=send_body)
+        # "no-cache" means "you may keep a copy, but ask me before using it".
+        # Without it a phone can sit on a stale index.html/styles.css for days.
+        self._serve_file(path, send_body=send_body, cache_control="no-cache")
 
     def _serve_media(self, relative_path: str, send_body: bool = True):
         file_path = self.server.library.resolve_media_path(relative_path)
         if file_path is None:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        self._serve_file(file_path, send_body=send_body)
+        # Media is addressed by path and effectively immutable for a browsing
+        # session. Letting the browser keep it makes the gallery grid and
+        # re-viewed clips load from disk instead of the network.
+        self._serve_file(file_path, send_body=send_body, cache_control="private, max-age=3600")
 
-    def _serve_file(self, path: Path, send_body: bool = True):
+    def _serve_file(self, path: Path, send_body: bool = True, cache_control: str = ""):
         stat = path.stat()
         content_type, _ = mimetypes.guess_type(path.name)
         content_type = content_type or "application/octet-stream"
@@ -550,6 +708,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Range", f"bytes {start}-{end}/{stat.st_size}")
             self.send_header("Content-Length", str(content_length))
+            if cache_control:
+                self.send_header("Cache-Control", cache_control)
             self.end_headers()
 
             if not send_body:
@@ -571,6 +731,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(stat.st_size))
         self.send_header("Accept-Ranges", "bytes")
+        if cache_control:
+            self.send_header("Cache-Control", cache_control)
         self.end_headers()
 
         if not send_body:
@@ -615,8 +777,6 @@ def main():
     media_dir = None
     if args.media_dir:
         media_dir = Path(args.media_dir).expanduser().resolve()
-        if not media_dir.exists() or not media_dir.is_dir():
-            raise SystemExit(f"Media directory does not exist: {media_dir}")
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     state_path = data_dir / "state.json"
@@ -631,7 +791,8 @@ def main():
         print("No media directory selected yet.")
         print("Open the app and choose a folder from the website.")
     print(f"Open locally: {local_url}")
-    print(f"Open on your network: {lan_url}")
+    if args.host not in {"127.0.0.1", "localhost", "::1"}:
+        print(f"Open on your network: {lan_url}")
     print("Press Ctrl+C to stop.")
 
     try:
