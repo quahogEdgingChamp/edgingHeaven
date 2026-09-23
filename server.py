@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import gzip
+import hashlib
 import json
 import mimetypes
 import os
@@ -8,12 +10,14 @@ import socket
 import stat
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
+from faststart import layout as faststart_layout, read_chunks
 
 
 IMAGE_EXTENSIONS = {
@@ -53,7 +57,7 @@ DEFAULT_SETTINGS = {
     "escalationRampSeconds": 90,
     "escalationMaxSpeed": 2.2,
     "escalationVideoVolume": 0.32,
-    "theme": "velvet",
+    "theme": "dark",
     "swipeFolders": [],
     "toktinderFolders": [],
     "streamFolders": [],
@@ -80,9 +84,69 @@ DEFAULT_SETTINGS = {
     "feedFolders": [],
     "feedRatingFilter": "all",
     "feedVolume": 1.0,
+    # false: clips loop. true: a clip that ends scrolls on to the next.
+    "feedAutoAdvance": False,
+    # Pick a folder first, then a file inside it, so a 1,000-file folder does
+    # not crowd out a 12-file one in every mode. See the picker notes in app.js.
+    "balancedFolders": True,
+    # The mode the app reopens on.
+    "lastMode": "swipe",
+    # Ranked
+    "rankedSort": "recent",
+    "rankedKind": "all",
+    "dangerousKind": "all",
+    "dangerousUnrated": False,
+    "dangerousFolders": [],
+    # "Show: All / Unrated / Liked" for the lean-back modes.
+    "escalationRatingFilter": "all",
+    "sessionRatingFilter": "all",
+    "mosaicRatingFilter": "all",
+    # Named folder selections any mode can apply: [{"name": str, "folders": [str]}]
+    "folderSets": [],
+    # Escalation absorbed the old Stream mode: ramp off = Stream's steady pace.
+    "escalationRamp": True,
+    "escalationCorners": 0,
+    # Duel: two at a time, pick the better one; builds an Elo ranking.
+    "duelFolders": [],
+    "duelKind": "photos",
+    "duelRatingFilter": "liked",
+    # Rediscover: what you have not seen for longest, never-seen first.
+    "rediscoverFolders": [],
+    "rediscoverKind": "all",
+    "rediscoverRatingFilter": "all",
+}
+
+DUEL_START = 1500.0
+# Seen times are flushed by the page in batches; one request never needs more.
+SEEN_BATCH_LIMIT = 500
+
+# Video stills made by the browser (there is no ffmpeg here) and kept so each
+# video is only ever decoded for a thumbnail once.
+THUMB_MAX_BYTES = 400 * 1024
+JPEG_MAGIC = b"\xff\xd8\xff"
+
+MANIFEST = {
+    "name": "Edging Heaven",
+    "short_name": "Heaven",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0b131a",
+    "theme_color": "#0b131a",
+    "icons": [
+        {
+            "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%239fe7c8'/%3E%3Cpath d='M10 7h3v8c5-5 10-2 9 4l-1 7h-3l1-7c1-4-4-4-6 1l-1 6H9z' fill='%230d2a24'/%3E%3C/svg%3E",
+            "sizes": "any",
+            "type": "image/svg+xml",
+        }
+    ],
 }
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# The most an open-ended range request is answered with in one go. Roughly
+# half a minute of typical video, so playback never starves, while no single
+# request can monopolise the link.
+OPEN_RANGE_CHUNK = 1024 * 1024
 RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
 
 
@@ -148,6 +212,11 @@ class MediaLibrary:
         self.state_path = state_path
         self.lock = threading.RLock()
         self.state = self._load_state()
+        # When each file was last on screen. Its own file: it changes every
+        # few seconds while browsing, and rewriting all of state.json for
+        # that would be wasteful.
+        self.seen_path = state_path.parent / "seen.json"
+        self.seen = self._load_seen()
         self.catalog = {"images": [], "videos": [], "updatedAt": None}
         self._directory_identity = None
         self._last_availability_check = 0.0
@@ -169,19 +238,28 @@ class MediaLibrary:
         else:
             loaded = {}
         broken = loaded.get("brokenPaths", [])
+        times = loaded.get("ratingTimes", {})
         return {
             "ratings": loaded.get("ratings", {}),
+            # When each rating was made, kept alongside `ratings` rather than
+            # inside it so every state.json written before this still loads.
+            # Older likes simply have no time and sort last.
+            "ratingTimes": times if isinstance(times, dict) else {},
             "settings": {**DEFAULT_SETTINGS, **loaded.get("settings", {})},
             "mediaDirectory": loaded.get("mediaDirectory"),
             "brokenPaths": set(broken) if isinstance(broken, list) else set(),
+            # Duel ratings: {path: {"r": elo, "n": duels fought}}
+            "duel": loaded.get("duel") if isinstance(loaded.get("duel"), dict) else {},
         }
 
     def _save_state(self) -> None:
         payload = {
             "ratings": self.state["ratings"],
+            "ratingTimes": self.state.get("ratingTimes", {}),
             "settings": self.state["settings"],
             "mediaDirectory": self.state.get("mediaDirectory"),
             "brokenPaths": sorted(self.state.get("brokenPaths", set())),
+            "duel": self.state.get("duel", {}),
         }
         self._write_state_payload(payload)
 
@@ -239,7 +317,11 @@ class MediaLibrary:
         broken = self.state.get("brokenPaths", set())
 
         try:
-            file_paths = sorted(self.media_dir.rglob("*"))
+            file_paths = []
+            for directory, dirs, names in os.walk(self.media_dir):
+                dirs[:] = [name for name in dirs if name != ".heaven-trash"]
+                file_paths.extend(Path(directory) / name for name in names)
+            file_paths.sort()
         except OSError:
             file_paths = []
         for file_path in file_paths:
@@ -267,15 +349,24 @@ class MediaLibrary:
             if file_path.parent != self.media_dir:
                 folder = file_path.parent.relative_to(self.media_dir).as_posix()
 
+            # `name` is not sent: it is always the tail of `path`, and with
+            # hash-style filenames that duplication was ~1.8MB of a 2.9MB
+            # payload. The client splits it back off on arrival. `rating` and
+            # `ratedAt` are omitted when unset for the same reason -- most of
+            # a library is unrated, and "rating": null 13,000 times is 400KB.
             payload = {
                 "path": relative_path,
-                "name": file_path.name,
                 "folder": folder,
                 "size": file_size,
                 # Epoch seconds; the gallery sorts on it.
                 "mtime": int(file_stat.st_mtime),
-                "rating": self.state["ratings"].get(relative_path),
             }
+            rating = self.state["ratings"].get(relative_path)
+            if rating:
+                payload["rating"] = rating
+                rated_at = self.state.get("ratingTimes", {}).get(relative_path)
+                if rated_at:
+                    payload["ratedAt"] = rated_at
 
             if ext in IMAGE_EXTENSIONS:
                 images.append(payload)
@@ -337,6 +428,7 @@ class MediaLibrary:
                 "mediaDirectory": self.state.get("mediaDirectory"),
                 "libraryReady": self.media_dir is not None,
                 "brokenCount": len(self.state.get("brokenPaths", set())),
+                "canTrash": self.media_dir is not None and os.access(self.media_dir, os.W_OK),
                 "mediaChoices": suggested_media_directories(),
             }
 
@@ -370,6 +462,10 @@ class MediaLibrary:
 
             if previous and previous != self.state.get("mediaDirectory"):
                 self.state["ratings"] = {}
+                self.state["ratingTimes"] = {}
+                self.state["duel"] = {}
+                self.seen = {}
+                self._save_seen()
 
         self.scan()
         return True, None
@@ -379,20 +475,29 @@ class MediaLibrary:
             return False
 
         with self.lock:
+            stamped = None if rating is None else utc_now_iso()
             found = False
             for item in [*self.catalog["images"], *self.catalog["videos"]]:
                 if item["path"] == relative_path:
-                    item["rating"] = rating
+                    if rating:
+                        item["rating"] = rating
+                        item["ratedAt"] = stamped
+                    else:
+                        item.pop("rating", None)
+                        item.pop("ratedAt", None)
                     found = True
                     break
 
             if not found:
                 return False
 
+            times = self.state.setdefault("ratingTimes", {})
             if rating is None:
                 self.state["ratings"].pop(relative_path, None)
+                times.pop(relative_path, None)
             else:
                 self.state["ratings"][relative_path] = rating
+                times[relative_path] = stamped
 
             self._save_state()
             return True
@@ -436,8 +541,11 @@ class MediaLibrary:
     def clear_ratings(self) -> None:
         with self.lock:
             self.state["ratings"] = {}
+            self.state["ratingTimes"] = {}
+            self.state["duel"] = {}
             for item in [*self.catalog["images"], *self.catalog["videos"]]:
-                item["rating"] = None
+                item.pop("rating", None)
+                item.pop("ratedAt", None)
             self._save_state()
 
     def reset_saved_data(self) -> None:
@@ -445,6 +553,7 @@ class MediaLibrary:
             self.media_dir = None
             self.catalog = {"images": [], "videos": [], "updatedAt": None}
             self.state["ratings"] = {}
+            self.state["ratingTimes"] = {}
             self.state["settings"] = dict(DEFAULT_SETTINGS)
             self.state["mediaDirectory"] = None
             self.state["brokenPaths"] = set()
@@ -452,22 +561,104 @@ class MediaLibrary:
 
     def reset_mode_data(self, mode: str) -> bool:
         with self.lock:
+            times = self.state.setdefault("ratingTimes", {})
             if mode == "swipe":
                 for item in self.catalog["images"]:
-                    item["rating"] = None
+                    item.pop("rating", None)
+                    item.pop("ratedAt", None)
                     self.state["ratings"].pop(item["path"], None)
+                    times.pop(item["path"], None)
             elif mode == "toktinder":
                 for item in self.catalog["videos"]:
-                    item["rating"] = None
+                    item.pop("rating", None)
+                    item.pop("ratedAt", None)
                     self.state["ratings"].pop(item["path"], None)
+                    times.pop(item["path"], None)
             else:
                 return False
 
             self._save_state()
             return True
 
+    # ---- seen times (Rediscover) ----
+
+    def _load_seen(self) -> dict:
+        try:
+            with self.seen_path.open("r", encoding="utf-8") as handle:
+                loaded = json.load(handle)
+            return {k: int(v) for k, v in loaded.items() if isinstance(k, str) and isinstance(v, (int, float))}
+        except (OSError, ValueError, AttributeError):
+            return {}
+
+    def _save_seen(self) -> None:
+        temporary = self.seen_path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(self.seen, handle, separators=(",", ":"))
+        temporary.replace(self.seen_path)
+
+    def _catalog_paths(self) -> set:
+        return {item["path"] for item in [*self.catalog["images"], *self.catalog["videos"]]}
+
+    def mark_seen(self, paths) -> int:
+        if not isinstance(paths, list):
+            return 0
+        now = int(time.time())
+        with self.lock:
+            known = self._catalog_paths()
+            fresh = [path for path in paths[:SEEN_BATCH_LIMIT] if isinstance(path, str) and path in known]
+            for path in fresh:
+                self.seen[path] = now
+            if fresh:
+                self._save_seen()
+            return len(fresh)
+
+    def seen_payload(self) -> dict:
+        with self.lock:
+            known = self._catalog_paths()
+            return {path: stamp for path, stamp in self.seen.items() if path in known}
+
+    # ---- duel (Elo) ----
+
+    def duel_payload(self) -> dict:
+        with self.lock:
+            return dict(self.state.get("duel", {}))
+
+    def record_duel(self, winner: str, loser: str):
+        """Standard Elo. New items move faster (K=40) until they have ten
+        duels behind them, then settle (K=24)."""
+        with self.lock:
+            known = self._catalog_paths()
+            if winner == loser or winner not in known or loser not in known:
+                return None
+            table = self.state.setdefault("duel", {})
+            before = {path: dict(table[path]) if path in table else None for path in (winner, loser)}
+            w = table.get(winner) or {"r": DUEL_START, "n": 0}
+            l = table.get(loser) or {"r": DUEL_START, "n": 0}
+            expected = 1 / (1 + 10 ** ((l["r"] - w["r"]) / 400))
+            k_w = 40 if w["n"] < 10 else 24
+            k_l = 40 if l["n"] < 10 else 24
+            table[winner] = {"r": round(w["r"] + k_w * (1 - expected), 1), "n": w["n"] + 1}
+            table[loser] = {"r": round(l["r"] - k_l * (1 - expected), 1), "n": l["n"] + 1}
+            self._save_state()
+            return {"before": before, "ratings": {winner: table[winner], loser: table[loser]}}
+
+    def restore_duel(self, ratings) -> bool:
+        if not isinstance(ratings, dict):
+            return False
+        with self.lock:
+            table = self.state.setdefault("duel", {})
+            for path, value in ratings.items():
+                if value is None:
+                    table.pop(path, None)
+                elif isinstance(value, dict) and isinstance(value.get("r"), (int, float)) and isinstance(value.get("n"), int):
+                    table[path] = {"r": float(value["r"]), "n": int(value["n"])}
+            self._save_state()
+            return True
+
     def resolve_media_path(self, relative_path: str) -> Optional[Path]:
         if self.media_dir is None:
+            return None
+        if ".heaven-trash" in Path(relative_path).parts:
             return None
         candidate = (self.media_dir / relative_path).resolve()
         try:
@@ -479,6 +670,102 @@ class MediaLibrary:
         if not candidate.is_file():
             return None
         return candidate
+
+    def thumb_path(self, relative_path: str) -> Optional[Path]:
+        """Where the still for this video lives. The key includes size and
+        mtime, so a replaced file gets a fresh thumbnail."""
+        file_path = self.resolve_media_path(relative_path)
+        if file_path is None or file_path.suffix.lower() not in VIDEO_EXTENSIONS:
+            return None
+        info = file_path.stat()
+        key = hashlib.sha1(f"{relative_path}\0{info.st_size}\0{info.st_mtime_ns}".encode("utf-8")).hexdigest()
+        return self.state_path.parent / "thumbs" / key[:2] / f"{key}.jpg"
+
+    def save_thumb(self, relative_path: str, body: bytes) -> bool:
+        target = self.thumb_path(relative_path)
+        if target is None or not body.startswith(JPEG_MAGIC) or len(body) > THUMB_MAX_BYTES:
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(".tmp")
+        temporary.write_bytes(body)
+        temporary.replace(target)
+        return True
+
+    def _trash_root(self):
+        if self.media_dir is None:
+            raise ValueError("The library is offline.")
+        root = self.media_dir / ".heaven-trash"
+        if root.is_symlink():
+            raise ValueError("The trash folder must not be a symlink.")
+        return root
+
+    def trash_media(self, relative_path, expected_library):
+        with self.lock:
+            if expected_library != str(self.media_dir):
+                raise ValueError("The library changed. Reload before deleting.")
+            item = next((item for key in ("images", "videos")
+                         for item in self.catalog[key] if item["path"] == relative_path), None)
+            source = self.resolve_media_path(relative_path)
+            if item is None or source is None:
+                raise ValueError("This file is no longer in the library.")
+            if (self.media_dir / relative_path).is_symlink():
+                raise ValueError("Delete the original file, not a symbolic link.")
+            # Renaming on the same drive is immediate, including large videos.
+            token = uuid.uuid4().hex
+            entry = self._trash_root() / token
+            entry.mkdir(parents=True)
+            record = {"path": relative_path, "item": dict(item), "deletedAt": utc_now_iso()}
+            try:
+                (entry / "record.json").write_text(json.dumps(record), encoding="utf-8")
+                source.rename(entry / "media")
+            except OSError:
+                (entry / "record.json").unlink(missing_ok=True)
+                entry.rmdir()
+                raise
+            for key in ("images", "videos"):
+                self.catalog[key] = [i for i in self.catalog[key] if i["path"] != relative_path]
+            self.catalog["updatedAt"] = utc_now_iso()
+            # Keep ratings on disk so restoring also survives a process restart.
+            return {"token": token, "path": relative_path, "updatedAt": self.catalog["updatedAt"]}
+
+    def restore_media(self, token, expected_library):
+        with self.lock:
+            if expected_library != str(self.media_dir):
+                raise ValueError("The library changed. Reload before restoring.")
+            if not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{32}", token):
+                raise ValueError("Invalid trash entry.")
+            entry = self._trash_root() / token
+            if entry.is_symlink() or (entry / "media").is_symlink() or (entry / "record.json").is_symlink():
+                raise ValueError("Invalid trash entry.")
+            record = json.loads((entry / "record.json").read_text(encoding="utf-8"))
+            destination = (self.media_dir / record["path"]).resolve()
+            if not destination.is_relative_to(self.media_dir) or ".heaven-trash" in destination.parts:
+                raise ValueError("Invalid restore path.")
+            if destination.exists():
+                raise ValueError("A file already exists at that path. Nothing was overwritten.")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            (entry / "media").rename(destination)
+            (entry / "record.json").unlink()
+            entry.rmdir()
+            self.scan()
+            return record["path"]
+
+    def trash_entries(self):
+        with self.lock:
+            if self.media_dir is None:
+                return []
+            entries = []
+            for entry in self._trash_root().glob("*"):
+                if entry.is_symlink() or not re.fullmatch(r"[a-f0-9]{32}", entry.name):
+                    continue
+                try:
+                    record = json.loads((entry / "record.json").read_text(encoding="utf-8"))
+                    if (entry / "media").is_file():
+                        entries.append({"token": entry.name, "path": record["path"],
+                                        "deletedAt": record["deletedAt"]})
+                except (OSError, ValueError, KeyError):
+                    continue
+            return sorted(entries, key=lambda item: item["deletedAt"], reverse=True)
 
 
 class AppServer(ThreadingHTTPServer):
@@ -492,11 +779,44 @@ class AppServer(ThreadingHTTPServer):
 class RequestHandler(BaseHTTPRequestHandler):
     server: AppServer
 
+    # BaseHTTPRequestHandler defaults to HTTP/1.0, which has no keep-alive:
+    # the socket is torn down after every response, so each thumbnail, each
+    # range request and each poll paid for a fresh TCP handshake. On loopback
+    # that is invisible; over Tailscale, where a round trip is tens of
+    # milliseconds and TLS sits on top, it is most of why the gallery and the
+    # mosaic felt like treacle. 1.1 reuses one connection for the whole burst.
+    # Every response below sends an exact Content-Length, which is what makes
+    # this safe -- without it the client cannot tell where a body ends.
+    protocol_version = "HTTP/1.1"
+
+    # The flip side of keep-alive: an idle connection holds its thread until
+    # somebody closes it. Browsers park several sockets per tab, so without a
+    # timeout those threads accumulate for as long as the server runs.
+    timeout = 120
+
     def log_message(self, format, *args):
         return
 
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except (ConnectionResetError, BrokenPipeError, TimeoutError):
+            # With keep-alive the thread sits in readline() waiting for the
+            # next request on an idle socket, so every closed tab, sleeping
+            # phone and dropped Tailscale link surfaces here. It is the normal
+            # end of a connection, not an error; without this the journal
+            # fills with tracebacks.
+            self.close_connection = True
+
     def do_GET(self):
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/trash":
+            try:
+                self._send_json({"entries": self.server.library.trash_entries()})
+            except (OSError, ValueError) as error:
+                self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            return
 
         if parsed.path == "/api/library-status":
             self._send_json(self.server.library.availability_payload())
@@ -506,6 +826,14 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json(self.server.library.state_payload())
             return
 
+        if parsed.path == "/api/seen":
+            self._send_json({"seen": self.server.library.seen_payload()})
+            return
+
+        if parsed.path == "/api/duel":
+            self._send_json({"ratings": self.server.library.duel_payload()})
+            return
+
         if parsed.path == "/media":
             query = parse_qs(parsed.query)
             relative_path = query.get("path", [None])[0]
@@ -513,6 +841,29 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "Missing media path."}, HTTPStatus.BAD_REQUEST)
                 return
             self._serve_media(relative_path)
+            return
+
+        if parsed.path == "/thumb":
+            relative_path = parse_qs(parsed.query).get("path", [None])[0]
+            target = self.server.library.thumb_path(relative_path) if relative_path else None
+            if target is None or not target.is_file():
+                # 204, not 404: "no still yet" is the normal first visit, and
+                # the page makes one. A 404 would log an error per tile.
+                self.send_response(HTTPStatus.NO_CONTENT)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
+            self._serve_file(target, cache_control="private, max-age=604800")
+            return
+
+        if parsed.path == "/manifest.webmanifest":
+            body = json.dumps(MANIFEST).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/manifest+json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         static_routes = {
@@ -554,9 +905,27 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/thumb":
+            self._receive_thumb(parsed)
+            return
         payload = self._read_json()
-        if payload is None:
+        if not isinstance(payload, dict):
             self._send_json({"error": "Invalid JSON body."}, HTTPStatus.BAD_REQUEST)
+            return
+
+        if parsed.path in {"/api/trash", "/api/restore"}:
+            try:
+                if parsed.path == "/api/trash":
+                    if not isinstance(payload.get("path"), str):
+                        raise ValueError("Missing media path.")
+                    result = self.server.library.trash_media(payload["path"], payload.get("library"))
+                else:
+                    result = {"path": self.server.library.restore_media(payload.get("token"), payload.get("library"))}
+                self._send_json({"ok": True, **result})
+            except (OSError, ValueError) as error:
+                message = ("This folder is read-only. Enable writing on the media drive to delete files."
+                           if isinstance(error, OSError) and error.errno in {13, 30} else str(error))
+                self._send_json({"error": message}, HTTPStatus.CONFLICT)
             return
 
         if parsed.path == "/api/rating":
@@ -568,6 +937,25 @@ class RequestHandler(BaseHTTPRequestHandler):
             ok = self.server.library.set_rating(relative_path, rating)
             if not ok:
                 self._send_json({"error": "Media item not found."}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_json({"ok": True})
+            return
+
+        if parsed.path == "/api/seen":
+            self._send_json({"ok": True, "marked": self.server.library.mark_seen(payload.get("paths"))})
+            return
+
+        if parsed.path == "/api/duel":
+            result = self.server.library.record_duel(payload.get("winner"), payload.get("loser"))
+            if result is None:
+                self._send_json({"error": "Both files must be in the library."}, HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, **result})
+            return
+
+        if parsed.path == "/api/duel-restore":
+            if not self.server.library.restore_duel(payload.get("ratings")):
+                self._send_json({"error": "Invalid duel ratings."}, HTTPStatus.BAD_REQUEST)
                 return
             self._send_json({"ok": True})
             return
@@ -635,6 +1023,28 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
 
+    def _receive_thumb(self, parsed):
+        relative_path = parse_qs(parsed.query).get("path", [None])[0]
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if not relative_path or length <= 0 or length > THUMB_MAX_BYTES:
+            # Drain what we will not store so the keep-alive stream stays in sync.
+            if 0 < length <= THUMB_MAX_BYTES * 4:
+                self.rfile.read(length)
+            else:
+                self.close_connection = True
+            self._send_json({"error": "Bad thumbnail."}, HTTPStatus.BAD_REQUEST)
+            return
+        body = self.rfile.read(length)
+        try:
+            ok = self.server.library.save_thumb(relative_path, body)
+        except OSError as error:
+            self._send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        if not ok:
+            self._send_json({"error": "Not a video thumbnail."}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"ok": True})
+
     def _read_json(self):
         content_length = int(self.headers.get("Content-Length", "0"))
         if content_length == 0:
@@ -645,23 +1055,65 @@ class RequestHandler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError):
             return None
 
+    def _accepts_gzip(self) -> bool:
+        return "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
+
     def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK):
-        body = json.dumps(payload).encode("utf-8")
+        # Compact separators first: the default ", " / ": " costs about a tenth
+        # of the catalog on its own.
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        encoding = None
+        # A catalog is long, repetitive text -- the case gzip is best at. It
+        # was going over Tailscale uncompressed, which is most of why opening
+        # the app felt slow on a phone.
+        if len(body) > 1024 and self._accepts_gzip():
+            body = gzip.compress(body, 6)
+            encoding = "gzip"
+
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _serve_static(self, path: Path, send_body: bool = True):
-        if not path.exists():
+        try:
+            body = path.read_bytes()
+        except OSError:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
+
+        content_type, _ = mimetypes.guess_type(path.name)
+        content_type = content_type or "application/octet-stream"
+        if content_type.startswith("text/") or content_type in {
+            "application/javascript",
+            "text/javascript",
+        }:
+            content_type = f"{content_type}; charset=utf-8"
+
+        encoding = None
+        if len(body) > 1024 and self._accepts_gzip():
+            body = gzip.compress(body, 6)
+            encoding = "gzip"
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Content-Length", str(len(body)))
         # "no-cache" means "you may keep a copy, but ask me before using it".
         # Without it a phone can sit on a stale index.html/styles.css for days.
-        self._serve_file(path, send_body=send_body, cache_control="no-cache")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        if send_body:
+            self.wfile.write(body)
 
     def _serve_media(self, relative_path: str, send_body: bool = True):
         file_path = self.server.library.resolve_media_path(relative_path)
@@ -674,10 +1126,19 @@ class RequestHandler(BaseHTTPRequestHandler):
         self._serve_file(file_path, send_body=send_body, cache_control="private, max-age=3600")
 
     def _serve_file(self, path: Path, send_body: bool = True, cache_control: str = ""):
-        stat = path.stat()
+        try:
+            stat = path.stat()
+        except OSError:
+            # The file was there when we resolved it and is not there now --
+            # almost always the USB drive dropping out mid-browse. A 404 lets
+            # the client mark the item and move on; letting OSError escape
+            # would spill a traceback and drop the connection instead.
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
         content_type, _ = mimetypes.guess_type(path.name)
         content_type = content_type or "application/octet-stream"
         range_header = self.headers.get("Range")
+        segments = faststart_layout(path, stat.st_size, stat.st_mtime_ns)
 
         if range_header:
             match = RANGE_RE.match(range_header.strip())
@@ -690,6 +1151,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_error(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
                 return
 
+            open_ended = start_raw != "" and end_raw == ""
             if start_raw == "":
                 length = int(end_raw)
                 start = max(0, stat.st_size - length)
@@ -697,9 +1159,27 @@ class RequestHandler(BaseHTTPRequestHandler):
             else:
                 start = int(start_raw)
                 end = int(end_raw) if end_raw else stat.st_size - 1
+                # RFC 9110: an end past the last byte is clamped, not refused.
+                # Players routinely ask for a round number of bytes off the end
+                # of a file; answering 416 makes the clip look corrupt.
+                end = min(end, stat.st_size - 1)
 
-            if start > end or end >= stat.st_size:
-                self.send_error(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+            # An open-ended "bytes=N-" asks for the entire rest of the file.
+            # Honouring that literally means one request can start streaming
+            # 700MB down a Tailscale link, saturating it while the browser is
+            # still trying to fetch the bit it actually needs first (for a
+            # video whose moov atom sits at the end, that is the tail). Answer
+            # with a bounded slice instead; a 206 is allowed to return less
+            # than was asked for, and the player simply asks for the next
+            # piece when it wants it. Keep-alive makes those follow-ups cheap.
+            if open_ended and end - start + 1 > OPEN_RANGE_CHUNK:
+                end = start + OPEN_RANGE_CHUNK - 1
+
+            if start > end or start >= stat.st_size:
+                self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                self.send_header("Content-Range", f"bytes */{stat.st_size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
                 return
 
             content_length = end - start + 1
@@ -716,15 +1196,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
             with path.open("rb") as handle:
-                handle.seek(start)
-                remaining = content_length
-                while remaining > 0:
-                    chunk = handle.read(min(64 * 1024, remaining))
-                    if not chunk:
-                        break
+                for chunk in read_chunks(handle, segments, start, content_length):
                     if not self._write_chunk(chunk):
                         return
-                    remaining -= len(chunk)
             return
 
         self.send_response(HTTPStatus.OK)
@@ -739,10 +1213,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
 
         with path.open("rb") as handle:
-            while True:
-                chunk = handle.read(64 * 1024)
-                if not chunk:
-                    break
+            for chunk in read_chunks(handle, segments, 0, stat.st_size):
                 if not self._write_chunk(chunk):
                     return
 
@@ -750,7 +1221,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             self.wfile.write(chunk)
             return True
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
+            # The browser hung up mid-file (it does this constantly: seeking a
+            # video abandons the range request in flight). Fewer bytes went out
+            # than Content-Length promised, so this connection can no longer be
+            # kept alive -- the next response would be read as part of this one.
+            self.close_connection = True
             return False
 
 

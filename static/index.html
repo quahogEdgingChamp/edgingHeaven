@@ -2,125 +2,229 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- viewport-fit=cover is what makes env(safe-area-inset-*) non-zero,
-         so the tab bar and drawers can clear a notch or home indicator. -->
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
-    <meta name="theme-color" content="#0d0b09" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b131a" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Heaven" />
     <title>Edging Heaven</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d0b09'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23f0a655'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23b7ecd3'/%3E%3Cpath d='M10 7h3v8c5-5 10-2 9 4l-1 7h-3l1-7c1-4-4-4-6 1l-1 6H9z' fill='%23102e29'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=5" />
   </head>
-  <body>
+  <body data-mode="home">
+    <!-- One sprite for every interface icon; buttons reference it with <use>. -->
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></symbol>
+      <symbol id="i-focus" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></symbol>
+      <symbol id="i-unfocus" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></symbol>
+      <symbol id="i-adjust" viewBox="0 0 24 24"><path d="M4 7h8M16 7h4M4 17h4M12 17h8M14 4.5v5M10 14.5v5" /></symbol>
+      <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M16 4h4v4M4 19 20 4M20 16v4h-4M14.5 14.5 20 20M4 5l5 5" /></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15L19.5 12z" /></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><path d="M6.5 6.5h11v11h-11z" /></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" /></symbol>
+      <symbol id="i-edge" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M3 12h4M17 12h4M12 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z" /></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" /></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4" /></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 6.5a1 1 0 0 1 1-1h4.8l2 2h8.2a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" /></symbol>
+      <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5zM15.5 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" /></symbol>
+      <symbol id="i-muted" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5zM16 9.5l5 5M21 9.5l-5 5" /></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z" /><path d="M19.2 14.6a1.4 1.4 0 0 0 .3 1.6l.1.1a1.8 1.8 0 1 1-2.5 2.5l-.1-.1a1.4 1.4 0 0 0-1.6-.3 1.4 1.4 0 0 0-.9 1.3v.2a1.8 1.8 0 1 1-3.6 0v-.1a1.4 1.4 0 0 0-.9-1.3 1.4 1.4 0 0 0-1.6.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1a1.4 1.4 0 0 0 .3-1.6 1.4 1.4 0 0 0-1.3-.9h-.2a1.8 1.8 0 1 1 0-3.6h.1a1.4 1.4 0 0 0 1.3-.9 1.4 1.4 0 0 0-.3-1.6l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1a1.4 1.4 0 0 0 1.6.3h.1a1.4 1.4 0 0 0 .8-1.3v-.2a1.8 1.8 0 1 1 3.6 0v.1a1.4 1.4 0 0 0 .9 1.3 1.4 1.4 0 0 0 1.6-.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1a1.4 1.4 0 0 0-.3 1.6v.1a1.4 1.4 0 0 0 1.3.8h.2a1.8 1.8 0 1 1 0 3.6h-.1a1.4 1.4 0 0 0-1.3.9z" /></symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4" /></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v4h-4" /></symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z" /></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" /></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" /></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5" /></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20h-5.5v-6h-5v6H4z" /></symbol>
+    </svg>
+
     <div class="shell">
+      <nav class="workspace-nav" aria-label="Media modes">
+        <button class="wordmark" id="workspaceHome" aria-label="Go to overview">
+          <span class="brand-symbol" aria-hidden="true">h</span>
+          <span class="wordmark-text">heaven<span class="wordmark-note">your library, your pace</span></span>
+        </button>
+        <button id="overviewButton" class="workspace-link" data-mode="home">
+          <svg aria-hidden="true"><use href="#i-home" /></svg><span>Overview</span>
+        </button>
+        <div id="workspaceLinks" class="workspace-links"></div>
+        <div class="nav-footer">
+          <span class="connection-dot"></span><span id="connectionLabel">Connecting</span>
+        </div>
+      </nav>
+
       <header class="topbar">
         <div class="brand">
-          <h1>Edging Heaven</h1>
+          <span class="eyebrow" id="workspaceEyebrow">Your library</span>
+          <h1 id="workspaceTitle">Overview</h1>
           <p id="libraryMeta">Loading library...</p>
         </div>
+        <button id="modeMenuButton" class="mode-switch" aria-haspopup="dialog" aria-label="Switch mode">
+          <span class="brand-symbol small" aria-hidden="true">h</span>
+          <span id="modeMenuLabel">Overview</span>
+          <svg class="chevron" aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div id="modeTools" class="mode-tools"></div>
         <div class="topbar-actions">
           <div class="pill-row">
-            <span id="imageCount" class="pill">0 images</span>
-            <span id="videoCount" class="pill">0 videos</span>
-            <span id="ratingCount" class="pill">0 liked</span>
+            <span class="pill"><b id="imageCount">0</b><i>photos</i></span>
+            <span class="pill"><b id="videoCount">0</b><i>videos</i></span>
+            <span class="pill"><b id="ratingCount">0</b><i>kept</i></span>
           </div>
-          <div class="topbar-buttons">
-            <button id="changeLibraryButton" class="ghost-button">Change Folder</button>
-            <button id="themeButton" class="ghost-button">Hub</button>
-          </div>
+          <button id="themeButton" class="tool-button" aria-label="Settings">
+            <svg aria-hidden="true"><use href="#i-gear" /></svg><span class="label">Settings</span>
+          </button>
         </div>
       </header>
 
       <section id="setupPanel" class="panel setup-panel" hidden>
         <div class="setup-copy">
-          <h2>Choose a media folder</h2>
+          <div class="panel-title-row">
+            <div><span class="eyebrow">Library</span><h2>Bring your collection.</h2></div>
+            <button id="setupCloseButton" class="ghost-button small-button">Close</button>
+          </div>
           <p id="setupMessage" class="subtle">
             Start the server with `python3 server.py`, then choose your media folder here.
           </p>
         </div>
-
         <label class="setup-path">
-          <span>Folder Path</span>
-          <input
-            id="mediaDirInput"
-            type="text"
-            placeholder="/Volumes/Lexar/baza"
-            autocomplete="off"
-            autocapitalize="off"
-            spellcheck="false"
-          />
+          <span>Folder path</span>
+          <input id="mediaDirInput" type="text" placeholder="/path/to/your/media" autocomplete="off" autocapitalize="off" spellcheck="false" />
         </label>
-
         <div class="setup-actions">
-          <button id="mediaDirApplyButton" class="primary-button">Use This Folder</button>
+          <button id="mediaDirApplyButton" class="primary-button">Use this folder</button>
         </div>
-
-        <div class="panel-block">
-          <p class="panel-label">Quick Picks</p>
+        <div class="settings-card">
+          <p class="panel-label">Quick picks</p>
           <div id="mediaDirChoices" class="choice-list"></div>
         </div>
       </section>
 
-      <section id="themePanel" class="panel setup-panel" hidden>
+      <section id="themePanel" class="panel setup-panel settings-panel" hidden>
         <div class="setup-copy">
-          <h2>Hub</h2>
-          <p id="themeSummary" class="subtle">Current theme: Velvet Night.</p>
-        </div>
-
-        <div class="panel-block">
-          <p class="panel-label">Themes</p>
-          <div id="themeChoices" class="choice-list"></div>
-        </div>
-
-        <div class="panel-block">
-          <p class="panel-label">Skipped Files</p>
-          <p id="brokenSummary" class="subtle">No files have been skipped.</p>
-          <div class="setup-actions">
-            <button id="clearBrokenButton" class="ghost-button">Retry Skipped Files</button>
+          <div class="panel-title-row">
+            <div><span class="eyebrow">Settings</span><h2>Make it yours</h2></div>
+            <button id="hubCloseButton" class="ghost-button small-button">Close</button>
           </div>
+          <p id="hubLibraryPath" class="subtle"></p>
         </div>
 
-        <div class="panel-block">
+        <div id="hubStats" class="hub-stats"></div>
+
+        <div class="settings-card">
+          <div class="filter-header">
+            <p class="panel-label">Appearance</p>
+            <span id="themeSummary" class="subtle"></span>
+          </div>
+          <div id="themeChoices" class="theme-choices"></div>
+        </div>
+
+        <div class="settings-card">
+          <p class="panel-label">Shuffle</p>
+          <div id="balancedFolders" class="segmented" role="group" aria-label="How shuffling picks folders">
+            <button type="button" class="segment" data-balanced="balanced">Every folder</button>
+            <button type="button" class="segment" data-balanced="flat">Every file</button>
+          </div>
+          <p id="balancedFoldersHint" class="subtle"></p>
+        </div>
+
+        <div class="settings-card">
           <p class="panel-label">Library</p>
           <div class="setup-actions">
-            <button id="rescanButton" class="ghost-button">Rescan Library</button>
-            <button id="resetRatingsButton" class="danger-button">Clear All Likes + Dislikes</button>
+            <button id="changeLibraryButton" class="ghost-button">Change folder</button>
+            <button id="rescanButton" class="ghost-button">Rescan library</button>
           </div>
-          <p class="subtle">
-            This clears saved likes and dislikes for all photos and videos, but keeps your folder, theme, filters, and settings.
-          </p>
+          <p id="brokenSummary" class="subtle">No files have been skipped.</p>
+          <div class="setup-actions">
+            <button id="clearBrokenButton" class="ghost-button small-button">Retry skipped files</button>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <p class="panel-label">Recently deleted</p>
+          <p class="subtle">Files deleted in Dangerous stay on the drive in local trash until you remove them by hand. Restore them here at any time.</p>
+          <div class="setup-actions"><button id="showTrash" class="ghost-button small-button">Review trash</button></div>
+          <div id="trashList" class="trash-list"></div>
+        </div>
+
+        <div class="settings-card shortcuts">
+          <p class="panel-label">Keyboard</p>
+          <dl class="shortcut-list">
+            <dt>M</dt><dd>mode picker</dd>
+            <dt>1–0</dt><dd>jump to a mode</dd>
+            <dt>A</dt><dd>open or close controls</dd>
+            <dt>F</dt><dd>focus / fullscreen</dd>
+            <dt>Esc</dt><dd>close a panel or leave focus</dd>
+            <dt>&larr; &rarr;</dt><dd>pass / keep (decks); prev / next (preview)</dd>
+            <dt>&darr;</dt><dd>skip</dd>
+            <dt>U</dt><dd>undo</dd>
+            <dt>Space</dt><dd>play / pause (Video deck, Feed); start (Session)</dd>
+            <dt>&uarr; &darr;</dt><dd>previous / next clip in Feed</dd>
+            <dt>E</dt><dd>edge — instant hold in Session</dd>
+            <dt>&larr; &rarr;</dt><dd>pick the left / right one in Duel</dd>
+          </dl>
+        </div>
+
+        <div class="settings-card danger-zone">
+          <p class="panel-label">Danger zone</p>
+          <p class="subtle">Clears every like and dislike for all photos and videos. Your folder, theme, filters and settings stay.</p>
+          <div class="setup-actions">
+            <button id="resetRatingsButton" class="danger-button small-button">Clear all likes + dislikes</button>
+          </div>
         </div>
       </section>
 
-      <nav id="modeSwitch" class="mode-switch" aria-label="Modes">
-        <button class="mode-button active" data-mode="swipe">Tinder</button>
-        <button class="mode-button" data-mode="toktinder">TindTok</button>
-        <button class="mode-button" data-mode="stream">Stream</button>
-        <button class="mode-button" data-mode="escalation">Escalation</button>
-        <button class="mode-button" data-mode="session">Session</button>
-        <button class="mode-button" data-mode="gallery">Gallery</button>
-        <button class="mode-button" data-mode="mosaic">Mosaic</button>
-        <button class="mode-button" data-mode="feed">Feed</button>
-      </nav>
-
       <main id="mainContent">
-        <section id="swipeMode" class="mode-panel active">
+        <!-- ============================== Overview ============================== -->
+        <section id="homeMode" class="mode-panel active" aria-label="Overview">
+          <div class="home-scroll">
+            <section class="home-hero">
+              <div class="hero-copy">
+                <span class="eyebrow" id="homeGreeting">Welcome back</span>
+                <h2 id="homeHeadline">Pick up where you left off.</h2>
+                <p id="homeSubline" class="hero-sub"></p>
+                <div class="hero-actions">
+                  <button id="continueButton" class="primary-button">Open photo deck</button>
+                  <button id="homeSettings" class="ghost-button">Browse gallery</button>
+                </div>
+              </div>
+              <div class="hero-meter" id="homeMeter" aria-label="Rating progress">
+                <svg viewBox="0 0 120 120" aria-hidden="true">
+                  <circle class="meter-track" cx="60" cy="60" r="52" />
+                  <circle class="meter-fill" id="homeMeterFill" cx="60" cy="60" r="52" />
+                </svg>
+                <div class="meter-label"><strong id="homeMeterValue">0%</strong><span>rated</span></div>
+              </div>
+            </section>
+            <div id="overviewStats" class="overview-stats" aria-label="Library overview"></div>
+            <div id="homeFavorites" class="home-favorites" hidden></div>
+            <div id="homeModes" class="home-groups"></div>
+          </div>
+        </section>
+
+        <!-- ============================== Photo deck ============================== -->
+        <section id="swipeMode" class="mode-panel">
           <div class="swipe-layout">
             <div class="swipe-stage">
               <div class="stage-toolbar">
-                <button id="swipeUndoButton" class="ghost-button" disabled>Undo</button>
-                <button id="swipeFocusToggle" class="ghost-button">Focus Mode</button>
-                <button id="swipeDrawerToggle" class="ghost-button">Tinder Controls</button>
+                <button id="swipeUndoButton" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+                <button id="swipeFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+                <button id="swipeDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
               </div>
               <div id="swipeCard" class="swipe-card" data-swipe-mode="swipe">
                 <span class="stamp stamp-left">Keep</span>
                 <span class="stamp stamp-right">Pass</span>
+                <span class="stamp stamp-down">Skip</span>
                 <img id="swipeImage" alt="" draggable="false" />
                 <div class="stage-meta">
                   <h2 id="swipeName">No photos found</h2>
@@ -130,82 +234,61 @@
                   </div>
                 </div>
               </div>
-
               <div class="swipe-actions">
-                <button id="dislikeButton" class="danger-button">Pass</button>
-                <button id="skipButton" class="ghost-button">Skip</button>
-                <button id="likeButton" class="primary-button">Keep</button>
+                <button id="dislikeButton" class="deck-button pass" aria-label="Pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
+                <button id="skipButton" class="deck-button skip" aria-label="Skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span></button>
+                <button id="likeButton" class="deck-button keep" aria-label="Keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
               </div>
             </div>
 
-            <aside id="swipeDrawer" class="drawer inspector" aria-hidden="true">
-              <div class="drawer-header">
-                <h2>Tinder Controls</h2>
-                <button id="swipeDrawerClose" class="ghost-button small-button">Close</button>
+            <aside id="swipeDrawer" class="drawer control-panel" data-mode="swipe" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Photo deck</h2></div>
+                <button id="swipeDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="swipeSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Show</h3>
+                  <div id="swipeRatingFilter" class="segmented" role="group" aria-label="Which photos to show">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                  </div>
+                </section>
+                <p class="cc-keys">← pass · → keep · ↓ skip · U undo · F focus</p>
+                <section class="cc-section cc-danger">
+                  <h3>Start over</h3>
+                  <p class="subtle">Clears likes and dislikes for photos only.</p>
+                  <button id="swipeResetModeButton" class="danger-button small-button">Reset photo ratings</button>
+                </section>
               </div>
-
-              <div class="panel-block">
-                <div class="filter-header">
-                  <p class="panel-label">Folders</p>
-                  <button id="swipeFoldersAllButton" class="ghost-button small-button">Use All</button>
-                </div>
-                <p id="swipeFolderSummary" class="subtle">Using all folders.</p>
-                <div id="swipeFolderFilters" class="folder-list"></div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Show</p>
-                <div id="swipeRatingFilter" class="segmented" role="group" aria-label="Which photos to show">
-                  <button type="button" class="segment" data-rating-filter="all">All</button>
-                  <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
-                  <button type="button" class="segment" data-rating-filter="liked">Liked</button>
-                </div>
-                <button id="shuffleButton" class="ghost-button full-width">
-                  Shuffle Deck
-                </button>
-                <button id="swipeResetModeButton" class="danger-button full-width">
-                  Reset Photo Ratings
-                </button>
-              </div>
-
-              <div class="panel-block shortcuts">
-                <p class="panel-label">Shortcuts</p>
-                <p class="subtle">
-                  Left arrow = pass, right arrow = keep, down arrow or swipe down = skip,
-                  U = undo, F = focus mode.
-                </p>
-              </div>
+              <footer class="drawer-footer">
+                <button id="shuffleButton" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Shuffle deck</button>
+                <button id="swipeResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
             </aside>
           </div>
         </section>
 
+        <!-- ============================== Video deck ============================== -->
         <section id="toktinderMode" class="mode-panel">
           <div class="swipe-layout video-swipe-layout">
             <div class="swipe-stage">
               <div class="stage-toolbar">
-                <button id="toktinderUndoButton" class="ghost-button" disabled>Undo</button>
-                <button id="toktinderFocusToggle" class="ghost-button">Focus Mode</button>
-                <button id="toktinderDrawerToggle" class="ghost-button">TindTok Controls</button>
+                <button id="toktinderUndoButton" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+                <button id="toktinderFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+                <button id="toktinderDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
               </div>
               <div id="toktinderCard" class="swipe-card video-swipe-card" data-swipe-mode="toktinder">
                 <span class="stamp stamp-left">Keep</span>
                 <span class="stamp stamp-right">Pass</span>
+                <span class="stamp stamp-down">Skip</span>
                 <video id="toktinderVideo" playsinline preload="metadata"></video>
                 <div id="toktinderTransport" class="video-transport">
-                  <button id="toktinderPlayToggle" class="transport-button" aria-label="Play or pause">
-                    Pause
-                  </button>
+                  <button id="toktinderPlayToggle" class="transport-button" aria-label="Play or pause">Pause</button>
                   <span id="toktinderTime" class="transport-time">0:00</span>
-                  <input
-                    id="toktinderSeek"
-                    class="transport-seek"
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value="0"
-                    aria-label="Seek"
-                  />
+                  <input id="toktinderSeek" class="transport-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Seek" />
                   <span id="toktinderDuration" class="transport-time">0:00</span>
                 </div>
                 <div class="stage-meta">
@@ -216,165 +299,65 @@
                   </div>
                 </div>
               </div>
-
               <div class="swipe-actions">
-                <button id="toktinderDislikeButton" class="danger-button">Pass</button>
-                <button id="toktinderSkipButton" class="ghost-button">Skip</button>
-                <button id="toktinderLikeButton" class="primary-button">Keep</button>
+                <button id="toktinderDislikeButton" class="deck-button pass" aria-label="Pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
+                <button id="toktinderSkipButton" class="deck-button skip" aria-label="Skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span></button>
+                <button id="toktinderLikeButton" class="deck-button keep" aria-label="Keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
               </div>
             </div>
 
-            <aside id="toktinderDrawer" class="drawer inspector" aria-hidden="true">
-              <div class="drawer-header">
-                <h2>TindTok Controls</h2>
-                <button id="toktinderDrawerClose" class="ghost-button small-button">Close</button>
+            <aside id="toktinderDrawer" class="drawer control-panel" data-mode="toktinder" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Video deck</h2></div>
+                <button id="toktinderDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="toktinderSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Show</h3>
+                  <div id="toktinderRatingFilter" class="segmented" role="group" aria-label="Which videos to show">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Sound</h3>
+                  <button id="toktinderAudioToggleButton" class="sound-toggle" aria-pressed="false">Sound off</button>
+                  <p id="toktinderAudioHint" class="subtle"></p>
+                </section>
+                <p class="cc-keys">← pass · → keep · ↓ skip · Space play/pause · U undo</p>
+                <section class="cc-section cc-danger">
+                  <h3>Start over</h3>
+                  <p class="subtle">Clears likes and dislikes for videos only.</p>
+                  <button id="toktinderResetModeButton" class="danger-button small-button">Reset video ratings</button>
+                </section>
               </div>
-
-              <div class="panel-block">
-                <div class="filter-header">
-                  <p class="panel-label">Folders</p>
-                  <button id="toktinderFoldersAllButton" class="ghost-button small-button">
-                    Use All
-                  </button>
-                </div>
-                <p id="toktinderFolderSummary" class="subtle">Using all folders.</p>
-                <div id="toktinderFolderFilters" class="folder-list"></div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Show</p>
-                <div id="toktinderRatingFilter" class="segmented" role="group" aria-label="Which videos to show">
-                  <button type="button" class="segment" data-rating-filter="all">All</button>
-                  <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
-                  <button type="button" class="segment" data-rating-filter="liked">Liked</button>
-                </div>
-                <button id="toktinderAudioToggleButton" class="ghost-button full-width">
-                  Enable Sound
-                </button>
-                <p id="toktinderAudioHint" class="subtle">
-                  Mobile browsers often require a tap before videos can play with sound.
-                </p>
-                <button id="toktinderShuffleButton" class="ghost-button full-width">
-                  Shuffle Deck
-                </button>
-                <button id="toktinderResetModeButton" class="danger-button full-width">
-                  Reset Video Ratings
-                </button>
-              </div>
-
-              <div class="panel-block shortcuts">
-                <p class="panel-label">Shortcuts</p>
-                <p class="subtle">
-                  Left arrow = pass, right arrow = keep, down arrow or swipe down = skip,
-                  U = undo, F = focus mode.
-                </p>
-              </div>
+              <footer class="drawer-footer">
+                <button id="toktinderShuffleButton" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Shuffle deck</button>
+                <button id="toktinderResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
             </aside>
           </div>
         </section>
 
-        <section id="streamMode" class="mode-panel">
-          <div class="stream-layout">
-            <div class="stage-toolbar">
-              <button id="streamFocusToggle" class="ghost-button">Focus Mode</button>
-              <button id="streamDrawerToggle" class="ghost-button">Stream Controls</button>
-            </div>
-            <div class="stream-stage">
-              <img id="streamPhoto" alt="" />
-              <div id="videoOverlay"></div>
-              <div class="stage-meta">
-                <h2 id="streamPhotoName">Waiting for image</h2>
-                <div class="meta-line">
-                  <span id="streamPhotoFolder" class="subtle"></span>
-                </div>
-              </div>
-            </div>
-
-            <aside id="streamDrawer" class="drawer control-panel" aria-hidden="true">
-              <div class="drawer-header">
-                <h2>Stream Controls</h2>
-                <button id="streamDrawerClose" class="ghost-button small-button">Close</button>
-              </div>
-
-              <div class="panel-block">
-                <div class="filter-header">
-                  <p class="panel-label">Folders</p>
-                  <button id="streamFoldersAllButton" class="ghost-button small-button">Use All</button>
-                </div>
-                <p id="streamFolderSummary" class="subtle">Using all folders.</p>
-                <div id="streamFolderFilters" class="folder-list"></div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Photo Rotation</p>
-                <label>
-                  <span>Interval</span>
-                  <input id="photoInterval" type="range" min="3" max="60" step="1" />
-                  <strong id="photoIntervalValue"></strong>
-                </label>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Corner Videos</p>
-                <label>
-                  <span>Count</span>
-                  <input id="videoSlots" type="range" min="0" max="2" step="1" />
-                  <strong id="videoSlotsValue"></strong>
-                </label>
-                <label>
-                  <span>Volume</span>
-                  <input id="videoVolume" type="range" min="0" max="1" step="0.01" />
-                  <strong id="videoVolumeValue"></strong>
-                </label>
-                <button id="audioToggleButton" class="ghost-button full-width">
-                  Enable Sound
-                </button>
-                <p id="audioHint" class="subtle">
-                  Mobile browsers often require a tap before videos can play with sound.
-                </p>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Clip Start</p>
-                <label>
-                  <span>Mode</span>
-                  <select id="clipStartMode">
-                    <option value="random">Random point</option>
-                    <option value="fixed">Fixed second</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Fixed Start</span>
-                  <input id="clipStartSeconds" type="number" min="0" max="3600" step="1" />
-                </label>
-              </div>
-
-              <div class="panel-block">
-                <button id="refreshStreamButton" class="primary-button full-width">
-                  Refresh Stream
-                </button>
-              </div>
-            </aside>
-          </div>
-        </section>
-
+        <!-- ============================== Escalation ============================== -->
         <section id="escalationMode" class="mode-panel">
           <div class="stream-layout escalation-layout">
             <div class="stage-toolbar">
-              <button id="escalationFocusToggle" class="ghost-button">Focus Mode</button>
-              <button id="escalationDrawerToggle" class="ghost-button">Escalation Controls</button>
+              <button id="escalationFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="escalationDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <div id="escalationStage" class="stream-stage escalation-stage" data-active-kind="idle">
               <img id="escalationPhoto" alt="" />
-              <div class="escalation-video-shell">
-                <video id="escalationVideo" playsinline preload="metadata"></video>
-              </div>
+              <div class="escalation-video-shell"><video id="escalationVideo" playsinline preload="metadata"></video></div>
+              <div id="videoOverlay" class="corner-overlay"></div>
               <div class="escalation-stage-glow"></div>
-              <div class="escalation-stage-scan"></div>
               <div class="escalation-live-chip">
                 <span id="escalationPhaseBadge" class="escalation-phase-badge">Warmup</span>
                 <strong id="escalationTelemetry">Swap 12.0s • 1.0x</strong>
               </div>
+              <div class="escalation-progress"><i id="escalationProgressFill"></i></div>
               <div class="stage-meta">
                 <h2 id="escalationName">Waiting for media</h2>
                 <div class="meta-line">
@@ -384,86 +367,79 @@
               </div>
             </div>
 
-            <aside id="escalationDrawer" class="drawer control-panel" aria-hidden="true">
-              <div class="drawer-header">
-                <h2>Escalation Controls</h2>
-                <button id="escalationDrawerClose" class="ghost-button small-button">Close</button>
+            <aside id="escalationDrawer" class="drawer control-panel" data-mode="escalation" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Escalation</h2></div>
+                <button id="escalationDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="escalationSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Feel</h3>
+                  <div id="escalationPreset" class="preset-grid four" role="group" aria-label="Escalation feel">
+                    <button type="button" class="preset" data-preset="steady"><strong>Steady</strong><small>no ramp · 2 clips</small></button>
+                    <button type="button" class="preset" data-preset="slow"><strong>Slow burn</strong><small>3 min ramp</small></button>
+                    <button type="button" class="preset" data-preset="standard"><strong>Standard</strong><small>90s ramp</small></button>
+                    <button type="button" class="preset" data-preset="overload"><strong>Overload</strong><small>45s · 3x</small></button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Show</h3>
+                  <div id="escalationRatingFilter" class="segmented" role="group" aria-label="Which media to escalate">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Pace</h3>
+                  <button id="escalationRampToggle" class="switch-row" role="switch" aria-checked="true"><span>Speed up over time</span><i aria-hidden="true"></i></button>
+                  <label class="range-row"><span id="escalationBaseIntervalLabel">Starts swapping every</span><strong id="escalationBaseIntervalValue"></strong><input id="escalationBaseInterval" type="range" min="3" max="60" step="1" /></label>
+                  <div id="escalationRampControls" class="cc-sub">
+                    <label class="range-row"><span>Fastest swap</span><strong id="escalationMinIntervalValue"></strong><input id="escalationMinInterval" type="range" min="1" max="8" step="1" /></label>
+                    <label class="range-row"><span>Ramp length</span><strong id="escalationRampSecondsValue"></strong><input id="escalationRampSeconds" type="range" min="20" max="240" step="5" /></label>
+                    <label class="range-row"><span>Top video speed</span><strong id="escalationMaxSpeedValue"></strong><input id="escalationMaxSpeed" type="range" min="1" max="3" step="0.1" /></label>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Corner clips</h3>
+                  <label class="range-row"><span>Small clips over the stage</span><strong id="escalationCornersValue"></strong><input id="escalationCorners" type="range" min="0" max="2" step="1" /></label>
+                  <p class="subtle">Each corner clip plays from a random point and swaps when it ends. They stay muted unless sound is on.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Sound</h3>
+                  <button id="escalationAudioToggleButton" class="sound-toggle" aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Volume</span><strong id="escalationVideoVolumeValue"></strong><input id="escalationVideoVolume" type="range" min="0" max="1" step="0.01" /></label>
+                  <p id="escalationAudioHint" class="subtle"></p>
+                </section>
               </div>
-
-              <div class="panel-block">
-                <div class="filter-header">
-                  <p class="panel-label">Folders</p>
-                  <button id="escalationFoldersAllButton" class="ghost-button small-button">Use All</button>
-                </div>
-                <p id="escalationFolderSummary" class="subtle">Using all folders.</p>
-                <div id="escalationFolderFilters" class="folder-list"></div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Pacing</p>
-                <label>
-                  <span>Start Interval</span>
-                  <input id="escalationBaseInterval" type="range" min="4" max="24" step="1" />
-                  <strong id="escalationBaseIntervalValue"></strong>
-                </label>
-                <label>
-                  <span>Fastest Interval</span>
-                  <input id="escalationMinInterval" type="range" min="1" max="8" step="1" />
-                  <strong id="escalationMinIntervalValue"></strong>
-                </label>
-                <label>
-                  <span>Ramp Length</span>
-                  <input id="escalationRampSeconds" type="range" min="20" max="240" step="5" />
-                  <strong id="escalationRampSecondsValue"></strong>
-                </label>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Video Logic</p>
-                <label>
-                  <span>Top Speed</span>
-                  <input id="escalationMaxSpeed" type="range" min="1" max="3" step="0.1" />
-                  <strong id="escalationMaxSpeedValue"></strong>
-                </label>
-                <label>
-                  <span>Volume</span>
-                  <input id="escalationVideoVolume" type="range" min="0" max="1" step="0.01" />
-                  <strong id="escalationVideoVolumeValue"></strong>
-                </label>
-                <button id="escalationAudioToggleButton" class="ghost-button full-width">
-                  Enable Sound
-                </button>
-                <p id="escalationAudioHint" class="subtle">
-                  Mobile browsers often require a tap before videos can play with sound.
-                </p>
-              </div>
-
-              <div class="panel-block">
-                <button id="escalationRestartButton" class="primary-button full-width">
-                  Restart Escalation
-                </button>
-              </div>
+              <footer class="drawer-footer">
+                <button id="escalationRestartButton" class="primary-button"><svg aria-hidden="true"><use href="#i-refresh" /></svg>Restart ramp</button>
+                <button id="escalationResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
             </aside>
           </div>
         </section>
 
+        <!-- ============================== Session ============================== -->
         <section id="sessionMode" class="mode-panel">
           <div class="stream-layout">
             <div class="stage-toolbar">
-              <button id="sessionToggleButton" class="ghost-button">Start</button>
-              <button id="sessionFocusToggle" class="ghost-button">Focus Mode</button>
-              <button id="sessionDrawerToggle" class="ghost-button">Session Controls</button>
+              <button id="sessionEdgeButton" class="tool-button edge-button" aria-label="Edge: instant hold" hidden><svg aria-hidden="true"><use href="#i-edge" /></svg><span class="label">Edge</span></button>
+              <button id="sessionToggleButton" class="tool-button session-toggle" aria-label="Start session"><svg aria-hidden="true"><use href="#i-play" /></svg><span class="label">Start</span></button>
+              <button id="sessionFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="sessionDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <div id="sessionStage" class="stream-stage session-stage" data-active-kind="idle" data-phase="idle">
               <img id="sessionPhoto" alt="" />
-              <div class="session-video-shell">
-                <video id="sessionVideo" playsinline preload="metadata"></video>
-              </div>
+              <div class="session-video-shell"><video id="sessionVideo" playsinline preload="metadata"></video></div>
               <div class="session-hud">
                 <p id="sessionCue" class="session-cue">Ready</p>
                 <p id="sessionCountdown" class="session-countdown">0:00</p>
                 <div class="session-bar"><div id="sessionBarFill" class="session-bar-fill"></div></div>
                 <div id="sessionRoundPips" class="session-pips"></div>
+                <p id="sessionEdges" class="session-edges" hidden></p>
+                <button id="sessionHudStart" class="primary-button session-start">Start session</button>
               </div>
               <div class="stage-meta">
                 <h2 id="sessionName">Press Start</h2>
@@ -474,273 +450,512 @@
               </div>
             </div>
 
-            <aside id="sessionDrawer" class="drawer control-panel" aria-hidden="true">
-              <div class="drawer-header">
-                <h2>Session Controls</h2>
-                <button id="sessionDrawerClose" class="ghost-button small-button">Close</button>
+            <aside id="sessionDrawer" class="drawer control-panel" data-mode="session" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Session</h2></div>
+                <button id="sessionDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="sessionSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Length</h3>
+                  <div id="sessionPreset" class="preset-grid" role="group" aria-label="Session length">
+                    <button type="button" class="preset" data-preset="quick"><strong>Quick</strong><small>3 rounds</small></button>
+                    <button type="button" class="preset" data-preset="standard"><strong>Standard</strong><small>5 rounds</small></button>
+                    <button type="button" class="preset" data-preset="marathon"><strong>Marathon</strong><small>8 rounds</small></button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Rounds</h3>
+                  <label class="range-row"><span>Rounds</span><strong id="sessionRoundsValue"></strong><input id="sessionRounds" type="range" min="2" max="10" step="1" /></label>
+                  <label class="range-row"><span>First build</span><strong id="sessionBuildSecondsValue"></strong><input id="sessionBuildSeconds" type="range" min="20" max="180" step="5" /></label>
+                  <label class="range-row"><span>Longest hold</span><strong id="sessionHoldSecondsValue"></strong><input id="sessionHoldSeconds" type="range" min="5" max="60" step="5" /></label>
+                  <p class="subtle">Builds get shorter and holds get longer each round. The last round runs open-ended. Tap <b>Edge</b> (or press E) any time for an instant hold.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div id="sessionIncludeVideos" class="segmented" role="group" aria-label="Session media">
+                    <button type="button" class="segment" data-session-media="mixed">Photos + videos</button>
+                    <button type="button" class="segment" data-session-media="photos">Photos only</button>
+                  </div>
+                  <div id="sessionRatingFilter" class="segmented" role="group" aria-label="Which media to show">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Sound</h3>
+                  <button id="sessionAudioToggleButton" class="sound-toggle" aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Volume</span><strong id="sessionVideoVolumeValue"></strong><input id="sessionVideoVolume" type="range" min="0" max="1" step="0.01" /></label>
+                  <p id="sessionAudioHint" class="subtle"></p>
+                </section>
               </div>
-
-              <div class="panel-block">
-                <div class="filter-header">
-                  <p class="panel-label">Folders</p>
-                  <button id="sessionFoldersAllButton" class="ghost-button small-button">Use All</button>
-                </div>
-                <p id="sessionFolderSummary" class="subtle">Using all folders.</p>
-                <div id="sessionFolderFilters" class="folder-list"></div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Shape</p>
-                <label>
-                  <span>Rounds</span>
-                  <input id="sessionRounds" type="range" min="2" max="10" step="1" />
-                  <strong id="sessionRoundsValue"></strong>
-                </label>
-                <label>
-                  <span>First Build</span>
-                  <input id="sessionBuildSeconds" type="range" min="20" max="180" step="5" />
-                  <strong id="sessionBuildSecondsValue"></strong>
-                </label>
-                <label>
-                  <span>Longest Hold</span>
-                  <input id="sessionHoldSeconds" type="range" min="5" max="60" step="5" />
-                  <strong id="sessionHoldSecondsValue"></strong>
-                </label>
-                <p class="subtle">
-                  Builds get shorter and holds get longer each round. The last round runs open-ended.
-                </p>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Media</p>
-                <div id="sessionIncludeVideos" class="segmented" role="group" aria-label="Session media">
-                  <button type="button" class="segment" data-session-media="mixed">Photos + Videos</button>
-                  <button type="button" class="segment" data-session-media="photos">Photos Only</button>
-                </div>
-                <label>
-                  <span>Volume</span>
-                  <input id="sessionVideoVolume" type="range" min="0" max="1" step="0.01" />
-                  <strong id="sessionVideoVolumeValue"></strong>
-                </label>
-                <button id="sessionAudioToggleButton" class="ghost-button full-width">Enable Sound</button>
-                <p id="sessionAudioHint" class="subtle">
-                  Mobile browsers often require a tap before videos can play with sound.
-                </p>
-              </div>
-
-              <div class="panel-block">
-                <button id="sessionRestartButton" class="primary-button full-width">Restart Session</button>
-              </div>
+              <footer class="drawer-footer">
+                <button id="sessionRestartButton" class="primary-button"><svg aria-hidden="true"><use href="#i-play" /></svg>Start fresh</button>
+                <button id="sessionResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
             </aside>
           </div>
         </section>
 
+        <!-- ============================== Gallery ============================== -->
         <section id="galleryMode" class="mode-panel">
           <div class="gallery-layout">
+            <div class="stage-toolbar">
+              <button id="galleryDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
             <div class="gallery-toolbar">
-              <input
-                id="gallerySearch"
-                type="search"
-                placeholder="Search file names"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-              />
-              <button id="galleryDrawerToggle" class="ghost-button">Gallery Controls</button>
+              <label class="search-field">
+                <svg aria-hidden="true"><use href="#i-search" /></svg>
+                <input id="gallerySearch" type="search" placeholder="Search file names" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search file names" />
+              </label>
+              <div id="galleryQuickFilter" class="segmented compact" role="group" aria-label="Quick filter">
+                <button type="button" class="segment" data-rating-filter="all">All</button>
+                <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+              </div>
             </div>
             <div id="galleryGrid" class="gallery-grid"></div>
             <div class="gallery-footer">
-              <button id="galleryPrevPage" class="ghost-button small-button">Previous</button>
+              <button id="galleryPrevPage" class="icon-button" aria-label="Previous page"><svg aria-hidden="true"><use href="#i-left" /></svg></button>
               <span id="galleryPageInfo" class="subtle">No media</span>
-              <button id="galleryNextPage" class="ghost-button small-button">Next</button>
+              <button id="galleryNextPage" class="icon-button" aria-label="Next page"><svg aria-hidden="true"><use href="#i-right" /></svg></button>
             </div>
 
-            <aside id="galleryDrawer" class="drawer control-panel" aria-hidden="true">
-              <div class="drawer-header">
-                <h2>Gallery Controls</h2>
-                <button id="galleryDrawerClose" class="ghost-button small-button">Close</button>
+            <aside id="galleryDrawer" class="drawer control-panel" data-mode="gallery" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Gallery</h2></div>
+                <button id="galleryDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="gallerySummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Show</h3>
+                  <div id="galleryRatingFilter" class="segmented" role="group" aria-label="Which media to show">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                  </div>
+                  <div id="galleryKind" class="segmented" role="group" aria-label="Media kind">
+                    <button type="button" class="segment" data-gallery-kind="all">Both</button>
+                    <button type="button" class="segment" data-gallery-kind="photos">Photos</button>
+                    <button type="button" class="segment" data-gallery-kind="videos">Videos</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Order</h3>
+                  <label class="select-row"><span>Sort by</span>
+                    <select id="gallerySort">
+                      <option value="name">Name</option>
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                      <option value="largest">Largest first</option>
+                      <option value="random">Random</option>
+                    </select>
+                  </label>
+                </section>
               </div>
-
-              <div class="panel-block">
-                <div class="filter-header">
-                  <p class="panel-label">Folders</p>
-                  <button id="galleryFoldersAllButton" class="ghost-button small-button">Use All</button>
-                </div>
-                <p id="galleryFolderSummary" class="subtle">Using all folders.</p>
-                <div id="galleryFolderFilters" class="folder-list"></div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Show</p>
-                <div id="galleryRatingFilter" class="segmented" role="group" aria-label="Which media to show">
-                  <button type="button" class="segment" data-rating-filter="all">All</button>
-                  <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
-                  <button type="button" class="segment" data-rating-filter="liked">Liked</button>
-                </div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Kind</p>
-                <div id="galleryKind" class="segmented" role="group" aria-label="Media kind">
-                  <button type="button" class="segment" data-gallery-kind="all">Both</button>
-                  <button type="button" class="segment" data-gallery-kind="photos">Photos</button>
-                  <button type="button" class="segment" data-gallery-kind="videos">Videos</button>
-                </div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Order</p>
-                <label>
-                  <span>Sort by</span>
-                  <select id="gallerySort">
-                    <option value="name">Name</option>
-                    <option value="newest">Newest first</option>
-                    <option value="oldest">Oldest first</option>
-                    <option value="largest">Largest first</option>
-                    <option value="random">Random</option>
-                  </select>
-                </label>
-              </div>
+              <footer class="drawer-footer">
+                <button id="galleryDoneButton" class="primary-button"><svg aria-hidden="true"><use href="#i-check" /></svg>Done</button>
+                <button id="galleryResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
             </aside>
           </div>
         </section>
 
+        <!-- ============================== Collection ============================== -->
+        <section id="rankedMode" class="mode-panel">
+          <div class="ranked-layout">
+            <div class="ranked-scroller" id="rankedScroller">
+              <div class="ranked-stats" id="rankedStats"></div>
+              <div id="rankedPlay" class="ranked-play"></div>
+              <section class="ranked-section">
+                <div class="ranked-section-head">
+                  <h2>Top folders</h2>
+                  <span id="rankedFolderNote" class="subtle"></span>
+                </div>
+                <ol id="rankedFolders" class="ranked-folders"></ol>
+              </section>
+              <section class="ranked-section">
+                <div class="ranked-section-head">
+                  <h2>Everything you kept</h2>
+                  <div class="ranked-controls">
+                    <div id="rankedKind" class="segmented compact" role="group" aria-label="Which kept media to show">
+                      <button type="button" class="segment" data-ranked-kind="all">All</button>
+                      <button type="button" class="segment" data-ranked-kind="photos">Photos</button>
+                      <button type="button" class="segment" data-ranked-kind="videos">Videos</button>
+                    </div>
+                    <label class="inline-select">
+                      <span>Sort</span>
+                      <select id="rankedSort">
+                        <option value="recent">Newest kept</option>
+                        <option value="oldest">Oldest kept</option>
+                        <option value="folder">Folder</option>
+                        <option value="name">Name</option>
+                        <option value="largest">Largest file</option>
+                        <option value="duel">Duel rank</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+                <div id="rankedGrid" class="gallery-grid"></div>
+                <p id="rankedEmpty" class="subtle ranked-empty" hidden></p>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================== Mosaic ============================== -->
         <section id="mosaicMode" class="mode-panel">
           <div class="stream-layout">
             <div class="stage-toolbar">
-              <button id="mosaicShuffleButton" class="ghost-button">Shuffle</button>
-              <button id="mosaicFocusToggle" class="ghost-button">Focus Mode</button>
-              <button id="mosaicDrawerToggle" class="ghost-button">Mosaic Controls</button>
+              <button id="mosaicShuffleButton" class="tool-button" aria-label="Shuffle wall"><svg aria-hidden="true"><use href="#i-shuffle" /></svg><span class="label">Shuffle</span></button>
+              <button id="mosaicFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="mosaicDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <div id="mosaicStage" class="mosaic-stage"></div>
-            <div class="panel-note">
-              <p id="mosaicStatus" class="subtle">Building the wall...</p>
-            </div>
+            <div class="panel-note"><p id="mosaicStatus" class="subtle">Building the wall...</p></div>
 
-            <aside id="mosaicDrawer" class="drawer control-panel" aria-hidden="true">
-              <div class="drawer-header">
-                <h2>Mosaic Controls</h2>
-                <button id="mosaicDrawerClose" class="ghost-button small-button">Close</button>
+            <aside id="mosaicDrawer" class="drawer control-panel" data-mode="mosaic" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Mosaic</h2></div>
+                <button id="mosaicDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="mosaicSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Feel</h3>
+                  <div id="mosaicPreset" class="preset-grid" role="group" aria-label="Mosaic feel">
+                    <button type="button" class="preset" data-preset="calm"><strong>Calm</strong><small>4 tiles · 24s</small></button>
+                    <button type="button" class="preset" data-preset="busy"><strong>Busy</strong><small>6 tiles · 12s</small></button>
+                    <button type="button" class="preset" data-preset="frantic"><strong>Frantic</strong><small>9 tiles · 5s</small></button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Wall</h3>
+                  <div id="mosaicTiles" class="segmented" role="group" aria-label="Tile count">
+                    <button type="button" class="segment" data-mosaic-tiles="4">4 tiles</button>
+                    <button type="button" class="segment" data-mosaic-tiles="6">6 tiles</button>
+                    <button type="button" class="segment" data-mosaic-tiles="9">9 tiles</button>
+                  </div>
+                  <label class="range-row"><span>Each tile swaps every</span><strong id="mosaicSwapSecondsValue"></strong><input id="mosaicSwapSeconds" type="range" min="4" max="60" step="1" /></label>
+                  <div class="button-row">
+                    <button id="mosaicPauseButton" class="ghost-button small-button">Pause wall</button>
+                    <button id="mosaicSwapAllButton" class="ghost-button small-button">Swap all now</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div id="mosaicIncludePhotos" class="segmented" role="group" aria-label="Mosaic media">
+                    <button type="button" class="segment" data-mosaic-media="videos">Videos only</button>
+                    <button type="button" class="segment" data-mosaic-media="mixed">Photos + videos</button>
+                  </div>
+                  <div id="mosaicRatingFilter" class="segmented" role="group" aria-label="Which media to show">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Sound</h3>
+                  <button id="mosaicAudioToggleButton" class="sound-toggle" aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Volume</span><strong id="mosaicVolumeValue"></strong><input id="mosaicVolume" type="range" min="0" max="1" step="0.01" /></label>
+                  <p class="subtle">Tap a tile to move the sound to it. Only one tile is ever audible.</p>
+                  <p id="mosaicAudioHint" class="subtle"></p>
+                </section>
               </div>
-
-              <div class="panel-block">
-                <div class="filter-header">
-                  <p class="panel-label">Folders</p>
-                  <button id="mosaicFoldersAllButton" class="ghost-button small-button">Use All</button>
-                </div>
-                <p id="mosaicFolderSummary" class="subtle">Using all folders.</p>
-                <div id="mosaicFolderFilters" class="folder-list"></div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Wall</p>
-                <div id="mosaicTiles" class="segmented" role="group" aria-label="Tile count">
-                  <button type="button" class="segment" data-mosaic-tiles="4">4</button>
-                  <button type="button" class="segment" data-mosaic-tiles="6">6</button>
-                  <button type="button" class="segment" data-mosaic-tiles="9">9</button>
-                </div>
-                <label>
-                  <span>Swap Every</span>
-                  <input id="mosaicSwapSeconds" type="range" min="4" max="60" step="1" />
-                  <strong id="mosaicSwapSecondsValue"></strong>
-                </label>
-                <div id="mosaicIncludePhotos" class="segmented" role="group" aria-label="Mosaic media">
-                  <button type="button" class="segment" data-mosaic-media="videos">Videos Only</button>
-                  <button type="button" class="segment" data-mosaic-media="mixed">Photos + Videos</button>
-                </div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Sound</p>
-                <p class="subtle">Tap a tile to move the sound to it. Only one tile is ever audible.</p>
-                <label>
-                  <span>Volume</span>
-                  <input id="mosaicVolume" type="range" min="0" max="1" step="0.01" />
-                  <strong id="mosaicVolumeValue"></strong>
-                </label>
-                <button id="mosaicAudioToggleButton" class="ghost-button full-width">Enable Sound</button>
-                <p id="mosaicAudioHint" class="subtle">
-                  Mobile browsers often require a tap before videos can play with sound.
-                </p>
-              </div>
+              <footer class="drawer-footer">
+                <button id="mosaicRebuildButton" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>New wall</button>
+                <button id="mosaicResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
             </aside>
           </div>
         </section>
 
+        <!-- ============================== Feed ============================== -->
         <section id="feedMode" class="mode-panel">
           <div class="feed-layout">
             <div class="stage-toolbar">
-              <button id="feedFocusToggle" class="ghost-button">Focus Mode</button>
-              <button id="feedDrawerToggle" class="ghost-button">Feed Controls</button>
+              <button id="feedFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="feedDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <div id="feedScroller" class="feed-scroller"></div>
 
-            <aside id="feedDrawer" class="drawer control-panel" aria-hidden="true">
-              <div class="drawer-header">
-                <h2>Feed Controls</h2>
-                <button id="feedDrawerClose" class="ghost-button small-button">Close</button>
+            <aside id="feedDrawer" class="drawer control-panel" data-mode="feed" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Feed</h2></div>
+                <button id="feedDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="feedSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Show</h3>
+                  <div id="feedRatingFilter" class="segmented" role="group" aria-label="Which videos to show">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>When a clip ends</h3>
+                  <div id="feedAutoAdvance" class="segmented" role="group" aria-label="What a clip does when it ends">
+                    <button type="button" class="segment" data-feed-end="loop">Loop it</button>
+                    <button type="button" class="segment" data-feed-end="advance">Next clip</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Sound</h3>
+                  <button id="feedAudioToggleButton" class="sound-toggle" aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Volume</span><strong id="feedVolumeValue"></strong><input id="feedVolume" type="range" min="0" max="1" step="0.01" /></label>
+                  <p id="feedAudioHint" class="subtle"></p>
+                </section>
+                <p class="cc-keys">Tap to pause · double-tap to keep · ↑ ↓ or swipe for the next clip</p>
               </div>
+              <footer class="drawer-footer">
+                <button id="feedShuffleButton" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Reshuffle feed</button>
+                <button id="feedResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
 
-              <div class="panel-block">
-                <div class="filter-header">
-                  <p class="panel-label">Folders</p>
-                  <button id="feedFoldersAllButton" class="ghost-button small-button">Use All</button>
+        <!-- ============================== Duel ============================== -->
+        <section id="duelMode" class="mode-panel">
+          <div class="duel-layout">
+            <div class="stage-toolbar">
+              <span id="duelProgress" class="tool-note"></span>
+              <button id="duelUndoButton" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="duelFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="duelDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <div id="duelArena" class="duel-arena">
+              <button id="duelLeft" class="duel-side" data-side="0" aria-label="Pick this one">
+                <img alt="" draggable="false" hidden /><video playsinline muted loop hidden></video>
+                <span class="duel-key" aria-hidden="true">←</span>
+                <span class="duel-caption"><strong></strong><small></small></span>
+                <span class="duel-win" aria-hidden="true"><svg><use href="#i-heart" /></svg></span>
+              </button>
+              <span class="duel-vs" aria-hidden="true">vs</span>
+              <button id="duelRight" class="duel-side" data-side="1" aria-label="Pick this one">
+                <img alt="" draggable="false" hidden /><video playsinline muted loop hidden></video>
+                <span class="duel-key" aria-hidden="true">→</span>
+                <span class="duel-caption"><strong></strong><small></small></span>
+                <span class="duel-win" aria-hidden="true"><svg><use href="#i-heart" /></svg></span>
+              </button>
+              <div id="duelEmpty" class="duel-empty" hidden>
+                <h2>Not enough to compare.</h2>
+                <p id="duelEmptyText">Duel needs at least two files. Keep a few more, or set Show to All under Adjust.</p>
+              </div>
+            </div>
+            <div class="duel-actions">
+              <button id="duelSkipButton" class="deck-button skip"><svg aria-hidden="true"><use href="#i-shuffle" /></svg><span>New pair</span><kbd>↓</kbd></button>
+            </div>
+
+            <aside id="duelDrawer" class="drawer control-panel" data-mode="duel" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Duel</h2></div>
+                <button id="duelDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="duelSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Compare</h3>
+                  <div id="duelKind" class="segmented" role="group" aria-label="What to compare">
+                    <button type="button" class="segment" data-duel-kind="photos">Photos</button>
+                    <button type="button" class="segment" data-duel-kind="videos">Videos</button>
+                    <button type="button" class="segment" data-duel-kind="all">Both</button>
+                  </div>
+                  <div id="duelRatingFilter" class="segmented" role="group" aria-label="Which files take part">
+                    <button type="button" class="segment" data-rating-filter="liked">Kept only</button>
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                  </div>
+                  <p class="subtle">Each pick moves both files up or down a chess-style ranking. Close matches and files with few duels come up first, so the order sharpens quickly.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Top ranked</h3>
+                  <ol id="duelLeaders" class="duel-leaders"></ol>
+                  <button id="duelLeadersOpen" class="ghost-button small-button">See the full ranking in Collection</button>
+                </section>
+                <section class="cc-section cc-danger">
+                  <h3>Start over</h3>
+                  <p class="subtle">Forgets every duel result. Likes and dislikes are not touched.</p>
+                  <button id="duelResetButton" class="danger-button small-button">Reset duel ranking</button>
+                </section>
+                <p class="cc-keys">← left wins · → right wins · ↓ new pair · U undo</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="duelShuffleButton" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>New pair</button>
+                <button id="duelResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Rediscover ============================== -->
+        <section id="rediscoverMode" class="mode-panel">
+          <div class="swipe-layout">
+            <div class="stage-toolbar">
+              <span id="rediscoverProgress" class="tool-note"></span>
+              <button id="rediscoverUndoButton" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="rediscoverFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="rediscoverDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <div class="swipe-stage">
+              <div id="rediscoverCard" class="swipe-card rediscover-card">
+                <span class="stamp stamp-left">Keep</span>
+                <span class="stamp stamp-right">Pass</span>
+                <span class="stamp stamp-down">Skip</span>
+                <img id="rediscoverImage" alt="" draggable="false" hidden />
+                <video id="rediscoverVideo" playsinline loop hidden></video>
+                <span id="rediscoverBadge" class="rediscover-badge"></span>
+                <div id="rediscoverEmpty" class="dangerous-empty" hidden>
+                  <svg aria-hidden="true"><use href="#i-check" /></svg>
+                  <h2>You've seen it all.</h2><p>Nothing matches the filter. Widen the folders or Show under Adjust.</p>
                 </div>
-                <p id="feedFolderSummary" class="subtle">Using all folders.</p>
-                <div id="feedFolderFilters" class="folder-list"></div>
-              </div>
-
-              <div class="panel-block">
-                <p class="panel-label">Show</p>
-                <div id="feedRatingFilter" class="segmented" role="group" aria-label="Which videos to show">
-                  <button type="button" class="segment" data-rating-filter="all">All</button>
-                  <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
-                  <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                <div class="stage-meta">
+                  <h2 id="rediscoverName"></h2>
+                  <div class="meta-line">
+                    <span id="rediscoverFolder" class="subtle"></span>
+                    <span id="rediscoverStatus" class="subtle meta-status"></span>
+                  </div>
                 </div>
               </div>
-
-              <div class="panel-block">
-                <label>
-                  <span>Volume</span>
-                  <input id="feedVolume" type="range" min="0" max="1" step="0.01" />
-                  <strong id="feedVolumeValue"></strong>
-                </label>
-                <button id="feedAudioToggleButton" class="ghost-button full-width">Enable Sound</button>
-                <p id="feedAudioHint" class="subtle">
-                  Mobile browsers often require a tap before videos can play with sound.
-                </p>
-                <button id="feedShuffleButton" class="ghost-button full-width">Reshuffle Feed</button>
+              <div class="swipe-actions">
+                <button id="rediscoverPass" class="deck-button pass" aria-label="Pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
+                <button id="rediscoverSkip" class="deck-button skip" aria-label="Skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span></button>
+                <button id="rediscoverKeep" class="deck-button keep" aria-label="Keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
               </div>
+            </div>
 
-              <div class="panel-block shortcuts">
-                <p class="panel-label">Shortcuts</p>
-                <p class="subtle">Double-tap a clip to keep it. Scroll or swipe up for the next one.</p>
+            <aside id="rediscoverDrawer" class="drawer control-panel" data-mode="rediscover" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Rediscover</h2></div>
+                <button id="rediscoverDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="rediscoverSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div id="rediscoverKind" class="segmented" role="group" aria-label="Which media">
+                    <button type="button" class="segment" data-rediscover-kind="all">Both</button>
+                    <button type="button" class="segment" data-rediscover-kind="photos">Photos</button>
+                    <button type="button" class="segment" data-rediscover-kind="videos">Videos</button>
+                  </div>
+                  <div id="rediscoverRatingFilter" class="segmented" role="group" aria-label="Which files">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                  </div>
+                  <p class="subtle">Files never shown in any mode come first, then whatever has gone longest without a look. Everything you see anywhere in the app counts as seen.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Sound</h3>
+                  <button id="rediscoverSound" class="sound-toggle" aria-pressed="false">Sound off</button>
+                </section>
+                <p class="cc-keys">← pass · → keep · ↓ skip · U undo</p>
               </div>
+              <footer class="drawer-footer">
+                <button id="rediscoverRefresh" class="primary-button"><svg aria-hidden="true"><use href="#i-refresh" /></svg>Deal again</button>
+                <button id="rediscoverResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Dangerous ============================== -->
+        <section id="dangerousMode" class="mode-panel">
+          <div class="dangerous-layout">
+            <div class="stage-toolbar">
+              <span id="dangerousProgress" class="tool-note"></span>
+              <button id="dangerousUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="dangerousFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="dangerousDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <p id="dangerousReadOnly" class="readonly-note" hidden>This drive is read-only. Keep and Skip work; deletion needs a writable media folder.</p>
+            <div id="dangerousCard" class="dangerous-card">
+              <span class="danger-stamp delete-stamp">Delete</span><span class="danger-stamp keep-stamp">Keep</span>
+              <img id="dangerousImage" alt="" draggable="false" hidden />
+              <video id="dangerousVideo" playsinline loop controls hidden></video>
+              <div id="dangerousEmpty" class="dangerous-empty" hidden>
+                <svg aria-hidden="true"><use href="#i-check" /></svg>
+                <h2>All sorted.</h2><p>Try another filter or shuffle to browse again.</p>
+              </div>
+              <div class="dangerous-caption">
+                <span id="dangerousType" class="outline-tag"></span>
+                <div><strong id="dangerousName"></strong><span id="dangerousFolder"></span></div>
+              </div>
+            </div>
+            <div class="dangerous-actions">
+              <button id="dangerousDelete" class="deck-button delete"><svg aria-hidden="true"><use href="#i-trash" /></svg><span>Delete</span><kbd>←</kbd></button>
+              <button id="dangerousSkip" class="deck-button skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span><kbd>↓</kbd></button>
+              <button id="dangerousKeep" class="deck-button keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span><kbd>→</kbd></button>
+            </div>
+            <p class="dangerous-footnote">Delete moves the original into local trash — Undo or Settings brings it back. <span id="dangerousSessionCount">0 kept · 0 deleted</span></p>
+
+            <aside id="dangerousDrawer" class="drawer control-panel" data-mode="dangerous" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Dangerous</h2></div>
+                <button id="dangerousDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="dangerousSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div id="dangerousKind" class="segmented" role="group" aria-label="Which media to review">
+                    <button type="button" class="segment" data-dangerous-kind="all">Both</button>
+                    <button type="button" class="segment" data-dangerous-kind="photo">Photos</button>
+                    <button type="button" class="segment" data-dangerous-kind="video">Videos</button>
+                  </div>
+                  <button id="dangerousUnrated" class="switch-row" role="switch" aria-checked="false"><span>Only files I haven't rated</span><i aria-hidden="true"></i></button>
+                </section>
+                <section class="cc-section">
+                  <h3>Sound</h3>
+                  <button id="dangerousSound" class="sound-toggle" aria-pressed="false">Sound off</button>
+                </section>
+                <p class="cc-keys">← delete · → keep · ↓ skip · U undo</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="dangerousShuffle" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Shuffle deck</button>
+                <button id="dangerousResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
             </aside>
           </div>
         </section>
       </main>
     </div>
 
+    <div id="modeLauncher" class="launcher" hidden role="dialog" aria-modal="true" aria-label="Pick a mode">
+      <div class="launcher-sheet">
+        <div class="launcher-head">
+          <div><span class="eyebrow">Switch mode</span><h2>Where to?</h2><p id="launcherMeta" class="subtle"></p></div>
+          <button id="launcherClose" class="icon-button" aria-label="Close"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+        </div>
+        <div id="launcherGrid" class="launcher-grid"></div>
+      </div>
+    </div>
+
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 
-    <div id="galleryLightbox" class="lightbox" hidden>
-      <div class="lightbox-media">
-        <img id="lightboxImage" alt="" hidden />
-        <video id="lightboxVideo" playsinline controls hidden></video>
-      </div>
-      <div class="lightbox-bar">
-        <button id="lightboxPrev" class="ghost-button small-button">Prev</button>
+    <div id="galleryLightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Media preview">
+      <div class="lightbox-top">
         <div class="lightbox-caption">
           <strong id="lightboxName"></strong>
           <span id="lightboxFolder" class="subtle"></span>
         </div>
-        <button id="lightboxNext" class="ghost-button small-button">Next</button>
+        <span id="lightboxCount" class="lightbox-count"></span>
+        <button id="lightboxClose" class="icon-button on-media" aria-label="Close preview"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+      </div>
+      <div class="lightbox-media">
+        <button id="lightboxPrev" class="lightbox-nav prev" aria-label="Previous"><svg aria-hidden="true"><use href="#i-left" /></svg></button>
+        <img id="lightboxImage" alt="" hidden />
+        <video id="lightboxVideo" playsinline controls hidden></video>
+        <button id="lightboxNext" class="lightbox-nav next" aria-label="Next"><svg aria-hidden="true"><use href="#i-right" /></svg></button>
       </div>
       <div class="lightbox-actions">
-        <button id="lightboxDislike" class="danger-button">Pass</button>
-        <button id="lightboxLike" class="primary-button">Keep</button>
-        <button id="lightboxClose" class="ghost-button">Close</button>
+        <button id="lightboxDislike" class="deck-button pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
+        <button id="lightboxLike" class="deck-button keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
       </div>
     </div>
 
@@ -748,7 +963,7 @@
       <div class="mosaic-tile">
         <video playsinline preload="metadata" muted></video>
         <img alt="" hidden />
-        <span class="mosaic-audio-dot" aria-hidden="true"></span>
+        <span class="mosaic-audio-dot" aria-hidden="true"><svg><use href="#i-sound" /></svg></span>
       </div>
     </template>
 
@@ -760,18 +975,45 @@
           <span class="feed-item-folder subtle"></span>
         </div>
         <div class="feed-item-actions">
-          <button type="button" class="danger-button feed-pass">Pass</button>
-          <button type="button" class="primary-button feed-keep">Keep</button>
+          <button type="button" class="deck-button pass feed-pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
+          <button type="button" class="deck-button keep feed-keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
         </div>
       </article>
     </template>
 
     <template id="videoSlotTemplate">
-      <div class="video-slot">
-        <video playsinline preload="metadata"></video>
+      <div class="video-slot"><video playsinline preload="metadata"></video></div>
+    </template>
+
+    <!-- Cloned into each control center's Folders tab. IDs are filled in per mode. -->
+    <template id="folderPickerTemplate">
+      <div class="drawer-body folder-panel" data-panel="folders" hidden>
+        <div class="fp-head">
+          <label class="search-field">
+            <svg aria-hidden="true"><use href="#i-search" /></svg>
+            <input data-fp-id="FolderSearch" type="search" placeholder="Search folders" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search folders" />
+          </label>
+          <div class="fp-status">
+            <p data-fp-id="FolderSummary" class="fp-summary"></p>
+            <div class="fp-meter" aria-hidden="true"><i></i></div>
+          </div>
+          <div class="fp-actions">
+            <button type="button" class="chip" data-fp-id="FoldersAllButton">All</button>
+            <button type="button" class="chip" data-fp-id="FoldersNoneButton">None</button>
+            <button type="button" class="chip" data-fp="invert">Invert</button>
+            <button type="button" class="chip" data-fp="expand">Expand all</button>
+            <button type="button" class="chip chip-sort" data-fp="sort">A–Z</button>
+          </div>
+          <div class="fp-sets" data-fp="sets"></div>
+        </div>
+        <div data-fp-id="FolderFilters" class="fp-list" role="tree" aria-multiselectable="true"></div>
+        <div class="fp-foot">
+          <button type="button" class="ghost-button small-button" data-fp-id="FoldersSyncButton">Use this selection in every mode</button>
+        </div>
       </div>
     </template>
 
-    <script src="/app.js?v=2" defer></script>
+    <div id="workspaceToast" class="workspace-toast" role="status" hidden></div>
+    <script src="/app.js?v=5" defer></script>
   </body>
 </html>

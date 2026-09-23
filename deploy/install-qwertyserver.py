@@ -44,7 +44,8 @@ def main():
         raise SystemExit("Run: sudo python3 /home/qwerty/git/edgingHeaven/deploy/install-qwertyserver.py")
     DOC.parent.mkdir(exist_ok=True)
     os.chown(DOC.parent, USER.pw_uid, USER.pw_gid)
-    write_user(DOC, (REPO / "deploy/EDGING-HEAVEN.md").read_text(), 0o644)
+    if not DOC.exists():
+        write_user(DOC, (REPO / "deploy/EDGING-HEAVEN.md").read_text(), 0o644)
     try:
         install()
     except Exception as error:
@@ -72,7 +73,9 @@ def install():
     for line in old.splitlines():
         fields = line.split()
         if fields and not line.lstrip().startswith("#") and (fields[0] == f"UUID={UUID}" or (len(fields) > 1 and fields[1] == str(MOUNT))):
-            if line != entry:
+            if line == entry.replace("vfat ro,", "vfat rw,"):
+                entry = line  # Preserve an already activated Dangerous mount.
+            elif line != entry:
                 raise RuntimeError("An existing fstab entry needs review: " + line)
     backup(fstab)
     if entry not in old.splitlines():

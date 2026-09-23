@@ -1,6 +1,116 @@
 # Edging Heaven on qwertyserver
 
-**Status: prepared; administrator installation has not run yet.**
+**Status: the existing service is running and enabled. The monochrome interface is available after reloading. Backend performance changes and Dangerous deletion await activation. Verified library: 11771 images and 1224 videos.**
+
+
+## Interface, playback, and Dangerous mode
+
+The interface has black/white themes, desktop/tablet navigation, phone mode
+selection, touch swipes, bottom-sheet controls, and a Hub with statistics and
+trash recovery. No npm build or external Python packages are required.
+
+<!-- dangerous-status-start -->
+Dangerous deployment: **pending activation**. The service is active and enabled, but still runs the previous Python backend. The Lexar mount is verified read-only (`ro`). The new interface is served directly from the checkout; Delete is disabled until the new backend and writable mount are activated. `sudo -n true` failed because interactive authentication is required. Run the activation command below in a terminal. No media files were changed.
+<!-- dangerous-status-end -->
+
+### Why these changes
+
+| Choice | Reason and tradeoff |
+|---|---|
+| Same Python server and static assets | Keeps the existing service and port. No additional daemon or package. |
+| Active-mode media only | Leaving a mode releases video/image sources so hidden players do not compete for bandwidth. Gallery video tiles show a title instead of downloading full videos for previews. |
+| Virtual fast-start MP4 | A small in-memory index is moved before the video bytes in HTTP responses. Range offsets are adjusted. Original files are unchanged. Unsupported layouts fall back to original bytes. Nineteen of forty sampled MP4s qualified. |
+| 1 MiB open-ended range responses | Limits individual transfers competing on remote connections. Byte-range clients request subsequent chunks as needed. |
+| Writable mount plus reversible trash | Actual Delete must move the source file, which `ro` forbids. Same-drive renames are fast even for large videos. Trash retains disk usage until removed manually. |
+| Explicit loading state | After eight seconds the user can Retry or Skip. A slow response alone does not mark a file broken. This does not transcode unsupported codecs or guarantee remote network speed. |
+
+### Files involved
+
+| Full path | Purpose |
+|---|---|
+| `/home/qwerty/git/edgingHeaven/static/index.html` | New navigation, Hub, Dangerous deck, accessible actions |
+| `/home/qwerty/git/edgingHeaven/static/styles.css` | Monochrome and responsive layouts, touch targets, reduced-motion support |
+| `/home/qwerty/git/edgingHeaven/static/app.js` | Mode lifecycle, loading feedback, swipes, keep/delete/undo and recovery |
+| `/home/qwerty/git/edgingHeaven/server.py` | Trash APIs, media range serving, `/thumb` + `/api/thumb`, `/api/duel`, `/api/seen`, web manifest |
+| `/home/qwerty/.local/share/edging-heaven/seen.json` | Last time each file was on screen (Rediscover) |
+| `/home/qwerty/.local/share/edging-heaven/thumbs/` | Browser-made video stills; disposable, private (real frames) |
+| `/home/qwerty/git/edgingHeaven/faststart.py` | Virtual MP4 byte layout; reads originals without changing them |
+| `/home/qwerty/git/edgingHeaven/tests/test_media_features.py` | File recovery, path protection, virtual byte-range tests |
+| `/home/qwerty/git/edgingHeaven/tests/test_http_media.py` | HTTP ranges, EOF clamping, HEAD and bounded transfers |
+| `/home/qwerty/git/edgingHeaven/tests/test_duel_seen_thumbs.py` | Duel Elo, seen times and stored stills against generated stub files |
+| `/home/qwerty/git/edgingHeaven/tests/browser_design.py` | Chromium checks of every mode at eight sizes using only `/mnt/edging-heaven/testing` |
+| `/home/qwerty/git/edgingHeaven/deploy/enable-dangerous.py` | Activates the backend and mount; verifies the result and updates these notes |
+| `/home/qwerty/git/edgingHeaven/README.md` | App usage and verification |
+| `/etc/fstab` | Activation changes only the existing Lexar entry from `ro` to `rw` |
+| `/etc/fstab.before-dangerous` | Created by activation before the mount policy change |
+| `/mnt/edging-heaven/baza/.heaven-trash/<token>/media` | Created only by Delete: the moved original |
+| `/mnt/edging-heaven/baza/.heaven-trash/<token>/record.json` | Original relative path and rating metadata for restoration |
+| `/home/qwerty/infomds/EDGING-HEAVEN.md` | Service details and verified activation state |
+| `/home/qwerty/infomds/MANIFEST.md` | Restore plan and deployment gap |
+
+No packages installed. No new port, unit, credential, or Tailscale mapping.
+
+### Activate and verify
+
+Run from a terminal on this machine. `sudo` needs your password interactively;
+do not put the password in a command or send it to an agent.
+
+```bash
+python3 -m unittest discover -s /home/qwerty/git/edgingHeaven/tests -t /home/qwerty/git/edgingHeaven/tests -v
+sudo python3 /home/qwerty/git/edgingHeaven/deploy/enable-dangerous.py
+systemctl is-active edging-heaven.service
+findmnt -rn -t vfat -o TARGET,OPTIONS /mnt/edging-heaven
+curl --fail http://127.0.0.1:8420/api/state | python3 -c 'import json,sys; p=json.load(sys.stdin); print({"ready":p["libraryReady"],"writable":p.get("canTrash")})'
+journalctl -u edging-heaven.service -n 30 --no-pager
+```
+
+The test command needs the repository on Python's import path when run from
+another directory. Use `PYTHONPATH=/home/qwerty/git/edgingHeaven` before it.
+Activation verifies the expected UUID and mount, changes fstab, remounts `rw`,
+restarts the existing systemd unit, and waits for `canTrash: true`. It updates
+both documentation status blocks only after verification. On failure it restores
+fstab, attempts the original mount policy, and records the incomplete state.
+It does not move any media files.
+
+Reload the browser afterward. On a fresh OS, first follow the installation
+commands below, then run this activation command to enable Dangerous deletion.
+
+### Use and recover
+
+- **Delete / swipe left:** moves the original into `.heaven-trash`; it disappears from every mode and rescan.
+- **Keep / swipe right:** saves a like; the original stays in its folder.
+- **Skip / swipe down key:** advances without changing the file.
+- **Undo / U:** reverses the last action in the current browser session.
+- **Hub → Review trash → Restore:** works after browser or server restarts and restores the original relative path. An existing destination is never overwritten.
+- Trash is on the USB drive, not the SSD. It is neither served by `/media` nor scanned into the catalog.
+- The app has no permanent-delete button. Manually removing a reviewed trash entry frees its space and makes that entry unrecoverable.
+
+### Undo this activation
+
+First restore any files you want back through the Hub. Then edit only the Lexar
+entry; do not restore the entire backup over unrelated later fstab changes.
+
+```bash
+sudoedit /etc/fstab
+# In UUID=46C6-231E only, change rw back to ro.
+sudo systemctl daemon-reload
+sudo mount -o remount,ro /mnt/edging-heaven
+sudo systemctl restart edging-heaven.service
+findmnt -rn -t vfat -o TARGET,OPTIONS /mnt/edging-heaven
+```
+
+Keep the app code: ordinary browsing, Keep and Skip still work, while Delete
+becomes disabled. Existing trash stays on disk; restoring it requires a writable
+mount. The service's existing `ProtectHome=read-only` does not make `/mnt`
+read-only: the drive's mount policy controls writes there.
+
+### Verification limits and gotchas
+
+- Automated checks passed sixty mode/viewport combinations from 360px phones to 1440px desktop, plus actual emulated touch swipes, playback resume, light theme, focus, and an eight-second stalled request. Test files were generated in a temporary folder.
+- Real iPhone/iPad Safari, physical USB reconnect, reboot, and mobile-data playback speed have not been tested. Bandwidth and unsupported codecs can still limit playback.
+- No originals were deleted or rewritten during development or deployment checks.
+- `.heaven-trash` may contain private media and paths. Never commit it, live ratings, or screenshots of private media to Git.
+- Media URLs carry a representation version so a browser does not mix pre-upgrade cached video byte ranges with the new layout.
 
 ## What this is
 
@@ -47,7 +157,7 @@ the app has no separate login.
 | `/etc/systemd/system/multi-user.target.wants/edging-heaven.service` | Enable-at-boot symlink managed by systemctl |
 | `/home/qwerty/.local/share/edging-heaven/` | Private writable state directory, mode 0700 |
 | `/home/qwerty/.local/share/edging-heaven/state.json` | Initial copy of repository state, with the media path changed to the mounted drive; subsequent installer runs preserve it |
-| `/home/qwerty/homepage/index.html` | Adds the app link |
+| `/home/qwerty/tailscale/homepage/index.html` | Adds the app link |
 | `/home/qwerty/infomds/HOSTING.md` | Adds this app and records the existing Nextcloud port |
 | `/home/qwerty/infomds/EDGING-HEAVEN.md` | This reference |
 | `/home/qwerty/git/edgingHeaven/server.py` | Saved-folder reconnect detection, Linux drive suggestions, startup with an absent drive |
@@ -160,13 +270,15 @@ sudo systemctl daemon-reload
 sudo rmdir /mnt/edging-heaven
 ```
 
-Remove the Edging Heaven card from `/home/qwerty/homepage/index.html` and its row
+Remove the Edging Heaven card from `/home/qwerty/tailscale/homepage/index.html` and its row
 and notes from `/home/qwerty/infomds/HOSTING.md`. Keep other app mappings intact;
 do not use `tailscale serve reset`. Keep the SSD state directory if you want to
 retain ratings. Delete it only if those ratings/settings are no longer wanted.
 The flash drive is never formatted or erased by setup or undo.
 
 ## Gotchas
+
+- The homepage and hosting map are edited in place; no backup copies are created for them.
 
 - Keep the flash drive attached to the server, not the remote phone or laptop.
 - Reformatting or replacing it requires updating the UUID in fstab and installer.
@@ -181,9 +293,12 @@ The flash drive is never formatted or erased by setup or undo.
   browser open means no need to scan. A paused/background tab checks on returning.
 - Backups named `.before-edging-heaven` preserve the first installation state.
   Do not restore them wholesale if those files have since gained other changes.
-- The homepage and hosting map are edited in place; no backup copies are created for them.
 - Reboot and physical USB replug tests require separate verification; the
   automated tests simulate the folder disappearing and returning.
 
 References: [Tailscale Serve command](https://tailscale.com/docs/reference/tailscale-cli/serve)
 and [systemd mount options](https://www.freedesktop.org/software/systemd/man/latest/systemd.mount.html).
+
+## Installed library
+
+Selected folder: `/mnt/edging-heaven/baza`.
