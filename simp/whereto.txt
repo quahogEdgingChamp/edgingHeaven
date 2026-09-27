@@ -1,0 +1,9 @@
+# Where to save media.
+# Put ONE path on a line below (comments with # are ignored).
+# ~ is expanded. Example:
+#   ~/Videos/simp
+# Files go to:  <that-path>/<model-name>/
+# (or <that-path>/models/<model-name>/ if models_subdir = "models" in config.toml)
+#
+# Leave blank (only comments) to use ./downloads/<model-name>/ instead.
+/run/media/qwerty/Lexar/baza/

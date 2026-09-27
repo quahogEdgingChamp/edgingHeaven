@@ -1,0 +1,56 @@
+# Copy to config.toml and edit.
+
+[site]
+# Primary forum origin. Mirrors rotate: .cr / .su / .is / etc.
+base_url = "https://simpcity.cr"
+user_agent = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+
+[auth]
+# Netscape cookies.txt exported while logged into SimpCity (required).
+# Chrome extension: "Get cookies.txt LOCALLY" / Firefox: "cookies.txt"
+cookies_file = "cookies/simpcity.txt"
+
+# Optional: pull cookies straight from a logged-in browser profile instead.
+# browser = "firefox"   # firefox | chrome | chromium | brave | edge
+# browser_profile = "default"
+
+[paths]
+download_dir = "downloads"
+state_dir = "state"
+# cyberdrop-dl db/cache/logs — kept inside the project (not ~/.local)
+cdl_dir = "state/cdl"
+urls_export = "state/bookmark_urls.txt"
+media_export = "state/media_urls.txt"
+# Optional: whereto.txt with one path → <path>/<models_subdir>/<model>/
+# Set models_subdir = "" to put models directly under the whereto path.
+whereto_file = "whereto.txt"
+models_subdir = ""
+
+[scrape]
+# Pause between page fetches (seconds). Be kind to the forum.
+# Post→thread resolves also pace at least this slow (avoids 429 bans).
+delay_min = 2.0
+delay_max = 4.0
+# Max concurrent host downloads (direct fallback only).
+concurrency = 2
+# Also scrape Watched Threads in addition to Bookmarks.
+include_watched = false
+# Skip threads whose title matches any of these (case-insensitive substrings).
+skip_title_contains = []
+# Only keep thread URLs that look like model threads (usually /threads/...).
+thread_url_must_contain = "/threads/"
+
+[download]
+# Hand discovered host URLs to cyberdrop-dl-patched when available.
+use_cyberdrop_dl = true
+cyberdrop_dl_bin = "cyberdrop-dl"
+# Always also try the built-in direct downloader for forum attachments
+# and simple image hosts (jpg*, pixhost, imgbox, attachments, etc.).
+use_direct = true
+# File types to keep.
+images = true
+videos = true
+# Skip files already downloaded (by URL, or same name + same size).
+skip_existing = true
+# Never download these extensions (direct + cyberdrop-dl). [] = keep everything.
+exclude_extensions = [".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".cab", ".iso"]
