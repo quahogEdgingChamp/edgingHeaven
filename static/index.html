@@ -14,7 +14,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23b7ecd3'/%3E%3Cpath d='M10 7h3v8c5-5 10-2 9 4l-1 7h-3l1-7c1-4-4-4-6 1l-1 6H9z' fill='%23102e29'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="/styles.css?v=5" />
+    <link rel="stylesheet" href="/styles.css?v=8" />
   </head>
   <body data-mode="home">
     <!-- One sprite for every interface icon; buttons reference it with <use>. -->
@@ -46,6 +46,10 @@
       <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" /></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
       <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20h-5.5v-6h-5v6H4z" /></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.9l-5.25 2.7 1-5.8L3.5 9.7l5.9-.9z" /></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M10 6l-6 6 6 6M4 12h16" /></symbol>
+      <symbol id="i-skip" viewBox="0 0 24 24"><path d="M6 5l9 7-9 7zM18 5v14" /></symbol>
+      <symbol id="i-prev" viewBox="0 0 24 24"><path d="M18 5l-9 7 9 7zM6 5v14" /></symbol>
     </svg>
 
     <div class="shell">
@@ -138,6 +142,42 @@
           <p id="balancedFoldersHint" class="subtle"></p>
         </div>
 
+        <div id="playbackCard" class="settings-card">
+          <p class="panel-label">Playback</p>
+          <button class="switch-row" role="switch" aria-checked="true" data-setting="useMarks"><span>Start clips at marked moments</span><i aria-hidden="true"></i></button>
+          <p class="subtle">Escalation, Session, Mosaic and the timed modes start a clip at one of its marked moments when it has any. Mark with B, or Mark in Video deck and the preview.</p>
+        </div>
+
+        <div id="privacyCard" class="settings-card">
+          <p class="panel-label">Privacy</p>
+          <p id="pinStatus" class="subtle">Checking…</p>
+          <div id="pinForm" class="pin-form">
+            <input id="pinCurrent" type="password" inputmode="numeric" autocomplete="off" placeholder="Current PIN" aria-label="Current PIN" hidden />
+            <input id="pinNew" type="password" inputmode="numeric" autocomplete="new-password" placeholder="New PIN, 4–12 digits" aria-label="New PIN" />
+            <div class="setup-actions">
+              <button id="pinSave" class="ghost-button small-button">Set PIN</button>
+              <button id="pinLockNow" class="ghost-button small-button" hidden>Lock now</button>
+              <button id="pinRemove" class="danger-button small-button" hidden>Remove PIN</button>
+            </div>
+          </div>
+          <button class="switch-row" role="switch" aria-checked="false" data-setting="neutralTitle"><span>Plain tab title and icon</span><i aria-hidden="true"></i></button>
+          <button class="switch-row" role="switch" aria-checked="false" data-setting="panicOnHide"><span>Blank the page when I switch away</span><i aria-hidden="true"></i></button>
+          <p class="subtle">Panic: press <kbd>`</kbd> or tap with three fingers. Everything stops and a blank notes page covers the app. Double-tap it (or press <kbd>`</kbd>) to come back.</p>
+        </div>
+
+        <div id="toyCard" class="settings-card">
+          <p class="panel-label">Toy</p>
+          <p class="subtle">Connects to <b>Intiface Central</b> (free, runs on the phone or computer next to the toy). Start its server, pair the toy there, then connect here. Escalation, Session, Beat, Red light, Dice, Ladder, Spotlight and Highlights drive it; holds and stops turn it off.</p>
+          <label class="setup-path"><span>Intiface address</span><input id="toyUrl" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" /></label>
+          <div class="setup-actions">
+            <button id="toyConnect" class="ghost-button small-button">Connect</button>
+            <button id="toyTest" class="ghost-button small-button" disabled>Test buzz</button>
+          </div>
+          <p id="toyStatus" class="subtle toy-status" role="status">Not connected.</p>
+          <label class="range-row"><span>Max intensity</span><strong data-value-for="toyMax" data-format="pct"></strong><input type="range" min="0.05" max="1" step="0.05" data-setting="toyMax" /></label>
+          <button class="switch-row" role="switch" aria-checked="false" data-setting="toyAuto"><span>Connect when the app opens</span><i aria-hidden="true"></i></button>
+        </div>
+
         <div class="settings-card">
           <p class="panel-label">Library</p>
           <div class="setup-actions">
@@ -152,8 +192,11 @@
 
         <div class="settings-card">
           <p class="panel-label">Recently deleted</p>
-          <p class="subtle">Files deleted in Dangerous stay on the drive in local trash until you remove them by hand. Restore them here at any time.</p>
-          <div class="setup-actions"><button id="showTrash" class="ghost-button small-button">Review trash</button></div>
+          <p class="subtle">Files deleted in Dangerous stay on the drive in local trash until you empty it. Restore them here at any time before that.</p>
+          <div class="setup-actions">
+            <button id="showTrash" class="ghost-button small-button">Review trash</button>
+            <button id="emptyTrash" class="danger-button small-button">Empty trash</button>
+          </div>
           <div id="trashList" class="trash-list"></div>
         </div>
 
@@ -172,6 +215,12 @@
             <dt>&uarr; &darr;</dt><dd>previous / next clip in Feed</dd>
             <dt>E</dt><dd>edge — instant hold in Session</dd>
             <dt>&larr; &rarr;</dt><dd>pick the left / right one in Duel</dd>
+            <dt>&uarr; / L</dt><dd>love — the top tier of keep</dd>
+            <dt>B</dt><dd>mark a moment (press at its start and end)</dd>
+            <dt>E</dt><dd>edge in Beat, Red light and Dice too</dd>
+            <dt>Space</dt><dd>start / stop Beat, Red light, Dice, Spotlight; pause Ladder, Highlights</dd>
+            <dt>N / D</dt><dd>new model (Spotlight) / draw a card (Dice)</dd>
+            <dt>`</dt><dd>panic: stop everything and cover the page</dd>
           </dl>
         </div>
 
@@ -225,6 +274,7 @@
                 <span class="stamp stamp-left">Keep</span>
                 <span class="stamp stamp-right">Pass</span>
                 <span class="stamp stamp-down">Skip</span>
+                <span class="stamp stamp-up">Love</span>
                 <img id="swipeImage" alt="" draggable="false" />
                 <div class="stage-meta">
                   <h2 id="swipeName">No photos found</h2>
@@ -237,6 +287,7 @@
               <div class="swipe-actions">
                 <button id="dislikeButton" class="deck-button pass" aria-label="Pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
                 <button id="skipButton" class="deck-button skip" aria-label="Skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span></button>
+                <button id="loveButton" class="deck-button love" aria-label="Love"><svg aria-hidden="true"><use href="#i-star" /></svg><span>Love</span></button>
                 <button id="likeButton" class="deck-button keep" aria-label="Keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
               </div>
             </div>
@@ -254,9 +305,10 @@
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
                 </section>
-                <p class="cc-keys">← pass · → keep · ↓ skip · U undo · F focus</p>
+                <p class="cc-keys">← pass · → keep · ↑ love · ↓ skip · U undo · F focus</p>
                 <section class="cc-section cc-danger">
                   <h3>Start over</h3>
                   <p class="subtle">Clears likes and dislikes for photos only.</p>
@@ -284,12 +336,17 @@
                 <span class="stamp stamp-left">Keep</span>
                 <span class="stamp stamp-right">Pass</span>
                 <span class="stamp stamp-down">Skip</span>
+                <span class="stamp stamp-up">Love</span>
                 <video id="toktinderVideo" playsinline preload="metadata"></video>
                 <div id="toktinderTransport" class="video-transport">
                   <button id="toktinderPlayToggle" class="transport-button" aria-label="Play or pause">Pause</button>
                   <span id="toktinderTime" class="transport-time">0:00</span>
-                  <input id="toktinderSeek" class="transport-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Seek" />
+                  <div class="seek-wrap">
+                    <div id="toktinderSeekMarks" class="seek-marks" aria-hidden="true"></div>
+                    <input id="toktinderSeek" class="transport-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Seek" />
+                  </div>
                   <span id="toktinderDuration" class="transport-time">0:00</span>
+                  <button id="toktinderMarkButton" class="transport-button mark-button" hidden>Mark</button>
                 </div>
                 <div class="stage-meta">
                   <h2 id="toktinderName">No videos found</h2>
@@ -302,6 +359,7 @@
               <div class="swipe-actions">
                 <button id="toktinderDislikeButton" class="deck-button pass" aria-label="Pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
                 <button id="toktinderSkipButton" class="deck-button skip" aria-label="Skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span></button>
+                <button id="toktinderLoveButton" class="deck-button love" aria-label="Love"><svg aria-hidden="true"><use href="#i-star" /></svg><span>Love</span></button>
                 <button id="toktinderLikeButton" class="deck-button keep" aria-label="Keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
               </div>
             </div>
@@ -319,6 +377,7 @@
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
                 </section>
                 <section class="cc-section">
@@ -326,7 +385,7 @@
                   <button id="toktinderAudioToggleButton" class="sound-toggle" aria-pressed="false">Sound off</button>
                   <p id="toktinderAudioHint" class="subtle"></p>
                 </section>
-                <p class="cc-keys">← pass · → keep · ↓ skip · Space play/pause · U undo</p>
+                <p class="cc-keys">← pass · → keep · ↑ love · ↓ skip · Space play/pause · B mark a moment · U undo</p>
                 <section class="cc-section cc-danger">
                   <h3>Start over</h3>
                   <p class="subtle">Clears likes and dislikes for videos only.</p>
@@ -389,6 +448,7 @@
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
                 </section>
                 <section class="cc-section">
@@ -482,6 +542,7 @@
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
                 </section>
                 <section class="cc-section">
@@ -514,6 +575,7 @@
                 <button type="button" class="segment" data-rating-filter="all">All</button>
                 <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                 <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                <button type="button" class="segment" data-rating-filter="loved">Loved</button>
               </div>
             </div>
             <div id="galleryGrid" class="gallery-grid"></div>
@@ -536,6 +598,7 @@
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
                   <div id="galleryKind" class="segmented" role="group" aria-label="Media kind">
                     <button type="button" class="segment" data-gallery-kind="all">Both</button>
@@ -568,14 +631,36 @@
         <section id="rankedMode" class="mode-panel">
           <div class="ranked-layout">
             <div class="ranked-scroller" id="rankedScroller">
+              <div id="rankedOverview" class="ranked-overview">
               <div class="ranked-stats" id="rankedStats"></div>
               <div id="rankedPlay" class="ranked-play"></div>
+              <section id="rankedActivity" class="ranked-section" hidden>
+                <div class="ranked-section-head">
+                  <h2>Kept per day</h2>
+                  <span id="rankedActivityNote" class="subtle"></span>
+                </div>
+                <div id="rankedActivityChart" class="ranked-activity" role="img"></div>
+                <details class="ranked-activity-table">
+                  <summary>Show as a table</summary>
+                  <table><thead><tr><th scope="col">Day</th><th scope="col">Kept</th></tr></thead><tbody id="rankedActivityRows"></tbody></table>
+                </details>
+              </section>
+              <section id="sessionHistory" class="ranked-section" hidden>
+                <div class="ranked-section-head">
+                  <h2>Sessions</h2>
+                  <button id="sessionHistoryClear" class="text-button">Clear history</button>
+                </div>
+                <div id="sessionStats" class="ranked-stats"></div>
+                <div id="sessionChart" class="ranked-activity session-chart" role="img"></div>
+                <ol id="sessionRecent" class="session-recent"></ol>
+              </section>
               <section class="ranked-section">
                 <div class="ranked-section-head">
-                  <h2>Top folders</h2>
+                  <h2>Top models</h2>
                   <span id="rankedFolderNote" class="subtle"></span>
                 </div>
                 <ol id="rankedFolders" class="ranked-folders"></ol>
+                <button id="rankedModelsMore" class="ghost-button small-button ranked-more-models" hidden>Show all models</button>
               </section>
               <section class="ranked-section">
                 <div class="ranked-section-head">
@@ -591,6 +676,7 @@
                       <select id="rankedSort">
                         <option value="recent">Newest kept</option>
                         <option value="oldest">Oldest kept</option>
+                        <option value="loved">Loved first</option>
                         <option value="folder">Folder</option>
                         <option value="name">Name</option>
                         <option value="largest">Largest file</option>
@@ -602,6 +688,29 @@
                 <div id="rankedGrid" class="gallery-grid"></div>
                 <p id="rankedEmpty" class="subtle ranked-empty" hidden></p>
               </section>
+              </div>
+
+              <div id="rankedModelPage" class="ranked-overview model-page" hidden>
+                <div class="model-head">
+                  <button id="modelBack" class="icon-button" aria-label="Back to Collection"><svg aria-hidden="true"><use href="#i-back" /></svg></button>
+                  <div><span class="eyebrow">Model</span><h2 id="modelName"></h2></div>
+                </div>
+                <div class="model-actions">
+                  <button id="modelSpotlight" class="primary-button"><svg aria-hidden="true"><use href="#i-play" /></svg>Spotlight</button>
+                  <button id="modelLadder" class="ghost-button">Ladder</button>
+                  <button id="modelDuel" class="ghost-button">Duel</button>
+                  <button id="modelGallery" class="ghost-button">Browse all</button>
+                </div>
+                <div id="modelStats" class="ranked-stats"></div>
+                <section id="modelFolders" class="ranked-section">
+                  <div class="ranked-section-head"><h2>Folders</h2></div>
+                  <ul id="modelFolderList" class="model-folder-list"></ul>
+                </section>
+                <section class="ranked-section">
+                  <div class="ranked-section-head"><h2 id="modelGridTitle">Best by duel rank</h2></div>
+                  <div id="modelGrid" class="gallery-grid"></div>
+                </section>
+              </div>
             </div>
           </div>
         </section>
@@ -655,6 +764,7 @@
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
                 </section>
                 <section class="cc-section">
@@ -695,6 +805,7 @@
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
                 </section>
                 <section class="cc-section">
@@ -710,7 +821,7 @@
                   <label class="range-row"><span>Volume</span><strong id="feedVolumeValue"></strong><input id="feedVolume" type="range" min="0" max="1" step="0.01" /></label>
                   <p id="feedAudioHint" class="subtle"></p>
                 </section>
-                <p class="cc-keys">Tap to pause · double-tap to keep · ↑ ↓ or swipe for the next clip</p>
+                <p class="cc-keys">Tap to pause · double-tap to keep · L love · B mark a moment · ↑ ↓ or swipe for the next clip</p>
               </div>
               <footer class="drawer-footer">
                 <button id="feedShuffleButton" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Reshuffle feed</button>
@@ -768,6 +879,7 @@
                   </div>
                   <div id="duelRatingFilter" class="segmented" role="group" aria-label="Which files take part">
                     <button type="button" class="segment" data-rating-filter="liked">Kept only</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                   </div>
@@ -807,6 +919,7 @@
                 <span class="stamp stamp-left">Keep</span>
                 <span class="stamp stamp-right">Pass</span>
                 <span class="stamp stamp-down">Skip</span>
+                <span class="stamp stamp-up">Love</span>
                 <img id="rediscoverImage" alt="" draggable="false" hidden />
                 <video id="rediscoverVideo" playsinline loop hidden></video>
                 <span id="rediscoverBadge" class="rediscover-badge"></span>
@@ -825,6 +938,7 @@
               <div class="swipe-actions">
                 <button id="rediscoverPass" class="deck-button pass" aria-label="Pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
                 <button id="rediscoverSkip" class="deck-button skip" aria-label="Skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span></button>
+                <button id="rediscoverLove" class="deck-button love" aria-label="Love"><svg aria-hidden="true"><use href="#i-star" /></svg><span>Love</span></button>
                 <button id="rediscoverKeep" class="deck-button keep" aria-label="Keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
               </div>
             </div>
@@ -847,6 +961,7 @@
                     <button type="button" class="segment" data-rating-filter="all">All</button>
                     <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
                   <p class="subtle">Files never shown in any mode come first, then whatever has gone longest without a look. Everything you see anywhere in the app counts as seen.</p>
                 </section>
@@ -854,7 +969,7 @@
                   <h3>Sound</h3>
                   <button id="rediscoverSound" class="sound-toggle" aria-pressed="false">Sound off</button>
                 </section>
-                <p class="cc-keys">← pass · → keep · ↓ skip · U undo</p>
+                <p class="cc-keys">← pass · → keep · ↑ love · ↓ skip · B mark · U undo</p>
               </div>
               <footer class="drawer-footer">
                 <button id="rediscoverRefresh" class="primary-button"><svg aria-hidden="true"><use href="#i-refresh" /></svg>Deal again</button>
@@ -877,7 +992,14 @@
             <div id="dangerousCard" class="dangerous-card">
               <span class="danger-stamp delete-stamp">Delete</span><span class="danger-stamp keep-stamp">Keep</span>
               <img id="dangerousImage" alt="" draggable="false" hidden />
-              <video id="dangerousVideo" playsinline loop controls hidden></video>
+              <video id="dangerousVideo" playsinline loop hidden></video>
+              <div id="dangerousTransport" class="video-transport" hidden>
+                <button id="dangerousPlayToggle" class="transport-button" aria-label="Play or pause">Pause</button>
+                <span id="dangerousTime" class="transport-time">0:00</span>
+                <input id="dangerousSeek" class="transport-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Seek" />
+                <span id="dangerousDuration" class="transport-time">0:00</span>
+                <button id="dangerousMuteToggle" class="transport-button" aria-pressed="false">Sound off</button>
+              </div>
               <div id="dangerousEmpty" class="dangerous-empty" hidden>
                 <svg aria-hidden="true"><use href="#i-check" /></svg>
                 <h2>All sorted.</h2><p>Try another filter or shuffle to browse again.</p>
@@ -914,11 +1036,517 @@
                   <h3>Sound</h3>
                   <button id="dangerousSound" class="sound-toggle" aria-pressed="false">Sound off</button>
                 </section>
-                <p class="cc-keys">← delete · → keep · ↓ skip · U undo</p>
+                <p class="cc-keys">← delete · → keep · ↑ love · ↓ skip · U undo</p>
               </div>
               <footer class="drawer-footer">
                 <button id="dangerousShuffle" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Shuffle deck</button>
                 <button id="dangerousResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Beat ============================== -->
+        <section id="beatMode" class="mode-panel">
+          <div class="stream-layout">
+            <div class="stage-toolbar">
+              <button id="beatEdgeButton" class="tool-button edge-button" aria-label="Edge: instant stop" hidden><svg aria-hidden="true"><use href="#i-edge" /></svg><span class="label">Edge</span></button>
+              <button id="beatToggleButton" class="tool-button session-toggle" aria-label="Start"><svg aria-hidden="true"><use href="#i-play" /></svg><span class="label">Start</span></button>
+              <button id="beatFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="beatDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <div id="beatStage" class="stream-stage play-stage" data-active-kind="idle" data-phase="idle" data-hud="full">
+              <img class="ps-photo" alt="" draggable="false" />
+              <div class="ps-video-shell"><video class="ps-video" playsinline preload="metadata"></video></div>
+              <div id="beatPulse" class="beat-pulse" aria-hidden="true"></div>
+              <div class="play-hud">
+                <p id="beatCue" class="play-cue"></p>
+                <p id="beatBig" class="play-big"></p>
+                <div class="play-bar"><i id="beatBarFill"></i></div>
+                <p id="beatSub" class="play-sub"></p>
+                <button id="beatHudStart" class="primary-button play-start">Start the beat</button>
+              </div>
+              <div class="stage-meta">
+                <h2 id="beatName"></h2>
+                <div class="meta-line">
+                  <span id="beatFolder" class="subtle"></span>
+                  <span id="beatStatus" class="subtle meta-status"></span>
+                </div>
+              </div>
+            </div>
+
+            <aside id="beatDrawer" class="drawer control-panel" data-mode="beat" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Beat</h2></div>
+                <button id="beatDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="beatSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Feel</h3>
+                  <div id="beatPreset" class="preset-grid" role="group" aria-label="Feel">
+                    <button type="button" class="preset" data-preset="slow"><strong>Slow burn</strong><small>60→120 · 12 min</small></button>
+                    <button type="button" class="preset" data-preset="standard"><strong>Standard</strong><small>70→140 · 8 min</small></button>
+                    <button type="button" class="preset" data-preset="overload"><strong>Overload</strong><small>100→200 · 5 min</small></button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Tempo</h3>
+                  <label class="range-row"><span>Starts at</span><strong data-value-for="beatStartBpm" data-format="bpm"></strong><input type="range" min="40" max="160" step="5" data-setting="beatStartBpm" /></label>
+                  <label class="range-row"><span>Climbs to</span><strong data-value-for="beatPeakBpm" data-format="bpm"></strong><input type="range" min="60" max="220" step="5" data-setting="beatPeakBpm" /></label>
+                  <label class="range-row"><span>Climb length</span><strong data-value-for="beatMinutes" data-format="min"></strong><input type="range" min="2" max="30" step="1" data-setting="beatMinutes" /></label>
+                  <p class="subtle">Random stops — the beat goes silent and the picture freezes:</p>
+                  <div class="segmented" role="group" aria-label="Random stops" data-setting="beatStops">
+                    <button type="button" class="segment" data-value="off">None</button>
+                    <button type="button" class="segment" data-value="some">Some</button>
+                    <button type="button" class="segment" data-value="lots">Lots</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Metronome</h3>
+                  <div class="segmented" role="group" aria-label="Click sound" data-setting="beatSound">
+                    <button type="button" class="segment" data-value="click">Click</button>
+                    <button type="button" class="segment" data-value="wood">Wood</button>
+                    <button type="button" class="segment" data-value="thump">Thump</button>
+                  </div>
+                  <label class="range-row"><span>Metronome volume</span><strong data-value-for="beatVolume" data-format="pct"></strong><input type="range" min="0" max="1" step="0.01" data-setting="beatVolume" /></label>
+                  <button id="beatPreview" class="ghost-button small-button">Hear it</button>
+                  <button class="switch-row" role="switch" aria-checked="false" data-setting="beatVibrate"><span>Vibrate on every beat (Android)</span><i aria-hidden="true"></i></button>
+                </section>
+                <section class="cc-section">
+                  <h3>Picture</h3>
+                  <label class="range-row"><span>New picture every</span><strong data-value-for="beatSwapBeats" data-format="beats"></strong><input type="range" min="2" max="32" step="2" data-setting="beatSwapBeats" /></label>
+                  <div class="segmented" role="group" aria-label="Media kind" data-setting="beatKind">
+                    <button type="button" class="segment" data-value="all">Both</button>
+                    <button type="button" class="segment" data-value="photos">Photos</button>
+                    <button type="button" class="segment" data-value="videos">Videos</button>
+                  </div>
+                  <div id="beatRatingFilter" class="segmented" role="group" aria-label="Which files">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Clip sound</h3>
+                  <button class="sound-toggle" data-global-sound aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Clip volume</span><strong data-value-for="beatMediaVolume" data-format="pct"></strong><input type="range" min="0" max="1" step="0.01" data-setting="beatMediaVolume" /></label>
+                </section>
+                <p class="cc-keys">Space start / stop · E edge (instant stop, then a notch slower) · → next picture · L love</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="beatRestart" class="primary-button"><svg aria-hidden="true"><use href="#i-play" /></svg>Start fresh</button>
+                <button id="beatResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Red light ============================== -->
+        <section id="redlightMode" class="mode-panel">
+          <div class="stream-layout">
+            <div class="stage-toolbar">
+              <button id="redlightEdgeButton" class="tool-button edge-button" aria-label="Edge: instant stop" hidden><svg aria-hidden="true"><use href="#i-edge" /></svg><span class="label">Edge</span></button>
+              <button id="redlightToggleButton" class="tool-button session-toggle" aria-label="Start"><svg aria-hidden="true"><use href="#i-play" /></svg><span class="label">Start</span></button>
+              <button id="redlightFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="redlightDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <div id="redlightStage" class="stream-stage play-stage" data-active-kind="idle" data-phase="idle" data-hud="full">
+              <img class="ps-photo" alt="" draggable="false" />
+              <div class="ps-video-shell"><video class="ps-video" playsinline preload="metadata"></video></div>
+              <div class="play-hud">
+                <p id="redlightCue" class="play-cue"></p>
+                <p id="redlightBig" class="play-big"></p>
+                <div class="play-bar"><i id="redlightBarFill"></i></div>
+                <p id="redlightSub" class="play-sub"></p>
+                <button id="redlightHudStart" class="primary-button play-start">Start</button>
+              </div>
+              <div class="stage-meta">
+                <h2 id="redlightName"></h2>
+                <div class="meta-line">
+                  <span id="redlightFolder" class="subtle"></span>
+                  <span id="redlightStatus" class="subtle meta-status"></span>
+                </div>
+              </div>
+            </div>
+
+            <aside id="redlightDrawer" class="drawer control-panel" data-mode="redlight" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Red light</h2></div>
+                <button id="redlightDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="redlightSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Feel</h3>
+                  <div id="redlightPreset" class="preset-grid" role="group" aria-label="Feel">
+                    <button type="button" class="preset" data-preset="gentle"><strong>Gentle</strong><small>long greens</small></button>
+                    <button type="button" class="preset" data-preset="tricky"><strong>Tricky</strong><small>anything goes</small></button>
+                    <button type="button" class="preset" data-preset="brutal"><strong>Brutal</strong><small>short go, long stop</small></button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Timing</h3>
+                  <label class="range-row"><span>Green at least</span><strong data-value-for="redlightGreenMin" data-format="s"></strong><input type="range" min="3" max="60" step="1" data-setting="redlightGreenMin" /></label>
+                  <label class="range-row"><span>Green at most</span><strong data-value-for="redlightGreenMax" data-format="s"></strong><input type="range" min="5" max="120" step="1" data-setting="redlightGreenMax" /></label>
+                  <label class="range-row"><span>Red at least</span><strong data-value-for="redlightRedMin" data-format="s"></strong><input type="range" min="3" max="60" step="1" data-setting="redlightRedMin" /></label>
+                  <label class="range-row"><span>Red at most</span><strong data-value-for="redlightRedMax" data-format="s"></strong><input type="range" min="5" max="120" step="1" data-setting="redlightRedMax" /></label>
+                  <label class="range-row"><span>Run for</span><strong data-value-for="redlightMinutes" data-format="min"></strong><input type="range" min="2" max="45" step="1" data-setting="redlightMinutes" /></label>
+                  <button class="switch-row" role="switch" aria-checked="false" data-setting="redlightWarning"><span>Warn me 2 seconds before a red</span><i aria-hidden="true"></i></button>
+                  <button class="switch-row" role="switch" aria-checked="false" data-setting="redlightSound"><span>Stop and go tones</span><i aria-hidden="true"></i></button>
+                </section>
+                <section class="cc-section">
+                  <h3>When time is up</h3>
+                  <div class="segmented" role="group" aria-label="Ending" data-setting="redlightEnding">
+                    <button type="button" class="segment" data-value="finish">Finish</button>
+                    <button type="button" class="segment" data-value="deny">Denied</button>
+                    <button type="button" class="segment" data-value="random">Coin toss</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div class="segmented" role="group" aria-label="Media kind" data-setting="redlightKind">
+                    <button type="button" class="segment" data-value="all">Both</button>
+                    <button type="button" class="segment" data-value="photos">Photos</button>
+                    <button type="button" class="segment" data-value="videos">Videos</button>
+                  </div>
+                  <div id="redlightRatingFilter" class="segmented" role="group" aria-label="Which files">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Clip sound</h3>
+                  <button class="sound-toggle" data-global-sound aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Clip volume</span><strong data-value-for="redlightVolume" data-format="pct"></strong><input type="range" min="0" max="1" step="0.01" data-setting="redlightVolume" /></label>
+                </section>
+                <p class="cc-keys">Space start / stop · E edge (a full-length stop) · → next picture · L love</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="redlightRestart" class="primary-button"><svg aria-hidden="true"><use href="#i-play" /></svg>Start fresh</button>
+                <button id="redlightResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Dice ============================== -->
+        <section id="diceMode" class="mode-panel">
+          <div class="stream-layout">
+            <div class="stage-toolbar">
+              <button id="diceEdgeButton" class="tool-button edge-button" aria-label="Edge: instant stop" hidden><svg aria-hidden="true"><use href="#i-edge" /></svg><span class="label">Edge</span></button>
+              <button id="diceToggleButton" class="tool-button session-toggle" aria-label="Start"><svg aria-hidden="true"><use href="#i-play" /></svg><span class="label">Start</span></button>
+              <button id="diceFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="diceDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <div id="diceStage" class="stream-stage play-stage" data-active-kind="idle" data-phase="idle" data-hud="full">
+              <img class="ps-photo" alt="" draggable="false" />
+              <div class="ps-video-shell"><video class="ps-video" playsinline preload="metadata"></video></div>
+              <div id="diceCard" class="dice-card" hidden role="status"><strong id="diceCardTitle"></strong><span id="diceCardSub"></span></div>
+              <div class="play-hud">
+                <p id="diceCue" class="play-cue"></p>
+                <p id="diceBig" class="play-big"></p>
+                <div class="play-bar"><i id="diceBarFill"></i></div>
+                <p id="diceSub" class="play-sub"></p>
+                <button id="diceHudStart" class="primary-button play-start">Roll</button>
+              </div>
+              <div class="stage-meta">
+                <h2 id="diceName"></h2>
+                <div class="meta-line">
+                  <span id="diceFolder" class="subtle"></span>
+                  <span id="diceStatus" class="subtle meta-status"></span>
+                </div>
+              </div>
+            </div>
+
+            <aside id="diceDrawer" class="drawer control-panel" data-mode="dice" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Dice</h2></div>
+                <button id="diceDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="diceSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Feel</h3>
+                  <div id="dicePreset" class="preset-grid" role="group" aria-label="Feel">
+                    <button type="button" class="preset" data-preset="gentle"><strong>Gentle</strong><small>slow draws</small></button>
+                    <button type="button" class="preset" data-preset="standard"><strong>Standard</strong><small>every 20–45s</small></button>
+                    <button type="button" class="preset" data-preset="wild"><strong>Wild</strong><small>fast, rare finish</small></button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Cards</h3>
+                  <label class="range-row"><span>A card at least every</span><strong data-value-for="diceDrawMin" data-format="s"></strong><input type="range" min="10" max="90" step="5" data-setting="diceDrawMin" /></label>
+                  <label class="range-row"><span>…and at most every</span><strong data-value-for="diceDrawMax" data-format="s"></strong><input type="range" min="15" max="180" step="5" data-setting="diceDrawMax" /></label>
+                  <button class="switch-row" role="switch" aria-checked="false" data-setting="diceSpeed"><span>Faster / slower cards</span><i aria-hidden="true"></i></button>
+                  <button class="switch-row" role="switch" aria-checked="false" data-setting="diceHolds"><span>Hold cards</span><i aria-hidden="true"></i></button>
+                  <button class="switch-row" role="switch" aria-checked="false" data-setting="diceEdges"><span>“Edge, then hold” cards</span><i aria-hidden="true"></i></button>
+                  <button id="diceDrawButton" class="ghost-button small-button">Draw a card now</button>
+                </section>
+                <section class="cc-section">
+                  <h3>Finish</h3>
+                  <label class="range-row"><span>Chance on each draw</span><strong data-value-for="diceFinishOdds" data-format="odds"></strong><input type="range" min="0" max="30" step="1" data-setting="diceFinishOdds" /></label>
+                  <label class="range-row"><span>Not before</span><strong data-value-for="diceMinMinutes" data-format="min"></strong><input type="range" min="0" max="60" step="1" data-setting="diceMinMinutes" /></label>
+                  <p class="subtle">After that time each draw rolls these odds; a “Finish allowed” card ends the run on an open finish. 0 means never.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div class="segmented" role="group" aria-label="Media kind" data-setting="diceKind">
+                    <button type="button" class="segment" data-value="all">Both</button>
+                    <button type="button" class="segment" data-value="photos">Photos</button>
+                    <button type="button" class="segment" data-value="videos">Videos</button>
+                  </div>
+                  <div id="diceRatingFilter" class="segmented" role="group" aria-label="Which files">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Clip sound</h3>
+                  <button class="sound-toggle" data-global-sound aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Clip volume</span><strong data-value-for="diceVolume" data-format="pct"></strong><input type="range" min="0" max="1" step="0.01" data-setting="diceVolume" /></label>
+                </section>
+                <p class="cc-keys">Space start / stop · E edge · D draw now · → next picture · L love</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="diceRestart" class="primary-button"><svg aria-hidden="true"><use href="#i-play" /></svg>Start fresh</button>
+                <button id="diceResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Ladder ============================== -->
+        <section id="ladderMode" class="mode-panel">
+          <div class="stream-layout">
+            <div class="stage-toolbar">
+              <button id="ladderToggleButton" class="tool-button session-toggle" aria-label="Start"><svg aria-hidden="true"><use href="#i-play" /></svg><span class="label">Start</span></button>
+              <button id="ladderFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="ladderDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <div id="ladderStage" class="stream-stage play-stage" data-active-kind="idle" data-phase="idle" data-hud="full">
+              <img class="ps-photo" alt="" draggable="false" />
+              <div class="ps-video-shell"><video class="ps-video" playsinline preload="metadata"></video></div>
+              <div class="play-hud">
+                <p id="ladderCue" class="play-cue"></p>
+                <p id="ladderBig" class="play-big"></p>
+                <div class="play-bar"><i id="ladderBarFill"></i></div>
+                <p id="ladderSub" class="play-sub"></p>
+                <button id="ladderHudStart" class="primary-button play-start">Climb</button>
+              </div>
+              <div id="ladderEmpty" class="play-empty" hidden><h2>Nothing to climb yet.</h2><p id="ladderEmptyText"></p></div>
+              <div class="stage-meta">
+                <h2 id="ladderName"></h2>
+                <div class="meta-line">
+                  <span id="ladderFolder" class="subtle"></span>
+                  <span id="ladderStatus" class="subtle meta-status"></span>
+                </div>
+              </div>
+            </div>
+
+            <aside id="ladderDrawer" class="drawer control-panel" data-mode="ladder" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Ladder</h2></div>
+                <button id="ladderDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="ladderSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Feel</h3>
+                  <div id="ladderPreset" class="preset-grid" role="group" aria-label="Feel">
+                    <button type="button" class="preset" data-preset="short"><strong>Short</strong><small>20 steps</small></button>
+                    <button type="button" class="preset" data-preset="standard"><strong>Standard</strong><small>40 steps</small></button>
+                    <button type="button" class="preset" data-preset="long"><strong>Long</strong><small>80 steps</small></button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Climb</h3>
+                  <label class="range-row"><span>Steps</span><strong data-value-for="ladderSteps" data-format="n"></strong><input type="range" min="10" max="120" step="5" data-setting="ladderSteps" /></label>
+                  <label class="range-row"><span>First step lasts</span><strong data-value-for="ladderStartSeconds" data-format="s"></strong><input type="range" min="3" max="30" step="1" data-setting="ladderStartSeconds" /></label>
+                  <label class="range-row"><span>Last steps last</span><strong data-value-for="ladderEndSeconds" data-format="s"></strong><input type="range" min="1" max="15" step="1" data-setting="ladderEndSeconds" /></label>
+                  <p class="subtle">The top of your Duel ranking, weakest first and #1 last. Keeps you have not dueled fill the rest, loved ones first. Rank more in Duel to sharpen it.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div class="segmented" role="group" aria-label="Media kind" data-setting="ladderKind">
+                    <button type="button" class="segment" data-value="all">Both</button>
+                    <button type="button" class="segment" data-value="photos">Photos</button>
+                    <button type="button" class="segment" data-value="videos">Videos</button>
+                  </div>
+                  <div id="ladderRatingFilter" class="segmented" role="group" aria-label="Which files">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Kept</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Clip sound</h3>
+                  <button class="sound-toggle" data-global-sound aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Clip volume</span><strong data-value-for="ladderVolume" data-format="pct"></strong><input type="range" min="0" max="1" step="0.01" data-setting="ladderVolume" /></label>
+                </section>
+                <p class="cc-keys">Space start / pause · ← → step down / up · L love</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="ladderRestart" class="primary-button"><svg aria-hidden="true"><use href="#i-play" /></svg>Climb again</button>
+                <button id="ladderResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Spotlight ============================== -->
+        <section id="spotlightMode" class="mode-panel">
+          <div class="stream-layout">
+            <div class="stage-toolbar">
+              <button id="spotlightToggleButton" class="tool-button session-toggle" aria-label="Start"><svg aria-hidden="true"><use href="#i-play" /></svg><span class="label">Start</span></button>
+              <button id="spotlightFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="spotlightDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <div id="spotlightStage" class="stream-stage play-stage" data-active-kind="idle" data-phase="idle" data-hud="full">
+              <img class="ps-photo" alt="" draggable="false" />
+              <div class="ps-video-shell"><video class="ps-video" playsinline preload="metadata"></video></div>
+              <div class="play-hud">
+                <p id="spotlightCue" class="play-cue"></p>
+                <p id="spotlightBig" class="play-big"></p>
+                <div class="play-bar"><i id="spotlightBarFill"></i></div>
+                <p id="spotlightSub" class="play-sub"></p>
+                <button id="spotlightHudStart" class="primary-button play-start">Start</button>
+              </div>
+              <div class="stage-meta">
+                <h2 id="spotlightName"></h2>
+                <div class="meta-line">
+                  <span id="spotlightFolder" class="subtle"></span>
+                  <span id="spotlightStatus" class="subtle meta-status"></span>
+                </div>
+              </div>
+            </div>
+
+            <aside id="spotlightDrawer" class="drawer control-panel" data-mode="spotlight" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Spotlight</h2></div>
+                <button id="spotlightDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="spotlightSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Model</h3>
+                  <select id="spotlightModel" aria-label="Model"></select>
+                  <p class="subtle">A model is a top-level folder and everything in it. “Surprise me” leans towards the models you keep most, but any can come up.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Feel</h3>
+                  <div id="spotlightPreset" class="preset-grid" role="group" aria-label="Feel">
+                    <button type="button" class="preset" data-preset="slow"><strong>Slow</strong><small>8 min ramp</small></button>
+                    <button type="button" class="preset" data-preset="standard"><strong>Standard</strong><small>4 min ramp</small></button>
+                    <button type="button" class="preset" data-preset="fast"><strong>Fast</strong><small>2 min ramp</small></button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Pace</h3>
+                  <label class="range-row"><span>Ramp length</span><strong data-value-for="spotlightRampSeconds" data-format="ramp"></strong><input type="range" min="60" max="900" step="30" data-setting="spotlightRampSeconds" /></label>
+                  <label class="range-row"><span>Starts swapping every</span><strong data-value-for="spotlightBaseInterval" data-format="s"></strong><input type="range" min="3" max="30" step="1" data-setting="spotlightBaseInterval" /></label>
+                  <label class="range-row"><span>Fastest swap</span><strong data-value-for="spotlightMinInterval" data-format="s"></strong><input type="range" min="1" max="10" step="1" data-setting="spotlightMinInterval" /></label>
+                </section>
+                <section class="cc-section">
+                  <h3>Show</h3>
+                  <div id="spotlightRatingFilter" class="segmented" role="group" aria-label="Which files">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
+                  </div>
+                  <p class="subtle">If the filter leaves fewer than three files, all of the model plays.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Clip sound</h3>
+                  <button class="sound-toggle" data-global-sound aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Clip volume</span><strong data-value-for="spotlightVolume" data-format="pct"></strong><input type="range" min="0" max="1" step="0.01" data-setting="spotlightVolume" /></label>
+                </section>
+                <p class="cc-keys">Space start / stop · N another model · → next picture · L love</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="spotlightNewModel" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Another model</button>
+                <button id="spotlightResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Highlights ============================== -->
+        <section id="highlightsMode" class="mode-panel">
+          <div class="stream-layout">
+            <div class="stage-toolbar">
+              <span id="highlightsProgress" class="tool-note"></span>
+              <button id="highlightsPrevButton" class="tool-button" aria-label="Previous moment"><svg aria-hidden="true"><use href="#i-prev" /></svg><span class="label">Back</span></button>
+              <button id="highlightsNextButton" class="tool-button" aria-label="Next moment"><svg aria-hidden="true"><use href="#i-skip" /></svg><span class="label">Next</span></button>
+              <button id="highlightsRemoveButton" class="tool-button" aria-label="Remove this moment"><svg aria-hidden="true"><use href="#i-trash" /></svg><span class="label">Remove</span></button>
+              <button id="highlightsFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="highlightsDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <div id="highlightsStage" class="stream-stage play-stage" data-active-kind="idle" data-phase="idle" data-hud="full">
+              <img class="ps-photo" alt="" draggable="false" />
+              <div class="ps-video-shell"><video class="ps-video" playsinline preload="metadata"></video></div>
+              <div class="play-hud">
+                <p id="highlightsCue" class="play-cue"></p>
+                <p id="highlightsBig" class="play-big"></p>
+                <div class="play-bar"><i id="highlightsBarFill"></i></div>
+                <p id="highlightsSub" class="play-sub"></p>
+              </div>
+              <div id="highlightsEmpty" class="play-empty" hidden><h2>No moments yet.</h2><p id="highlightsEmptyText"></p></div>
+              <div class="stage-meta">
+                <h2 id="highlightsName"></h2>
+                <div class="meta-line">
+                  <span id="highlightsFolder" class="subtle"></span>
+                  <span id="highlightsStatus" class="subtle meta-status"></span>
+                </div>
+              </div>
+            </div>
+
+            <aside id="highlightsDrawer" class="drawer control-panel" data-mode="highlights" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Highlights</h2></div>
+                <button id="highlightsDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="highlightsSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Order</h3>
+                  <div class="segmented" role="group" aria-label="Order" data-setting="highlightsOrder">
+                    <button type="button" class="segment" data-value="shuffle">Shuffle</button>
+                    <button type="button" class="segment" data-value="best">Best first</button>
+                    <button type="button" class="segment" data-value="newest">Newest</button>
+                  </div>
+                  <label class="range-row"><span>Play each moment</span><strong data-value-for="highlightsRepeat" data-format="x"></strong><input type="range" min="1" max="5" step="1" data-setting="highlightsRepeat" /></label>
+                </section>
+                <section class="cc-section">
+                  <h3>Show</h3>
+                  <div id="highlightsRatingFilter" class="segmented" role="group" aria-label="Which files">
+                    <button type="button" class="segment" data-rating-filter="all">All</button>
+                    <button type="button" class="segment" data-rating-filter="unrated">Unrated</button>
+                    <button type="button" class="segment" data-rating-filter="liked">Liked</button>
+                    <button type="button" class="segment" data-rating-filter="loved">Loved</button>
+                  </div>
+                </section>
+                <section class="cc-section">
+                  <h3>Clip sound</h3>
+                  <button class="sound-toggle" data-global-sound aria-pressed="false">Sound off</button>
+                  <label class="range-row"><span>Clip volume</span><strong data-value-for="highlightsVolume" data-format="pct"></strong><input type="range" min="0" max="1" step="0.01" data-setting="highlightsVolume" /></label>
+                </section>
+                <section class="cc-section">
+                  <h3>Marking</h3>
+                  <p class="subtle">In Video deck, Feed, Rediscover or a video preview: press <b>B</b> (or <b>Mark</b>) where a moment starts and again where it ends. Two quick presses mark the next 15 seconds. Remove one here with the trash button.</p>
+                </section>
+                <p class="cc-keys">Tap or Space pause · → next · ← back · Delete remove · L love</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="highlightsShuffle" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Reshuffle</button>
+                <button id="highlightsResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
               </footer>
             </aside>
           </div>
@@ -955,6 +1583,8 @@
       </div>
       <div class="lightbox-actions">
         <button id="lightboxDislike" class="deck-button pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
+        <button id="lightboxMark" class="deck-button skip mark-button" hidden>Mark</button>
+        <button id="lightboxLove" class="deck-button love" aria-label="Love"><svg aria-hidden="true"><use href="#i-star" /></svg><span>Love</span></button>
         <button id="lightboxLike" class="deck-button keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
       </div>
     </div>
@@ -976,6 +1606,7 @@
         </div>
         <div class="feed-item-actions">
           <button type="button" class="deck-button pass feed-pass"><svg aria-hidden="true"><use href="#i-x" /></svg><span>Pass</span></button>
+          <button type="button" class="deck-button love feed-love" aria-label="Love"><svg aria-hidden="true"><use href="#i-star" /></svg></button>
           <button type="button" class="deck-button keep feed-keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span></button>
         </div>
       </article>
@@ -1014,6 +1645,59 @@
     </template>
 
     <div id="workspaceToast" class="workspace-toast" role="status" hidden></div>
-    <script src="/app.js?v=5" defer></script>
+
+    <div id="lockScreen" class="lock-screen" hidden role="dialog" aria-modal="true" aria-label="Enter PIN">
+      <div class="lock-card">
+        <p id="lockMessage" class="lock-message" role="status">Enter your PIN</p>
+        <div id="lockDots" class="lock-dots" aria-hidden="true"></div>
+        <div id="lockPad" class="lock-pad">
+          <button type="button" data-key="1">1</button><button type="button" data-key="2">2</button><button type="button" data-key="3">3</button>
+          <button type="button" data-key="4">4</button><button type="button" data-key="5">5</button><button type="button" data-key="6">6</button>
+          <button type="button" data-key="7">7</button><button type="button" data-key="8">8</button><button type="button" data-key="9">9</button>
+          <button type="button" data-key="del" aria-label="Delete"><svg aria-hidden="true"><use href="#i-back" /></svg></button><button type="button" data-key="0">0</button><button type="button" data-key="ok" class="lock-ok" aria-label="Unlock"><svg aria-hidden="true"><use href="#i-check" /></svg></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panic: a blank page that looks like nothing in particular. -->
+    <div id="panicCover" class="panic-cover" hidden tabindex="-1" aria-label="Notes">
+      <div class="panic-page">
+        <h1>Notes</h1>
+        <i></i><i></i><i class="short"></i><i></i><i class="short"></i>
+      </div>
+    </div>
+
+    <script src="/js/01-core.js?v=8" defer></script>
+    <script src="/js/02-decks.js?v=8" defer></script>
+    <script src="/js/03-shell.js?v=8" defer></script>
+    <script src="/js/04-escalation.js?v=8" defer></script>
+    <script src="/js/05-media.js?v=8" defer></script>
+    <script src="/js/06-ratings.js?v=8" defer></script>
+    <script src="/js/07-session.js?v=8" defer></script>
+    <script src="/js/08-gallery.js?v=8" defer></script>
+    <script src="/js/09-controls.js?v=8" defer></script>
+    <script src="/js/10-collection.js?v=8" defer></script>
+    <script src="/js/11-mosaic.js?v=8" defer></script>
+    <script src="/js/12-feed.js?v=8" defer></script>
+    <script src="/js/13-settings.js?v=8" defer></script>
+    <script src="/js/14-picking.js?v=8" defer></script>
+    <script src="/js/15-folders.js?v=8" defer></script>
+    <script src="/js/16-workspace.js?v=8" defer></script>
+    <script src="/js/17-seen.js?v=8" defer></script>
+    <script src="/js/18-duel.js?v=8" defer></script>
+    <script src="/js/19-rediscover.js?v=8" defer></script>
+    <script src="/js/20-dangerous.js?v=8" defer></script>
+    <script src="/js/21-ui.js?v=8" defer></script>
+    <script src="/js/22-play.js?v=8" defer></script>
+    <script src="/js/23-toy.js?v=8" defer></script>
+    <script src="/js/24-privacy.js?v=8" defer></script>
+    <script src="/js/25-marks.js?v=8" defer></script>
+    <script src="/js/26-highlights.js?v=8" defer></script>
+    <script src="/js/27-ladder.js?v=8" defer></script>
+    <script src="/js/28-spotlight.js?v=8" defer></script>
+    <script src="/js/29-beat.js?v=8" defer></script>
+    <script src="/js/30-redlight.js?v=8" defer></script>
+    <script src="/js/31-dice.js?v=8" defer></script>
+    <script src="/js/32-models.js?v=8" defer></script>
   </body>
 </html>

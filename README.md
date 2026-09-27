@@ -4,10 +4,26 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 
 ## Features
 
-- Eleven modes, grouped the same way in the sidebar, the overview and the phone mode picker:
+- Seventeen modes, grouped the same way in the sidebar, the overview and the phone mode picker:
   - **Sort & rate:** `Photo deck`, `Video deck`, `Feed`, `Rediscover`, `Dangerous`
-  - **Sit back:** `Escalation` (which now includes the old Stream mode), `Mosaic`, `Session`
+  - **Sit back:** `Escalation` (which now includes the old Stream mode), `Session`,
+    `Beat`, `Red light`, `Dice`, `Mosaic`
+  - **Your best:** `Ladder`, `Spotlight`, `Highlights`
   - **Your library:** `Gallery`, `Collection`, `Duel`
+- Two levels of keep: **Keep** and **Love** (swipe up, `↑` or `L`). Love counts
+  as kept everywhere; `Show` gains a `Loved` option in every mode
+- **Marked moments:** press `B` (or **Mark**) at the start and end of a moment
+  in a clip. Highlights plays only those; Escalation, Session, Mosaic and the
+  timed modes start clips at them
+- **Session history** in Collection (every Session / Beat / Red light / Dice /
+  Ladder / Spotlight run of a minute or more), and a **page per model**
+  (top-level folder) with its best files and one-tap Spotlight / Ladder / Duel
+- **Privacy:** an optional server-enforced **PIN lock**, a **panic key** (`` ` ``
+  or a three-finger tap) that silences everything behind a blank page, a plain
+  tab title, and blanking the page when you switch away
+- **Toy sync** through Intiface Central (Buttplug protocol) — the running mode
+  drives the intensity; holds and stops turn it off
+- Crossfades between pictures in Escalation, Session and the timed modes
 - A control center per mode (**Adjust**, or `A`), with two tabs:
   - **Tune** — a plain-English readback of what the mode will do, preset cards
     where several knobs interact, sliders with a filled track, one sound switch,
@@ -20,8 +36,8 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   - On a phone it is a bottom sheet you can drag down to close; on a wide
     screen (1280px+) it docks beside the stage so changes are visible live and
     the keyboard keeps working
-- `Show: All / Unrated / Liked` in every mode, so Escalation, Mosaic, Session,
-  Feed, Duel and Rediscover can play only what you kept. `Play your favorites`
+- `Show: All / Unrated / Liked / Loved` in every mode, so Escalation, Mosaic, Session,
+  Feed, Duel, Rediscover and the timed modes can play only what you kept. `Play your favorites`
   shortcuts on the overview and in Collection set this up in one tap
 - One-row header: the active mode's tools (Undo, Focus, Adjust…) sit in the top
   bar, so the stage gets the room. Phones show the mode name as the mode picker
@@ -82,11 +98,16 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 - Keyboard:
   - `M` mode picker · `A` open/close controls · `F` focus · `Esc` close / leave focus
   - `1`–`9`, `0`: Photo deck, Video deck, Feed, Rediscover, Duel, Escalation,
-    Mosaic, Session, Gallery, Collection. Dangerous has no number key on purpose
-  - Decks, Rediscover, Dangerous: `←` pass/delete, `→` keep, `↓` skip, `U` undo
-  - Feed: `↑` `↓` previous/next clip, `←` pass, `→` keep, `Space` play/pause
+    Mosaic, Session, Gallery, Collection. Dangerous has no number key on purpose;
+    the six newer modes are in the mode picker (`M`)
+  - Decks, Rediscover, Dangerous: `←` pass/delete, `→` keep, `↑` love, `↓` skip, `U` undo
+  - Feed: `↑` `↓` previous/next clip, `←` pass, `→` keep, `L` love, `Space` play/pause
+  - `B`: mark a moment (Video deck, Feed, Rediscover, video preview)
   - Duel: `←` left wins, `→` right wins, `↓` new pair, `U` undo
-  - Session: `Space` start/stop, `E` edge (instant hold)
+  - Session, Beat, Red light, Dice: `Space` start/stop, `E` edge
+  - Ladder, Highlights: `Space` pause, `←` `→` step; Spotlight `N` another model; Dice `D` draw now
+  - `L` in any timed mode loves what is on screen
+  - `` ` ``: panic (again, or a double tap, to come back)
   - Mosaic: `Space` pause/resume the wall; Video deck: `Space` play/pause
 
 ### Photo deck / Video deck
@@ -135,6 +156,47 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   resumes the rest of the build. During a hold it adds ten seconds. The session
   summary shows the time and number of edges
 
+### Beat
+
+- A metronome (Web Audio clicks: Click, Wood or Thump) that climbs from a start
+  BPM to a peak over the length you set, gliding inside 20–45 s stretches, with
+  random **stops** (silence, the picture freezes and dims). Then an open finish
+- The picture swaps every N beats; the frame pulses on each beat, and phones
+  that support it can vibrate on the beat
+- `Edge` / `E`: an instant 20 s stop, then the beat comes back a notch slower
+- Presets: Slow burn, Standard, Overload. Metronome volume and clip volume are separate
+
+### Red light
+
+- Go and stop at random: every green and every red is a fresh random length in
+  your ranges, and green shows no countdown. Optional 2 s warning and tones
+- When the time is up the last green ends in **Finish**, **Denied**, or a coin toss
+- `Edge` / `E`: a full-length stop
+
+### Dice
+
+- Every 20–45 s (your range) a card changes the rules: Faster, Slower, Hold,
+  Eyes on this one, Clips only, Loved only, Edge-then-hold, Back to the start
+- After a minimum time each draw also rolls the finish odds; a **Finish allowed**
+  card ends the run on an open finish. Card types can be switched off
+
+### Ladder
+
+- Your keeps in rising Duel rank: the top N by rank (unranked keeps fill the
+  rest, loved first), weakest first and your #1 last, each step shorter than the
+  one before. The top step stays until you stop
+
+### Spotlight
+
+- One model (a top-level folder and everything in it): mostly photos at first,
+  more and more clips as the ramp goes on. Pick a model or **Surprise me**,
+  weighted towards the models you keep most
+
+### Highlights
+
+- Only your marked moments, back to back: shuffled, best duel rank first, or
+  newest files first; each played 1–5 times. `Remove` deletes a moment
+
 ### Mosaic
 
 - 4, 6 or 9 clips at once; tap a tile to move the sound to it
@@ -147,17 +209,44 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 
 ### Collection
 
-- What you kept: stats, `Play what you kept` shortcuts, top folders by keep
-  rate (with `Browse`), and a grid sorted by newest/oldest kept, folder, name,
-  size or `Duel rank`
+- What you kept: stats (kept, loved, this week, size, how much you have looked
+  at), `Play what you kept` shortcuts, kept per day, **Sessions** (count, minutes,
+  longest, day streak, edges per session, minutes per day, recent runs), top
+  models (with `Browse`), and a grid sorted by newest/oldest kept, loved first,
+  folder, name, size or `Duel rank`
+- A model's name opens its **page**: files, kept, loved, looked at, duel-ranked,
+  marked moments, its sub-folders, its best files, and Spotlight / Ladder /
+  Duel / Browse for exactly that model
+
+### Privacy (Settings)
+
+- **PIN lock** (off until you set one): 4–12 digits. The server then refuses
+  every API and media request without an unlock cookie, so nothing loads before
+  the PIN. Each device stays unlocked for 30 days or until **Lock now**. The PIN
+  is stored only as a salted PBKDF2 hash; wrong PINs back off (5 free, then 30 s
+  doubling to 15 min). Changing or removing it needs the current PIN
+- **Panic**: `` ` `` or a three-finger tap stops every mode, turns the toy off
+  and covers the page with a blank "Notes" page; double-tap or `` ` `` to return
+- **Plain tab title and icon**, and **Blank the page when I switch away** (so the
+  phone's app switcher shows the blank page)
+
+### Toy (Settings)
+
+- Start Intiface Central (free) on the device next to the toy, pair the toy
+  there, then **Connect** here (default `ws://127.0.0.1:12345`). Escalation,
+  Session, Beat, Red light, Dice, Ladder, Spotlight and Highlights set the
+  intensity; holds, stops, leaving the mode and panic turn it off. **Max
+  intensity** scales everything
 
 ### Dangerous
 
 - Random photos and videos. Swipe left / `←` moves the **original file** into
   `<media folder>/.heaven-trash/<token>/media`; right keeps it; down skips; `U` undoes
 - Control center: media type, only-unrated, folders, sound
-- `Settings → Review trash` restores files, including after restarts. Nothing
-  is permanently erased by the app; read-only drives keep Delete disabled
+- `Settings → Review trash` restores files, including after restarts.
+  `Settings → Empty trash` (after a confirm) permanently erases every trashed
+  file, its ratings and its video still; that is the only permanent delete.
+  Read-only drives keep Delete disabled
 
 ## Activate on qwertyserver
 
@@ -176,11 +265,23 @@ python3 -m unittest discover -s tests -v
 node --check static/app.js
 ```
 
-The tests cover drive reconnection, trash/restart/restore, overwrite and traversal protection, byte-range equivalence of the virtual MP4 layout, duel ratings, seen times, and stored video thumbnails. Actual phone hardware and remote-network speed still need device testing.
+The tests cover drive reconnection, trash/restart/restore, overwrite and traversal protection, byte-range equivalence of the virtual MP4 layout, duel ratings, seen times, stored video thumbnails, Love ratings, marked moments, session history, and the PIN lock over real HTTP (locked API and media, backoff, change/remove, hashed storage). Actual phone hardware and remote-network speed still need device testing.
+
+`tests/browser_features.py` drives Love, marking, Highlights, Session clip
+playback, Beat, Red light, Dice, Ladder, Spotlight, crossfades, session history,
+model pages, panic, toy sync (against a mock Intiface server) and the PIN lock
+in Chromium, with the same rules as the design check below (testing library
+only, temporary data, trash blocked). It needs Playwright and `websockets`.
+
+```bash
+python3 tests/browser_features.py --media-dir /mnt/edging-heaven/testing
+```
 
 ## Notes
 
-- Ratings, duel rankings and settings are stored in `data/state.json`; seen times in `data/seen.json`; video stills in `data/thumbs/` (safe to delete — they are remade on demand).
+- Ratings, duel rankings, marked moments, session history, settings and the PIN hash are stored in `data/state.json`; seen times in `data/seen.json`; video stills in `data/thumbs/` (safe to delete — they are remade on demand).
+- The page's code is split into ordered plain scripts in `static/js/` (no build step). They share one global scope, in file order, so the browser tests can call `setMode()`, `state`, etc. directly.
+- Forgot the PIN: stop the server, set `"lock": null` and `"lockTokens": {}` in `state.json`, start it again.
 - If you switch to a different media directory, saved ratings are cleared so the state matches the new library.
 - The app scans folders recursively, so very large libraries can take longer to refresh.
 - If a previously selected drive is disconnected, the app shows the saved path as unavailable. While the page is open, it checks every 5 seconds and rescans automatically when that folder returns. Ratings survive reconnecting the same library. The operating system must mount the drive at the same path first.

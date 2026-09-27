@@ -28,7 +28,8 @@ if args.media_dir.resolve() != Path("/mnt/edging-heaven/testing"):
 if not args.media_dir.is_dir():
     parser.error("The test library is unavailable")
 
-MODES = ["home", "swipe", "toktinder", "feed", "rediscover", "duel", "escalation", "mosaic", "session", "gallery", "ranked", "dangerous"]
+MODES = ["home", "swipe", "toktinder", "feed", "rediscover", "duel", "escalation", "mosaic", "session", "gallery", "ranked", "dangerous",
+         "beat", "redlight", "dice", "ladder", "spotlight", "highlights"]
 VIEWPORTS = [(1440, 900), (1920, 1080), (1180, 820), (820, 1180), (390, 844), (360, 640), (320, 568), (844, 390)]
 HIDE_MEDIA = "img, video { opacity: 0 !important; }"
 

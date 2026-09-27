@@ -2,10 +2,12 @@
 import argparse
 import gzip
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
 import re
+import shutil
 import socket
 import stat
 import threading
@@ -13,6 +15,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
@@ -114,7 +117,93 @@ DEFAULT_SETTINGS = {
     "rediscoverFolders": [],
     "rediscoverKind": "all",
     "rediscoverRatingFilter": "all",
+    # Lean-back modes start a clip at one of its marked moments when it has any.
+    "useMarks": True,
+    # Privacy: a plain tab title, and blanking the page when the tab is hidden.
+    "neutralTitle": False,
+    "panicOnHide": False,
+    # Toy sync through Intiface Central (Buttplug protocol, local websocket).
+    "toyUrl": "ws://127.0.0.1:12345",
+    "toyMax": 0.7,
+    "toyAuto": False,
+    # Beat: a metronome that ramps, with random stops.
+    "beatFolders": [],
+    "beatRatingFilter": "all",
+    "beatKind": "all",
+    "beatStartBpm": 70,
+    "beatPeakBpm": 140,
+    "beatMinutes": 8,
+    "beatStops": "some",
+    "beatSound": "click",
+    "beatVolume": 0.6,
+    "beatVibrate": False,
+    "beatMediaVolume": 0.2,
+    "beatSwapBeats": 8,
+    # Red light / green light: go and stop at random.
+    "redlightFolders": [],
+    "redlightRatingFilter": "all",
+    "redlightKind": "all",
+    "redlightGreenMin": 8,
+    "redlightGreenMax": 40,
+    "redlightRedMin": 8,
+    "redlightRedMax": 25,
+    "redlightMinutes": 10,
+    "redlightEnding": "random",
+    "redlightWarning": False,
+    "redlightSound": True,
+    "redlightVolume": 0.3,
+    # Dice: a card every so often changes the rules.
+    "diceFolders": [],
+    "diceRatingFilter": "all",
+    "diceKind": "all",
+    "diceDrawMin": 20,
+    "diceDrawMax": 45,
+    "diceFinishOdds": 10,
+    "diceMinMinutes": 10,
+    "diceHolds": True,
+    "diceSpeed": True,
+    "diceEdges": True,
+    "diceVolume": 0.3,
+    # Ladder: kept files in rising duel rank, best last.
+    "ladderFolders": [],
+    "ladderRatingFilter": "liked",
+    "ladderKind": "all",
+    "ladderSteps": 40,
+    "ladderStartSeconds": 10,
+    "ladderEndSeconds": 3,
+    "ladderVolume": 0.3,
+    # Spotlight: one model (top-level folder), photos building to clips.
+    "spotlightModel": "",
+    "spotlightRatingFilter": "all",
+    "spotlightRampSeconds": 240,
+    "spotlightBaseInterval": 10,
+    "spotlightMinInterval": 3,
+    "spotlightVolume": 0.3,
+    # Highlights: only the moments you marked, back to back.
+    "highlightsFolders": [],
+    "highlightsRatingFilter": "all",
+    "highlightsOrder": "shuffle",
+    "highlightsRepeat": 1,
+    "highlightsVolume": 0.5,
 }
+
+RATINGS = {"like", "dislike", "love"}
+KEPT = {"like", "love"}
+# Marked moments: at most this many per file, each at most this long.
+MARKS_PER_FILE = 24
+MARK_MAX_SECONDS = 600
+SESSIONS_LIMIT = 1000
+SESSION_MODES = {"session", "beat", "redlight", "dice", "escalation", "ladder", "spotlight", "highlights"}
+# PIN lock. The PIN is never stored, only a salted PBKDF2 hash of it.
+PIN_RE = re.compile(r"\d{4,12}")
+PIN_ITERATIONS = 200_000
+LOCK_COOKIE = "heaven_session"
+LOCK_TOKEN_SECONDS = 30 * 86400
+LOCK_FREE_ATTEMPTS = 5
+# Reachable without unlocking: the page itself, so it can show the PIN pad.
+PUBLIC_PATHS = {"/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/api/lock", "/api/unlock"}
+STATIC_JS_RE = re.compile(r"/js/[0-9a-z-]+\.js")
+FEATURES = ["love", "marks", "sessions", "lock"]
 
 DUEL_START = 1500.0
 # Seen times are flushed by the page in batches; one request never needs more.
@@ -148,6 +237,15 @@ STATIC_DIR = Path(__file__).parent / "static"
 # request can monopolise the link.
 OPEN_RANGE_CHUNK = 1024 * 1024
 RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
+
+
+def client_path(path: str) -> str:
+    """The name the browser sees for a file. Python hands back bytes that are
+    not valid UTF-8 (an old Latin-1 "\xa9" for a copyright sign, say) as
+    lone surrogates, which cannot be encoded to UTF-8, put in a URL, or
+    hashed. Each such byte is shown as its Latin-1 character instead, and
+    MediaLibrary maps the name back to the real one on disk."""
+    return "".join(chr(ord(c) - 0xDC00) if 0xDC80 <= ord(c) <= 0xDCFF else c for c in path)
 
 
 def utc_now_iso() -> str:
@@ -218,6 +316,8 @@ class MediaLibrary:
         self.seen_path = state_path.parent / "seen.json"
         self.seen = self._load_seen()
         self.catalog = {"images": [], "videos": [], "updatedAt": None}
+        # client_path -> real relative path, only for names that differ.
+        self.fs_paths = {}
         self._directory_identity = None
         self._last_availability_check = 0.0
         configured_media_dir = (
@@ -250,6 +350,14 @@ class MediaLibrary:
             "brokenPaths": set(broken) if isinstance(broken, list) else set(),
             # Duel ratings: {path: {"r": elo, "n": duels fought}}
             "duel": loaded.get("duel") if isinstance(loaded.get("duel"), dict) else {},
+            # Marked moments: {path: [[start, end], ...]} in seconds.
+            "marks": loaded.get("marks") if isinstance(loaded.get("marks"), dict) else {},
+            # Finished timed sessions, oldest first.
+            "sessions": loaded.get("sessions") if isinstance(loaded.get("sessions"), list) else [],
+            # PIN lock: {"salt", "hash", "iterations"} or None; tokens are
+            # stored hashed with their expiry, so a restart keeps you in.
+            "lock": loaded.get("lock") if isinstance(loaded.get("lock"), dict) else None,
+            "lockTokens": loaded.get("lockTokens") if isinstance(loaded.get("lockTokens"), dict) else {},
         }
 
     def _save_state(self) -> None:
@@ -260,12 +368,20 @@ class MediaLibrary:
             "mediaDirectory": self.state.get("mediaDirectory"),
             "brokenPaths": sorted(self.state.get("brokenPaths", set())),
             "duel": self.state.get("duel", {}),
+            "marks": self.state.get("marks", {}),
+            "sessions": self.state.get("sessions", []),
+            "lock": self.state.get("lock"),
+            "lockTokens": self.state.get("lockTokens", {}),
         }
         self._write_state_payload(payload)
 
     def _write_state_payload(self, payload: dict) -> None:
-        with self.state_path.open("w", encoding="utf-8") as handle:
+        # Written aside and renamed, so a crash mid-write cannot leave half a
+        # state.json (which would lose every rating on the next start).
+        temporary = self.state_path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
+        temporary.replace(self.state_path)
 
     def scan(self) -> None:
         with self.lock:
@@ -314,6 +430,7 @@ class MediaLibrary:
 
         images = []
         videos = []
+        fs_paths = {}
         broken = self.state.get("brokenPaths", set())
 
         try:
@@ -343,11 +460,19 @@ class MediaLibrary:
                 continue
 
             relative_path = file_path.relative_to(self.media_dir).as_posix()
+            fs_path = relative_path
+            relative_path = client_path(relative_path)
+            if relative_path != fs_path:
+                # A real file already has the display name; skip rather than
+                # let two files answer to one path.
+                if (self.media_dir / relative_path).exists():
+                    continue
+                fs_paths[relative_path] = fs_path
             if relative_path in broken:
                 continue
             folder = ""
             if file_path.parent != self.media_dir:
-                folder = file_path.parent.relative_to(self.media_dir).as_posix()
+                folder = client_path(file_path.parent.relative_to(self.media_dir).as_posix())
 
             # `name` is not sent: it is always the tail of `path`, and with
             # hash-style filenames that duplication was ~1.8MB of a 2.9MB
@@ -379,10 +504,11 @@ class MediaLibrary:
             # the scan actually saw files, so a disconnected drive cannot wipe
             # the list.
             if broken and (images or videos):
-                present = {path for path in broken if (self.media_dir / path).exists()}
+                present = {path for path in broken if (self.media_dir / fs_paths.get(path, path)).exists()}
                 if present != broken:
                     self.state["brokenPaths"] = present
 
+            self.fs_paths = fs_paths
             self.catalog = {
                 "images": images,
                 "videos": videos,
@@ -407,8 +533,12 @@ class MediaLibrary:
                 "counts": {
                     "images": len(self.catalog["images"]),
                     "videos": len(self.catalog["videos"]),
+                    # "liked" is everything kept; "loved" is the top tier of it.
                     "liked": sum(
-                        1 for item in all_items if item.get("rating") == "like"
+                        1 for item in all_items if item.get("rating") in KEPT
+                    ),
+                    "loved": sum(
+                        1 for item in all_items if item.get("rating") == "love"
                     ),
                     "disliked": sum(
                         1 for item in all_items if item.get("rating") == "dislike"
@@ -430,6 +560,7 @@ class MediaLibrary:
                 "brokenCount": len(self.state.get("brokenPaths", set())),
                 "canTrash": self.media_dir is not None and os.access(self.media_dir, os.W_OK),
                 "mediaChoices": suggested_media_directories(),
+                "features": FEATURES,
             }
 
     def _activate_media_directory(self, media_dir: str) -> bool:
@@ -464,6 +595,7 @@ class MediaLibrary:
                 self.state["ratings"] = {}
                 self.state["ratingTimes"] = {}
                 self.state["duel"] = {}
+                self.state["marks"] = {}
                 self.seen = {}
                 self._save_seen()
 
@@ -471,7 +603,7 @@ class MediaLibrary:
         return True, None
 
     def set_rating(self, relative_path: str, rating: Optional[str]) -> bool:
-        if rating not in {None, "like", "dislike"}:
+        if rating is not None and rating not in RATINGS:
             return False
 
         with self.lock:
@@ -557,7 +689,10 @@ class MediaLibrary:
             self.state["settings"] = dict(DEFAULT_SETTINGS)
             self.state["mediaDirectory"] = None
             self.state["brokenPaths"] = set()
-            self._write_state_payload({})
+            self.state["marks"] = {}
+            self.state["sessions"] = []
+            # The PIN is privacy, not library data: resetting the library keeps it.
+            self._write_state_payload({"lock": self.state.get("lock"), "lockTokens": self.state.get("lockTokens", {})})
 
     def reset_mode_data(self, mode: str) -> bool:
         with self.lock:
@@ -655,9 +790,148 @@ class MediaLibrary:
             self._save_state()
             return True
 
+    # ---- marked moments (Highlights) ----
+
+    def marks_payload(self) -> dict:
+        with self.lock:
+            known = self._catalog_paths()
+            return {path: spans for path, spans in self.state.get("marks", {}).items() if path in known}
+
+    def set_marks(self, relative_path, spans) -> Optional[list]:
+        """Replace one file's marks. Spans are cleaned: numbers, start before
+        end, sorted, overlaps merged, capped in length and count."""
+        if not isinstance(relative_path, str) or not isinstance(spans, list):
+            return None
+        clean = []
+        for span in spans:
+            if not (isinstance(span, (list, tuple)) and len(span) == 2):
+                return None
+            start, end = span
+            if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, end)):
+                return None
+            start, end = round(max(0.0, float(start)), 2), round(float(end), 2)
+            if end - start < 0.5:
+                continue
+            clean.append([start, min(end, start + MARK_MAX_SECONDS)])
+        clean.sort()
+        merged = []
+        for start, end in clean:
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        merged = merged[:MARKS_PER_FILE]
+        with self.lock:
+            if not any(item["path"] == relative_path for item in self.catalog["videos"]):
+                return None
+            table = self.state.setdefault("marks", {})
+            if merged:
+                table[relative_path] = merged
+            else:
+                table.pop(relative_path, None)
+            self._save_state()
+            return merged
+
+    # ---- session history ----
+
+    def sessions_payload(self) -> list:
+        with self.lock:
+            return list(self.state.get("sessions", []))
+
+    def add_session(self, entry) -> Optional[dict]:
+        if not isinstance(entry, dict) or entry.get("mode") not in SESSION_MODES:
+            return None
+        seconds, edges = entry.get("seconds"), entry.get("edges", 0)
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or not 0 < seconds <= 86400:
+            return None
+        if not isinstance(edges, int) or isinstance(edges, bool) or not 0 <= edges <= 10000:
+            return None
+        ending = entry.get("ending")
+        record = {
+            "mode": entry["mode"],
+            "endedAt": utc_now_iso(),
+            "seconds": int(seconds),
+            "edges": edges,
+        }
+        if isinstance(ending, str) and re.fullmatch(r"[a-z]{1,16}", ending):
+            record["ending"] = ending
+        with self.lock:
+            sessions = self.state.setdefault("sessions", [])
+            sessions.append(record)
+            del sessions[:-SESSIONS_LIMIT]
+            self._save_state()
+        return record
+
+    def clear_sessions(self) -> None:
+        with self.lock:
+            self.state["sessions"] = []
+            self._save_state()
+
+    # ---- PIN lock ----
+
+    def lock_enabled(self) -> bool:
+        return bool(self.state.get("lock"))
+
+    @staticmethod
+    def _hash_pin(pin: str, salt: bytes, iterations: int) -> str:
+        return hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), salt, iterations).hex()
+
+    def pin_matches(self, pin) -> bool:
+        record = self.state.get("lock")
+        if not record or not isinstance(pin, str):
+            return False
+        try:
+            salt = bytes.fromhex(record["salt"])
+            expected = record["hash"]
+            iterations = int(record.get("iterations", PIN_ITERATIONS))
+        except (KeyError, ValueError, TypeError):
+            return False
+        return hmac.compare_digest(self._hash_pin(pin, salt, iterations), expected)
+
+    def issue_token(self) -> str:
+        token = uuid.uuid4().hex + uuid.uuid4().hex
+        with self.lock:
+            now = time.time()
+            tokens = {key: expiry for key, expiry in self.state.setdefault("lockTokens", {}).items() if expiry > now}
+            tokens[hashlib.sha256(token.encode()).hexdigest()] = int(now + LOCK_TOKEN_SECONDS)
+            self.state["lockTokens"] = tokens
+            self._save_state()
+        return token
+
+    def token_valid(self, token) -> bool:
+        if not isinstance(token, str) or not token:
+            return False
+        expiry = self.state.get("lockTokens", {}).get(hashlib.sha256(token.encode()).hexdigest())
+        return bool(expiry and expiry > time.time())
+
+    def revoke_token(self, token) -> None:
+        if isinstance(token, str):
+            with self.lock:
+                self.state.get("lockTokens", {}).pop(hashlib.sha256(token.encode()).hexdigest(), None)
+                self._save_state()
+
+    def set_pin(self, pin) -> bool:
+        if not isinstance(pin, str) or not PIN_RE.fullmatch(pin):
+            return False
+        salt = os.urandom(16)
+        with self.lock:
+            self.state["lock"] = {"salt": salt.hex(), "hash": self._hash_pin(pin, salt, PIN_ITERATIONS),
+                                  "iterations": PIN_ITERATIONS}
+            # A new PIN signs every other device out.
+            self.state["lockTokens"] = {}
+            self._save_state()
+        return True
+
+    def clear_pin(self) -> None:
+        with self.lock:
+            self.state["lock"] = None
+            self.state["lockTokens"] = {}
+            self._save_state()
+
     def resolve_media_path(self, relative_path: str) -> Optional[Path]:
         if self.media_dir is None:
             return None
+        relative_path = self.fs_paths.get(relative_path, relative_path)
         if ".heaven-trash" in Path(relative_path).parts:
             return None
         candidate = (self.media_dir / relative_path).resolve()
@@ -708,13 +982,16 @@ class MediaLibrary:
             source = self.resolve_media_path(relative_path)
             if item is None or source is None:
                 raise ValueError("This file is no longer in the library.")
-            if (self.media_dir / relative_path).is_symlink():
+            fs_path = self.fs_paths.get(relative_path, relative_path)
+            if (self.media_dir / fs_path).is_symlink():
                 raise ValueError("Delete the original file, not a symbolic link.")
             # Renaming on the same drive is immediate, including large videos.
             token = uuid.uuid4().hex
             entry = self._trash_root() / token
             entry.mkdir(parents=True)
-            record = {"path": relative_path, "item": dict(item), "deletedAt": utc_now_iso()}
+            # fsPath is the real name on disk when it is not valid UTF-8;
+            # json.dumps escapes it, so the record stays plain ASCII.
+            record = {"path": relative_path, "fsPath": fs_path, "item": dict(item), "deletedAt": utc_now_iso()}
             try:
                 (entry / "record.json").write_text(json.dumps(record), encoding="utf-8")
                 source.rename(entry / "media")
@@ -738,7 +1015,10 @@ class MediaLibrary:
             if entry.is_symlink() or (entry / "media").is_symlink() or (entry / "record.json").is_symlink():
                 raise ValueError("Invalid trash entry.")
             record = json.loads((entry / "record.json").read_text(encoding="utf-8"))
-            destination = (self.media_dir / record["path"]).resolve()
+            fs_path = record.get("fsPath", record["path"])
+            if not isinstance(fs_path, str) or client_path(fs_path) != client_path(record["path"]):
+                raise ValueError("Invalid trash entry.")
+            destination = (self.media_dir / fs_path).resolve()
             if not destination.is_relative_to(self.media_dir) or ".heaven-trash" in destination.parts:
                 raise ValueError("Invalid restore path.")
             if destination.exists():
@@ -748,7 +1028,7 @@ class MediaLibrary:
             (entry / "record.json").unlink()
             entry.rmdir()
             self.scan()
-            return record["path"]
+            return client_path(record["path"])
 
     def trash_entries(self):
         with self.lock:
@@ -761,11 +1041,64 @@ class MediaLibrary:
                 try:
                     record = json.loads((entry / "record.json").read_text(encoding="utf-8"))
                     if (entry / "media").is_file():
-                        entries.append({"token": entry.name, "path": record["path"],
+                        entries.append({"token": entry.name, "path": client_path(record["path"]),
                                         "deletedAt": record["deletedAt"]})
                 except (OSError, ValueError, KeyError):
                     continue
             return sorted(entries, key=lambda item: item["deletedAt"], reverse=True)
+
+    def empty_trash(self, expected_library):
+        """Permanently erase every trash entry. Only the files trash_media
+        wrote are removed; anything else found in the trash folder stays."""
+        with self.lock:
+            if expected_library != str(self.media_dir):
+                raise ValueError("The library changed. Reload before emptying trash.")
+            root = self._trash_root()
+            removed, freed = 0, 0
+            if not root.is_dir():
+                return {"removed": 0, "freedBytes": 0, "freeBytes": self._free_bytes()}
+            for entry in root.iterdir():
+                if entry.is_symlink() or not re.fullmatch(r"[a-f0-9]{32}", entry.name) or not entry.is_dir():
+                    continue
+                media, record_file = entry / "media", entry / "record.json"
+                if media.is_symlink() or record_file.is_symlink():
+                    continue
+                try:
+                    record = json.loads(record_file.read_text(encoding="utf-8"))
+                    fs_path = record.get("fsPath", record["path"])
+                    # Records written before client_path existed hold the raw
+                    # name; the catalog, ratings and thumbnails use the clean one.
+                    path = client_path(record["path"])
+                except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                    path = fs_path = None
+                if media.is_file():
+                    info = media.stat()
+                    if isinstance(path, str):
+                        # Same key as thumb_path: a rename keeps size and mtime.
+                        key = hashlib.sha1(f"{path}\0{info.st_size}\0{info.st_mtime_ns}".encode("utf-8")).hexdigest()
+                        (self.state_path.parent / "thumbs" / key[:2] / f"{key}.jpg").unlink(missing_ok=True)
+                    media.unlink()
+                    removed += 1
+                    freed += info.st_size
+                record_file.unlink(missing_ok=True)
+                try:
+                    entry.rmdir()
+                except OSError:
+                    continue
+                # The file is gone for good, so its ratings must not attach to
+                # a different file that later lands on the same path.
+                if isinstance(path, str) and isinstance(fs_path, str) and not (self.media_dir / fs_path).exists():
+                    for key in ("ratings", "ratingTimes", "duel", "marks"):
+                        self.state.get(key, {}).pop(path, None)
+            self._save_state()
+            return {"removed": removed, "freedBytes": freed, "freeBytes": self._free_bytes()}
+
+    def _free_bytes(self):
+        """Space left on the drive that holds the library, or None if unknown."""
+        try:
+            return shutil.disk_usage(self.media_dir).free
+        except OSError:
+            return None
 
 
 class AppServer(ThreadingHTTPServer):
@@ -774,6 +1107,26 @@ class AppServer(ThreadingHTTPServer):
     def __init__(self, server_address, handler_class, library: MediaLibrary):
         super().__init__(server_address, handler_class)
         self.library = library
+        # Wrong PINs, counted for the whole server: behind `tailscale serve`
+        # every request comes from 127.0.0.1, so a per-address count is the
+        # same thing. After a few free tries each miss doubles the wait.
+        self.pin_failures = 0
+        self.pin_blocked_until = 0.0
+        self.pin_lock = threading.Lock()
+
+    def pin_wait(self) -> int:
+        return max(0, int(self.pin_blocked_until - time.monotonic() + 0.999))
+
+    def note_pin_result(self, ok: bool) -> None:
+        with self.pin_lock:
+            if ok:
+                self.pin_failures = 0
+                self.pin_blocked_until = 0.0
+                return
+            self.pin_failures += 1
+            if self.pin_failures >= LOCK_FREE_ATTEMPTS:
+                delay = min(900, 30 * 2 ** (self.pin_failures - LOCK_FREE_ATTEMPTS))
+                self.pin_blocked_until = time.monotonic() + delay
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -808,8 +1161,107 @@ class RequestHandler(BaseHTTPRequestHandler):
             # fills with tracebacks.
             self.close_connection = True
 
+    # ---- PIN lock ----
+
+    def _session_token(self):
+        raw = self.headers.get("Cookie")
+        if not raw:
+            return None
+        try:
+            cookie = SimpleCookie(raw)
+        except Exception:
+            return None
+        morsel = cookie.get(LOCK_COOKIE)
+        return morsel.value if morsel else None
+
+    def _unlocked(self) -> bool:
+        library = self.server.library
+        return not library.lock_enabled() or library.token_valid(self._session_token())
+
+    def _allowed(self, path: str) -> bool:
+        return path in PUBLIC_PATHS or bool(STATIC_JS_RE.fullmatch(path)) or self._unlocked()
+
+    def _send_locked(self):
+        self._send_json({"error": "Locked. Enter the PIN.", "locked": True}, HTTPStatus.UNAUTHORIZED)
+
+    def _cookie_header(self, token, max_age):
+        # HttpOnly: page scripts never see it. SameSite=Strict: another site
+        # cannot make the browser send it along with a forged request.
+        return f"{LOCK_COOKIE}={token}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Strict"
+
+    def _lock_status(self):
+        library = self.server.library
+        return {"enabled": library.lock_enabled(), "unlocked": self._unlocked(), "retryAfter": self.server.pin_wait()}
+
+    def _handle_lock_post(self, path, payload):
+        library = self.server.library
+        server = self.server
+        if path == "/api/unlock":
+            if not library.lock_enabled():
+                self._send_json({"ok": True, **self._lock_status()})
+                return
+            wait = server.pin_wait()
+            if wait:
+                self._send_json({"error": f"Too many wrong PINs. Try again in {wait}s.", "retryAfter": wait},
+                                HTTPStatus.TOO_MANY_REQUESTS)
+                return
+            ok = library.pin_matches(payload.get("pin"))
+            server.note_pin_result(ok)
+            if not ok:
+                self._send_json({"error": "Wrong PIN.", "retryAfter": server.pin_wait()}, HTTPStatus.FORBIDDEN)
+                return
+            token = library.issue_token()
+            self._send_json({"ok": True, "enabled": True, "unlocked": True},
+                            extra_headers=[("Set-Cookie", self._cookie_header(token, LOCK_TOKEN_SECONDS))])
+            return
+        if path == "/api/lock/logout":
+            library.revoke_token(self._session_token())
+            self._send_json({"ok": True}, extra_headers=[("Set-Cookie", self._cookie_header("", 0))])
+            return
+        # Changing or removing the PIN: must be unlocked, and must know the
+        # current PIN, so an unlocked phone left lying around cannot change it.
+        if library.lock_enabled():
+            if server.pin_wait():
+                self._send_json({"error": "Too many wrong PINs. Wait and try again."}, HTTPStatus.TOO_MANY_REQUESTS)
+                return
+            ok = library.pin_matches(payload.get("current"))
+            server.note_pin_result(ok)
+            if not ok:
+                self._send_json({"error": "The current PIN is wrong."}, HTTPStatus.FORBIDDEN)
+                return
+        if path == "/api/lock/set":
+            if not library.set_pin(payload.get("pin")):
+                self._send_json({"error": "A PIN is 4 to 12 digits."}, HTTPStatus.BAD_REQUEST)
+                return
+            token = library.issue_token()
+            self._send_json({"ok": True, "enabled": True, "unlocked": True},
+                            extra_headers=[("Set-Cookie", self._cookie_header(token, LOCK_TOKEN_SECONDS))])
+            return
+        if path == "/api/lock/clear":
+            library.clear_pin()
+            self._send_json({"ok": True, "enabled": False, "unlocked": True},
+                            extra_headers=[("Set-Cookie", self._cookie_header("", 0))])
+            return
+        self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+
     def do_GET(self):
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/lock":
+            self._send_json(self._lock_status())
+            return
+
+        if not self._allowed(parsed.path):
+            self._send_locked()
+            return
+
+        if parsed.path == "/api/marks":
+            self._send_json({"marks": self.server.library.marks_payload()})
+            return
+
+        if parsed.path == "/api/sessions":
+            self._send_json({"sessions": self.server.library.sessions_payload()})
+            return
 
         if parsed.path == "/api/trash":
             try:
@@ -866,21 +1318,35 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        static_routes = {
-            "/": "index.html",
-            "/index.html": "index.html",
-            "/app.js": "app.js",
-            "/styles.css": "styles.css",
-        }
-        target = static_routes.get(parsed.path)
+        target = self._static_target(parsed.path)
         if target:
-            self._serve_static(STATIC_DIR / target)
+            self._serve_static(target)
             return
 
         self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
 
+    @staticmethod
+    def _static_target(path: str) -> Optional[Path]:
+        static_routes = {
+            "/": "index.html",
+            "/index.html": "index.html",
+            "/styles.css": "styles.css",
+            # The single-file frontend from before static/js existed. Kept so
+            # an old page still loads during an update; 404 once it is gone.
+            "/app.js": "app.js",
+        }
+        if path in static_routes:
+            return STATIC_DIR / static_routes[path]
+        # The page's scripts: plain names only, so nothing outside static/js.
+        if STATIC_JS_RE.fullmatch(path):
+            return STATIC_DIR / path.lstrip("/")
+        return None
+
     def do_HEAD(self):
         parsed = urlparse(self.path)
+        if not self._allowed(parsed.path):
+            self.send_error(HTTPStatus.UNAUTHORIZED)
+            return
         if parsed.path == "/media":
             query = parse_qs(parsed.query)
             relative_path = query.get("path", [None])[0]
@@ -890,21 +1356,24 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._serve_media(relative_path, send_body=False)
             return
 
-        static_routes = {
-            "/": "index.html",
-            "/index.html": "index.html",
-            "/app.js": "app.js",
-            "/styles.css": "styles.css",
-        }
-        target = static_routes.get(parsed.path)
+        target = self._static_target(parsed.path)
         if target:
-            self._serve_static(STATIC_DIR / target, send_body=False)
+            self._serve_static(target, send_body=False)
             return
 
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if not self._allowed(parsed.path):
+            # Read the body anyway, or keep-alive would parse it as the next request.
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            if 0 < length <= 1024 * 1024:
+                self.rfile.read(length)
+            else:
+                self.close_connection = True
+            self._send_locked()
+            return
         if parsed.path == "/api/thumb":
             self._receive_thumb(parsed)
             return
@@ -913,9 +1382,36 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Invalid JSON body."}, HTTPStatus.BAD_REQUEST)
             return
 
-        if parsed.path in {"/api/trash", "/api/restore"}:
+        if parsed.path == "/api/unlock" or parsed.path.startswith("/api/lock/"):
+            self._handle_lock_post(parsed.path, payload)
+            return
+
+        if parsed.path == "/api/marks":
+            spans = self.server.library.set_marks(payload.get("path"), payload.get("marks"))
+            if spans is None:
+                self._send_json({"error": "Marks need a video in the library and [start, end] pairs."}, HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, "marks": spans})
+            return
+
+        if parsed.path == "/api/sessions":
+            record = self.server.library.add_session(payload)
+            if record is None:
+                self._send_json({"error": "Invalid session."}, HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, "session": record})
+            return
+
+        if parsed.path == "/api/sessions-clear":
+            self.server.library.clear_sessions()
+            self._send_json({"ok": True})
+            return
+
+        if parsed.path in {"/api/trash", "/api/restore", "/api/empty-trash"}:
             try:
-                if parsed.path == "/api/trash":
+                if parsed.path == "/api/empty-trash":
+                    result = self.server.library.empty_trash(payload.get("library"))
+                elif parsed.path == "/api/trash":
                     if not isinstance(payload.get("path"), str):
                         raise ValueError("Missing media path.")
                     result = self.server.library.trash_media(payload["path"], payload.get("library"))
@@ -1058,7 +1554,7 @@ class RequestHandler(BaseHTTPRequestHandler):
     def _accepts_gzip(self) -> bool:
         return "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
 
-    def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK):
+    def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK, extra_headers=()):
         # Compact separators first: the default ", " / ": " costs about a tenth
         # of the catalog on its own.
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -1077,7 +1573,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        for name, value in extra_headers:
+            self.send_header(name, value)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)

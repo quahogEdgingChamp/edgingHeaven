@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import struct
 import tempfile
@@ -6,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from faststart import layout, read_chunks
-from server import MediaLibrary
+from server import MediaLibrary, utc_now_iso
 
 
 def atom(kind, payload):
@@ -117,6 +118,70 @@ class TrashTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.library.restore_media(token, str(self.media))
         self.assertFalse((self.root / "escaped.jpg").exists())
+
+    def test_non_utf8_name_is_served_trashed_restored_and_emptied(self):
+        # b"\xa9" is a Latin-1 copyright sign: not valid UTF-8 on its own.
+        folder = self.media / os.fsdecode(b"a\xa9b")
+        folder.mkdir()
+        (folder / "clip.mp4").write_bytes(b"video")
+        self.library.scan()
+        self.assertEqual([item["path"] for item in self.library.catalog["videos"]], ["a©b/clip.mp4"])
+        json.dumps(self.library.library_payload()).encode("utf-8")
+        self.assertIsNotNone(self.library.thumb_path("a©b/clip.mp4"))
+        token = self.library.trash_media("a©b/clip.mp4", str(self.media))["token"]
+        self.assertEqual(self.library.restore_media(token, str(self.media)), "a©b/clip.mp4")
+        self.assertTrue((folder / "clip.mp4").exists())
+        self.library.trash_media("a©b/clip.mp4", str(self.media))
+        self.assertEqual(self.library.empty_trash(str(self.media))["removed"], 1)
+        self.assertFalse((folder / "clip.mp4").exists())
+
+    def test_old_trash_record_with_raw_name_can_be_emptied(self):
+        entry = self.media / ".heaven-trash" / ("f" * 32)
+        entry.mkdir(parents=True)
+        (entry / "media").write_bytes(b"video")
+        raw = os.fsdecode(b"a\xa9b/clip.mp4")
+        (entry / "record.json").write_text(json.dumps({"path": raw, "item": {}, "deletedAt": utc_now_iso()}))
+        self.assertEqual(self.library.trash_entries()[0]["path"], "a©b/clip.mp4")
+        self.assertEqual(self.library.empty_trash(str(self.media))["removed"], 1)
+
+    def test_empty_trash_erases_files_ratings_and_stills(self):
+        self.library.set_rating("photo.jpg", "like")
+        self.library.trash_media("photo.jpg", str(self.media))
+        (self.media / "clip.mp4").write_bytes(b"video")
+        self.library.scan()
+        still = self.library.thumb_path("clip.mp4")
+        still.parent.mkdir(parents=True)
+        still.write_bytes(b"jpeg")
+        self.library.trash_media("clip.mp4", str(self.media))
+        stray = self.media / ".heaven-trash" / "not-ours.txt"
+        stray.write_text("keep me")
+        result = self.library.empty_trash(str(self.media))
+        self.assertEqual((result["removed"], result["freedBytes"]), (2, 13))
+        self.assertGreater(result["freeBytes"], 0)
+        self.assertEqual(self.library.trash_entries(), [])
+        self.assertEqual(sorted(p.name for p in (self.media / ".heaven-trash").iterdir()), ["not-ours.txt"])
+        self.assertFalse(still.exists())
+        self.assertNotIn("photo.jpg", self.library.state["ratings"])
+        (self.media / "photo.jpg").write_bytes(b"new file, same name")
+        self.library = MediaLibrary(self.media, self.root / "state.json")
+        self.assertNotIn("rating", self.library.library_payload()["images"][0])
+
+    def test_empty_trash_rejects_stale_library_and_symlinked_entries(self):
+        token = self.library.trash_media("photo.jpg", str(self.media))["token"]
+        with self.assertRaises(ValueError):
+            self.library.empty_trash("other-library")
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "media").write_bytes(b"precious")
+        (self.media / ".heaven-trash" / ("b" * 32)).symlink_to(outside, target_is_directory=True)
+        self.assertEqual(self.library.empty_trash(str(self.media))["removed"], 1)
+        self.assertEqual((outside / "media").read_bytes(), b"precious")
+        self.assertFalse((self.media / ".heaven-trash" / token).exists())
+
+    def test_empty_trash_without_trash_folder(self):
+        result = self.library.empty_trash(str(self.media))
+        self.assertEqual((result["removed"], result["freedBytes"]), (0, 0))
+        self.assertIsInstance(result["freeBytes"], int)
 
 
 if __name__ == "__main__":
