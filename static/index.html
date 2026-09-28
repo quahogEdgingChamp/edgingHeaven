@@ -192,10 +192,11 @@
 
         <div class="settings-card">
           <p class="panel-label">Recently deleted</p>
-          <p class="subtle">Files deleted in Dangerous stay on the drive in local trash until you empty it. Restore them here at any time before that.</p>
+          <p class="subtle">Files deleted in Dangerous stay on the drive in local trash until you empty it. Restore them here at any time before that. Delete trash folder also removes the .heaven-trash folder itself and anything else left in it.</p>
           <div class="setup-actions">
             <button id="showTrash" class="ghost-button small-button">Review trash</button>
             <button id="emptyTrash" class="danger-button small-button">Empty trash</button>
+            <button id="deleteTrashFolder" class="danger-button small-button">Delete trash folder</button>
           </div>
           <div id="trashList" class="trash-list"></div>
         </div>
@@ -1107,6 +1108,7 @@
           <div class="dangerous-layout">
             <div class="stage-toolbar">
               <span id="dangerousProgress" class="tool-note"></span>
+              <button id="dangerousBlitzButton" class="tool-button" aria-label="Blitz: a timed round"><svg aria-hidden="true"><use href="#i-edge" /></svg><span class="label">Blitz</span></button>
               <button id="dangerousUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
               <button id="dangerousFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
               <button id="dangerousDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
@@ -1114,6 +1116,7 @@
             <p id="dangerousReadOnly" class="readonly-note" hidden>This drive is read-only. Keep and Skip work; deletion needs a writable media folder.</p>
             <div id="dangerousCard" class="dangerous-card">
               <span class="danger-stamp delete-stamp">Delete</span><span class="danger-stamp keep-stamp">Keep</span>
+              <span id="dangerousBlitz" class="blitz-pill" role="timer" hidden></span>
               <img id="dangerousImage" alt="" draggable="false" hidden />
               <video id="dangerousVideo" playsinline loop hidden></video>
               <div id="dangerousTransport" class="video-transport" hidden>
@@ -1121,6 +1124,7 @@
                 <span id="dangerousTime" class="transport-time">0:00</span>
                 <input id="dangerousSeek" class="transport-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Seek" />
                 <span id="dangerousDuration" class="transport-time">0:00</span>
+                <button id="dangerousSpeed" class="transport-button" aria-label="Playback speed 1 times">1×</button>
                 <button id="dangerousMuteToggle" class="transport-button" aria-pressed="false">Sound off</button>
               </div>
               <div id="dangerousEmpty" class="dangerous-empty" hidden>
@@ -1132,16 +1136,19 @@
                 <div><strong id="dangerousName"></strong><span id="dangerousFolder"></span></div>
               </div>
             </div>
+            <div id="dangerousFrames" class="frame-strip" hidden></div>
             <div class="dangerous-actions">
               <button id="dangerousDelete" class="deck-button delete"><svg aria-hidden="true"><use href="#i-trash" /></svg><span>Delete</span><kbd>←</kbd></button>
               <button id="dangerousSkip" class="deck-button skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span><kbd>↓</kbd></button>
+              <button id="dangerousLove" class="deck-button love"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Love</span><kbd>↑</kbd></button>
               <button id="dangerousKeep" class="deck-button keep"><svg aria-hidden="true"><use href="#i-check" /></svg><span>Keep</span><kbd>→</kbd></button>
             </div>
             <p class="dangerous-footnote">Delete moves the original into local trash — Undo or Settings brings it back. <span id="dangerousSessionCount">0 kept · 0 deleted</span></p>
+            <div class="cleanup-meter" data-cleanup-meter></div>
 
             <aside id="dangerousDrawer" class="drawer control-panel" data-mode="dangerous" aria-hidden="true">
               <header class="drawer-header">
-                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Dangerous</h2></div>
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Swipe</h2></div>
                 <button id="dangerousDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
               </header>
               <div class="drawer-body" data-panel="tune">
@@ -1156,14 +1163,241 @@
                   <button id="dangerousHideKept" class="switch-row" role="switch" aria-checked="true"><span>Hide files I already kept here</span><i aria-hidden="true"></i></button>
                 </section>
                 <section class="cc-section">
+                  <h3>Order</h3>
+                  <div class="segmented" role="group" aria-label="Deal order" data-setting="dangerousOrder"><button type="button" class="segment" data-value="random">Shuffled</button><button type="button" class="segment" data-value="biggest">Biggest first</button><button type="button" class="segment" data-value="junk">Junk first</button></div>
+                  <p class="subtle">Biggest first frees the most space per swipe. Junk first starts with tiny files, screenshots and previews.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Swipes</h3>
+                  <button class="switch-row" role="switch" aria-checked="true" data-setting="dangerousUpLoves"><span>↑ keeps and Loves (shows in Collection, Ladder, Highlights)</span><i aria-hidden="true"></i></button>
+                  <button class="switch-row" role="switch" aria-checked="true" data-setting="dangerousFrames"><span>Frame strip under clips</span><i aria-hidden="true"></i></button>
+                </section>
+                <section class="cc-section">
+                  <h3>Blitz</h3>
+                  <div class="segmented" role="group" aria-label="Blitz length" data-setting="blitzSeconds"><button type="button" class="segment" data-value="30">30 s</button><button type="button" class="segment" data-value="60">1 min</button><button type="button" class="segment" data-value="120">2 min</button></div>
+                  <p class="subtle">A timed round: how many files can you decide? B starts and stops it.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Goal</h3>
+                  <label class="range-row"><span>Free this much</span><strong data-value-for="cleanupGoalGb" data-format="gb"></strong><input type="range" min="0" max="20" step="0.5" data-setting="cleanupGoalGb" /></label>
+                  <p class="subtle">Counts what every Dangerous mode moves to the trash this visit. Off at 0.</p>
+                </section>
+                <section class="cc-section">
                   <h3>Sound</h3>
                   <button id="dangerousSound" class="sound-toggle" aria-pressed="false">Sound off</button>
                 </section>
-                <p class="cc-keys">← delete · → or ↑ keep · ↓ skip · U undo</p>
+                <p class="cc-keys">← delete · → keep · ↑ keep and love · ↓ skip · Space play/pause · B blitz · U undo</p>
               </div>
               <footer class="drawer-footer">
                 <button id="dangerousShuffle" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Shuffle deck</button>
                 <button id="dangerousResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Grid (Dangerous) ============================== -->
+        <section id="dgridMode" class="mode-panel" aria-label="Grid">
+          <div class="sweep-layout">
+            <div class="stage-toolbar">
+              <span id="dgridProgress" class="tool-note"></span>
+              <button id="dgridUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="dgridDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <p id="dgridReadOnly" class="readonly-note" hidden>This drive is read-only. Keeping works; deleting needs a writable media folder.</p>
+            <p class="sweep-lead">Tap what should go. Everything you leave unmarked is kept.</p>
+            <div id="dgridGrid" class="sweep-grid" role="list" aria-label="Grid: tap to mark for delete"></div>
+            <div id="dgridEmpty" class="sweep-empty" hidden><svg aria-hidden="true"><use href="#i-check" /></svg><h2>Nothing left here.</h2><p>Pick other folders or turn off Hide kept in the controls.</p></div>
+            <div class="sweep-actions">
+              <button id="dgridMarkAll" class="ghost-button small-button">Mark all</button>
+              <button id="dgridSkip" class="deck-button skip" aria-label="Skip page"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip page</span></button>
+              <button id="dgridCommit" class="deck-button keep"><svg aria-hidden="true"><use href="#i-check" /></svg><span>Keep all</span></button>
+            </div>
+            <div class="cleanup-meter" data-cleanup-meter></div>
+
+            <aside id="dgridDrawer" class="drawer control-panel" data-mode="dgrid" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Grid</h2></div>
+                <button id="dgridDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="dgridSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div class="segmented" role="group" aria-label="Which media" data-setting="dgridKind"><button type="button" class="segment" data-value="all">Both</button><button type="button" class="segment" data-value="photos">Photos</button><button type="button" class="segment" data-value="videos">Videos</button></div>
+                  <button class="switch-row" role="switch" aria-checked="true" data-setting="dgridHideKept"><span>Hide files I already kept here</span><i aria-hidden="true"></i></button>
+                </section>
+                <section class="cc-section">
+                  <h3>Order</h3>
+                  <div class="segmented" role="group" aria-label="Order" data-setting="dgridOrder"><button type="button" class="segment" data-value="random">Shuffled</button><button type="button" class="segment" data-value="biggest">Biggest</button><button type="button" class="segment" data-value="junk">Junk first</button><button type="button" class="segment" data-value="name">Name</button></div>
+                  <p class="subtle">Tiles per page:</p>
+                  <div class="segmented" role="group" aria-label="Tiles per page" data-setting="dgridTiles"><button type="button" class="segment" data-value="9">9</button><button type="button" class="segment" data-value="12">12</button><button type="button" class="segment" data-value="16">16</button><button type="button" class="segment" data-value="20">20</button></div>
+                </section>
+                <section class="cc-section">
+                  <h3>Goal</h3>
+                  <label class="range-row"><span>Free this much</span><strong data-value-for="cleanupGoalGb" data-format="gb"></strong><input type="range" min="0" max="20" step="0.5" data-setting="cleanupGoalGb" /></label>
+                  <p class="subtle">Counts what every Dangerous mode moves to the trash this visit. Off at 0.</p>
+                </section>
+                <p class="cc-keys">Tap or Space mark · arrows move · Enter delete marked, keep the rest · S skip page · A mark all · V view · U undo</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="dgridResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Junk (Dangerous) ============================== -->
+        <section id="djunkMode" class="mode-panel" aria-label="Junk">
+          <div class="sweep-layout">
+            <div class="stage-toolbar">
+              <span id="djunkProgress" class="tool-note"></span>
+              <button id="djunkUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="djunkDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <p id="djunkReadOnly" class="readonly-note" hidden>This drive is read-only. Keeping works; deleting needs a writable media folder.</p>
+            <p class="sweep-lead">Likely junk, most likely first. Each tile says why it is here.</p>
+            <div id="djunkGrid" class="sweep-grid" role="list" aria-label="Junk: tap to mark for delete"></div>
+            <div id="djunkEmpty" class="sweep-empty" hidden><svg aria-hidden="true"><use href="#i-check" /></svg><h2>No suspects left.</h2><p>Nothing here looks like junk by these rules.</p></div>
+            <div class="sweep-actions">
+              <button id="djunkMarkAll" class="ghost-button small-button">Mark all</button>
+              <button id="djunkSkip" class="deck-button skip" aria-label="Skip page"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip page</span></button>
+              <button id="djunkCommit" class="deck-button keep"><svg aria-hidden="true"><use href="#i-check" /></svg><span>Keep all</span></button>
+            </div>
+            <div class="cleanup-meter" data-cleanup-meter></div>
+
+            <aside id="djunkDrawer" class="drawer control-panel" data-mode="djunk" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Junk</h2></div>
+                <button id="djunkDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="djunkSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div class="segmented" role="group" aria-label="Which media" data-setting="djunkKind"><button type="button" class="segment" data-value="all">Both</button><button type="button" class="segment" data-value="photos">Photos</button><button type="button" class="segment" data-value="videos">Videos</button></div>
+                  <button class="switch-row" role="switch" aria-checked="true" data-setting="djunkHideKept"><span>Hide files I already kept here</span><i aria-hidden="true"></i></button>
+                  <p class="subtle">Suspects: photos under 80 KB, photos under 480 px (once Look-alikes has read them), clips under 4 MB, and names like screenshot, avatar, preview or a promo handle. Names only suggest: many real packs are named after a channel.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Goal</h3>
+                  <label class="range-row"><span>Free this much</span><strong data-value-for="cleanupGoalGb" data-format="gb"></strong><input type="range" min="0" max="20" step="0.5" data-setting="cleanupGoalGb" /></label>
+                  <p class="subtle">Counts what every Dangerous mode moves to the trash this visit. Off at 0.</p>
+                </section>
+                <p class="cc-keys">Tap or Space mark · arrows move · Enter delete marked, keep the rest · S skip page · A mark all · V view · U undo</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="djunkResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Look-alikes (Dangerous) ============================== -->
+        <section id="dsimilarMode" class="mode-panel" aria-label="Look-alikes">
+          <div class="sweep-layout">
+            <div class="stage-toolbar">
+              <span id="dsimilarProgress" class="tool-note"></span>
+              <button id="dsimilarUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="dsimilarDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <p id="dsimilarReadOnly" class="readonly-note" hidden>This drive is read-only. Keeping works; deleting needs a writable media folder.</p>
+            <section id="dsimilarScan" class="sweep-scan">
+              <p id="dsimilarScanText" class="sweep-scan-text"></p>
+              <span id="dsimilarScanBar" class="meter-bar" aria-hidden="true"></span>
+              <div class="setup-actions">
+                <button id="dsimilarScanToggle" class="primary-button small-button">Start</button>
+                <button id="dsimilarScanShow" class="ghost-button small-button">Show sets found so far</button>
+              </div>
+              <p id="dsimilarScanNote" class="subtle"></p>
+            </section>
+            <header id="dsimilarHead" class="sweep-head" hidden>
+              <strong id="dsimilarHeadTitle"></strong>
+              <span id="dsimilarHeadNote"></span>
+            </header>
+            <div id="dsimilarGrid" class="sweep-grid set-grid" role="list" aria-label="Look-alikes: tap to mark for delete"></div>
+            <div id="dsimilarEmpty" class="sweep-empty" hidden><svg aria-hidden="true"><use href="#i-check" /></svg><h2>No look-alikes left.</h2><p>Try Loose in the controls, or other folders.</p></div>
+            <div id="dsimilarActions" class="sweep-actions">
+              <button id="dsimilarKeepAll" class="ghost-button small-button">Keep all</button>
+              <button id="dsimilarSkip" class="deck-button skip" aria-label="Skip set"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip set</span></button>
+              <button id="dsimilarCommit" class="deck-button delete"><svg aria-hidden="true"><use href="#i-trash" /></svg><span>Delete</span></button>
+            </div>
+            <div class="cleanup-meter" data-cleanup-meter></div>
+
+            <aside id="dsimilarDrawer" class="drawer control-panel" data-mode="dsimilar" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Look-alikes</h2></div>
+                <button id="dsimilarDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="dsimilarSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Compare</h3>
+                  <div class="segmented" role="group" aria-label="Which media" data-setting="dsimilarKind"><button type="button" class="segment" data-value="photos">Photos</button><button type="button" class="segment" data-value="all">Photos + clip stills</button></div>
+                  <p class="subtle">How alike counts as a set:</p>
+                  <div class="segmented" role="group" aria-label="How alike" data-setting="dsimilarStrictness"><button type="button" class="segment" data-value="tight">Near copies</button><button type="button" class="segment" data-value="close">Close</button><button type="button" class="segment" data-value="loose">Loose</button></div>
+                  <p class="subtle">Near copies catches resized and re-saved versions. Loose also groups bursts and shots from one moment, with a few false matches.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Goal</h3>
+                  <label class="range-row"><span>Free this much</span><strong data-value-for="cleanupGoalGb" data-format="gb"></strong><input type="range" min="0" max="20" step="0.5" data-setting="cleanupGoalGb" /></label>
+                  <p class="subtle">Counts what every Dangerous mode moves to the trash this visit. Off at 0.</p>
+                </section>
+                <p class="cc-keys">Tap a picture to switch keep / delete · Enter delete marked · K keep all · S skip · U undo</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="dsimilarResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ============================== Folders (Dangerous) ============================== -->
+        <section id="dfoldersMode" class="mode-panel" aria-label="Folders">
+          <div class="sweep-layout">
+            <div class="stage-toolbar">
+              <span id="dfoldersProgress" class="tool-note"></span>
+              <button id="dfoldersUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="dfoldersDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <p id="dfoldersReadOnly" class="readonly-note" hidden>This drive is read-only. Keeping works; deleting needs a writable media folder.</p>
+            <header id="dfoldersHead" class="sweep-head folder-head" hidden>
+              <span id="dfoldersModel" class="folder-model"></span>
+              <strong id="dfoldersName"></strong>
+              <span id="dfoldersStats"></span>
+            </header>
+            <div id="dfoldersGrid" class="sweep-grid" role="list" aria-label="Samples from this folder"></div>
+            <div id="dfoldersEmpty" class="sweep-empty" hidden><svg aria-hidden="true"><use href="#i-check" /></svg><h2>Every folder decided.</h2><p>Pick other folders in the controls to go on.</p></div>
+            <div id="dfoldersActions" class="sweep-actions folder-actions">
+              <button id="dfoldersMore" class="ghost-button small-button">Other samples</button>
+              <button id="dfoldersToGrid" class="ghost-button small-button">Sort in Grid</button>
+              <button id="dfoldersSkip" class="deck-button skip" aria-label="Skip folder"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span></button>
+              <button id="dfoldersDelete" class="deck-button delete"><svg aria-hidden="true"><use href="#i-trash" /></svg><span>Delete folder</span></button>
+              <button id="dfoldersKeep" class="deck-button keep"><svg aria-hidden="true"><use href="#i-check" /></svg><span>Keep folder</span></button>
+            </div>
+            <div class="cleanup-meter" data-cleanup-meter></div>
+
+            <aside id="dfoldersDrawer" class="drawer control-panel" data-mode="dfolders" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Folders</h2></div>
+                <button id="dfoldersDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="dfoldersSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Folders</h3>
+                  <button class="switch-row" role="switch" aria-checked="true" data-setting="dfoldersHideKept"><span>Hide folders I already kept whole</span><i aria-hidden="true"></i></button>
+                  <p class="subtle">Every subfolder is its own decision: a model's “Loose Files (Bunkr)” is separate from the model's main folder.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Goal</h3>
+                  <label class="range-row"><span>Free this much</span><strong data-value-for="cleanupGoalGb" data-format="gb"></strong><input type="range" min="0" max="20" step="0.5" data-setting="cleanupGoalGb" /></label>
+                  <p class="subtle">Counts what every Dangerous mode moves to the trash this visit. Off at 0.</p>
+                </section>
+                <p class="cc-keys">K keep folder · S skip · M other samples · G sort in Grid · U undo</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="dfoldersResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
               </footer>
             </aside>
           </div>
@@ -1689,6 +1923,17 @@
 
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 
+    <div id="cleanupViewer" class="cleanup-viewer" role="dialog" aria-modal="true" aria-label="File" hidden>
+      <div class="cleanup-viewer-media">
+        <img id="cleanupViewerImage" alt="" />
+        <video id="cleanupViewerVideo" playsinline controls loop hidden></video>
+      </div>
+      <div class="cleanup-viewer-bar">
+        <div><strong id="cleanupViewerName"></strong><span id="cleanupViewerFolder"></span></div>
+        <button id="cleanupViewerMark" class="ghost-button small-button"></button>
+        <button id="cleanupViewerClose" class="icon-button" aria-label="Close"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+      </div>
+    </div>
     <div id="galleryLightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Media preview">
       <div class="lightbox-top">
         <div class="lightbox-caption">
@@ -1824,5 +2069,6 @@
     <script src="/js/32-models.js?v=9" defer></script>
     <script src="/js/33-downloads.js?v=9" defer></script>
     <script src="/js/34-bookmarks.js?v=9" defer></script>
+    <script src="/js/35-cleanup.js?v=9" defer></script>
   </body>
 </html>

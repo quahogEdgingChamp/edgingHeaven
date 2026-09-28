@@ -194,6 +194,90 @@ class TrashTests(unittest.TestCase):
         self.assertEqual((outside / "media").read_bytes(), b"precious")
         self.assertFalse((self.media / ".heaven-trash" / token).exists())
 
+    def test_delete_trash_folder_removes_everything_in_it(self):
+        self.library.set_rating("photo.jpg", "like")
+        self.library.trash_media("photo.jpg", str(self.media))
+        trash = self.media / ".heaven-trash"
+        (trash / "not-ours.txt").write_text("stray")
+        (trash / "half-entry").mkdir()
+        (trash / "half-entry" / "media").write_bytes(b"12345")
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "keep.jpg").write_bytes(b"precious")
+        (trash / ("c" * 32)).symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            self.library.delete_trash_folder("other-library")
+        self.assertTrue(trash.is_dir())
+        result = self.library.delete_trash_folder(str(self.media))
+        self.assertEqual(result["removed"], 1)
+        # original (8) + stray (5) + half-entry (5); the symlink's own size varies
+        self.assertGreaterEqual(result["freedBytes"], 18)
+        self.assertFalse(trash.exists())
+        self.assertEqual((outside / "keep.jpg").read_bytes(), b"precious")
+        self.assertNotIn("photo.jpg", self.library.state["ratings"])
+        # Deleting in Dangerous afterwards makes a fresh trash folder.
+        (self.media / "photo.jpg").write_bytes(b"again")
+        self.library.scan()
+        self.library.trash_media("photo.jpg", str(self.media))
+        self.assertEqual(len(self.library.trash_entries()), 1)
+        self.assertEqual(self.library.delete_trash_folder(str(self.media))["removed"], 1)
+        self.assertEqual(self.library.delete_trash_folder(str(self.media))["freedBytes"], 0)
+
+    def test_trash_many_moves_each_file_and_reports_failures(self):
+        (self.media / "a").mkdir()
+        (self.media / "a" / "one.jpg").write_bytes(b"one")
+        (self.media / "a" / "two.mp4").write_bytes(b"two")
+        self.library.scan()
+        with self.assertRaises(ValueError):
+            self.library.trash_many(["a/one.jpg"], "other-library")
+        for bad in ([], "a/one.jpg", [1]):
+            with self.assertRaises(ValueError):
+                self.library.trash_many(bad, str(self.media))
+        result = self.library.trash_many(["a/one.jpg", "a/two.mp4", "a/one.jpg", "../photo.jpg", "gone.jpg"], str(self.media))
+        self.assertEqual([entry["path"] for entry in result["trashed"]], ["a/one.jpg", "a/two.mp4"])
+        self.assertEqual([entry["path"] for entry in result["failed"]], ["../photo.jpg", "gone.jpg"])
+        self.assertEqual([item["path"] for key in ("images", "videos") for item in self.library.catalog[key]], ["photo.jpg"])
+        self.assertFalse((self.media / "a" / "one.jpg").exists())
+        self.assertTrue((self.media / "photo.jpg").exists())
+        tokens = [entry["token"] for entry in result["trashed"]]
+        with self.assertRaises(ValueError):
+            self.library.restore_many([], str(self.media))
+        back = self.library.restore_many(tokens + ["f" * 32], str(self.media))
+        self.assertEqual(sorted((item["path"], item["kind"]) for item in back["items"]), [("a/one.jpg", "image"), ("a/two.mp4", "video")])
+        self.assertEqual(len(back["failed"]), 1)
+        self.assertEqual((self.media / "a" / "two.mp4").read_bytes(), b"two")
+        self.assertEqual(len(self.library.catalog["images"]) + len(self.library.catalog["videos"]), 3)
+
+    def test_dangerous_kept_many(self):
+        (self.media / "clip.mp4").write_bytes(b"video")
+        self.library.scan()
+        self.assertEqual(self.library.set_dangerous_kept_many(["photo.jpg", "clip.mp4", "nope.jpg"], True), 2)
+        self.assertEqual(set(self.library.dangerous_kept_payload()), {"photo.jpg", "clip.mp4"})
+        self.assertEqual(self.library.set_dangerous_kept_many(["clip.mp4"], False), 1)
+        self.assertEqual(set(self.library.dangerous_kept_payload()), {"photo.jpg"})
+        self.assertEqual(self.library.set_dangerous_kept_many("photo.jpg", True), 0)
+        self.assertTrue(self.library.set_dangerous_kept("clip.mp4", True))
+        self.assertFalse(self.library.set_dangerous_kept("nope.jpg", True))
+
+    def test_fingerprints_follow_the_file(self):
+        (self.media / "clip.mp4").write_bytes(b"video")
+        self.library.scan()
+        stored = self.library.save_fingerprints({
+            "photo.jpg": ["00ff00ff00ff00ff", 1080, 1920],
+            "clip.mp4": ["ffffffffffffffff", 360, 640],
+            "nope.jpg": ["0000000000000000", 1, 1],
+            "bad-hash": ["xyz", 1, 1],
+        })
+        self.assertEqual(stored, 2)
+        self.assertEqual(self.library.save_fingerprints({"photo.jpg": ["00ff00ff00ff00ff", True, 1]}), 0)
+        self.assertEqual(self.library.save_fingerprints("nope"), 0)
+        again = MediaLibrary(self.media, self.root / "state.json")
+        self.assertEqual(again.fingerprints_payload()["photo.jpg"], ["00ff00ff00ff00ff", 1080, 1920])
+        # A changed file is no longer covered by its old fingerprint.
+        (self.media / "photo.jpg").write_bytes(b"a different photo")
+        again.scan()
+        self.assertEqual(set(again.fingerprints_payload()), {"clip.mp4"})
+
     def test_empty_trash_without_trash_folder(self):
         result = self.library.empty_trash(str(self.media))
         self.assertEqual((result["removed"], result["freedBytes"]), (0, 0))

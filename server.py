@@ -105,6 +105,28 @@ DEFAULT_SETTINGS = {
     # Dangerous skips files you already kept there (see dangerousKept below).
     "dangerousHideKept": True,
     "dangerousFolders": [],
+    # Swipe (Dangerous): deal order, ↑ = keep and Love, a frame strip under
+    # clips, the free-space goal and Blitz rounds.
+    "dangerousOrder": "random",
+    "dangerousUpLoves": True,
+    "dangerousFrames": True,
+    "cleanupGoalGb": 0,
+    "blitzSeconds": 60,
+    "blitzBest": 0,
+    # The other Dangerous modes: Grid, Look-alikes, Junk, Folders.
+    "dgridFolders": [],
+    "dgridKind": "all",
+    "dgridOrder": "random",
+    "dgridTiles": 12,
+    "dgridHideKept": True,
+    "dsimilarFolders": [],
+    "dsimilarKind": "photos",
+    "dsimilarStrictness": "close",
+    "djunkFolders": [],
+    "djunkKind": "all",
+    "djunkHideKept": True,
+    "dfoldersFolders": [],
+    "dfoldersHideKept": True,
     # "Show: All / Unrated / Liked" for the lean-back modes.
     "escalationRatingFilter": "all",
     "sessionRatingFilter": "all",
@@ -208,7 +230,7 @@ LOCK_FREE_ATTEMPTS = 5
 # Reachable without unlocking: the page itself, so it can show the PIN pad.
 PUBLIC_PATHS = {"/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/api/lock", "/api/unlock"}
 STATIC_JS_RE = re.compile(r"/js/[0-9a-z-]+\.js")
-FEATURES = ["love", "marks", "sessions", "lock", "simp", "bookmarks", "additions", "dangerousKept"]
+FEATURES = ["love", "marks", "sessions", "lock", "simp", "bookmarks", "additions", "dangerousKept", "cleanup"]
 # Downloads (simpjobs.py): /api/simp/jobs/<id>/log and /api/simp/jobs/<id>/cancel.
 SIMP_JOB_RE = re.compile(r"/api/simp/jobs/([a-f0-9]{12})/(log|cancel|arrivals)")
 # Bookmark previews: /api/simp/previews/<model, URL-encoded>/<n>.<ext>
@@ -325,6 +347,8 @@ class MediaLibrary:
         # that would be wasteful.
         self.seen_path = state_path.parent / "seen.json"
         self.seen = self._load_seen()
+        self.fingerprints_path = state_path.parent / "fingerprints.json"
+        self.fingerprints = self._load_fingerprints()
         self.catalog = {"images": [], "videos": [], "updatedAt": None}
         # Files a download added since the last full scan, oldest first, as
         # (path, kind). Pages fetch these instead of the whole catalog, so a
@@ -838,18 +862,78 @@ class MediaLibrary:
             return {path: when for path, when in self.state.get("dangerousKept", {}).items() if path in known}
 
     def set_dangerous_kept(self, relative_path, kept) -> bool:
-        if not isinstance(relative_path, str) or not isinstance(kept, bool):
-            return False
+        return isinstance(relative_path, str) and self.set_dangerous_kept_many([relative_path], kept) == 1
+
+    def set_dangerous_kept_many(self, paths, kept) -> int:
+        """Mark (or unmark) files as kept in Dangerous; one state write for
+        a whole Grid page. Paths not in the library are ignored."""
+        if not isinstance(paths, list) or not isinstance(kept, bool) or not all(isinstance(p, str) for p in paths):
+            return 0
         with self.lock:
-            if relative_path not in self._catalog_paths():
-                return False
+            known = self._catalog_paths()
             table = self.state.setdefault("dangerousKept", {})
-            if kept:
-                table[relative_path] = utc_now_iso()
-            else:
-                table.pop(relative_path, None)
-            self._save_state()
-            return True
+            stamp = utc_now_iso()
+            changed = 0
+            for relative_path in paths:
+                if relative_path not in known:
+                    continue
+                if kept:
+                    table[relative_path] = stamp
+                else:
+                    table.pop(relative_path, None)
+                changed += 1
+            if changed:
+                self._save_state()
+            return changed
+
+    # ---- Look-alike fingerprints (Dangerous) ----
+    # The server has no image decoder, so the page makes a 64-bit difference
+    # hash of each photo (and of each clip's still) and stores it here with
+    # the file's size and date: a changed file is fingerprinted again, and a
+    # phone never repeats work a laptop already did.
+
+    def _load_fingerprints(self) -> dict:
+        try:
+            loaded = json.loads(self.fingerprints_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return loaded if isinstance(loaded, dict) else {}
+
+    def fingerprints_payload(self) -> dict:
+        """path -> [hash, width, height] for files whose size and date still match."""
+        with self.lock:
+            result = {}
+            for item in [*self.catalog["images"], *self.catalog["videos"]]:
+                row = self.fingerprints.get(item["path"])
+                if isinstance(row, list) and len(row) == 5 and row[:2] == [item.get("size"), item.get("mtime")]:
+                    result[item["path"]] = row[2:]
+            return result
+
+    def save_fingerprints(self, items) -> int:
+        if not isinstance(items, dict) or len(items) > 2000:
+            return 0
+        with self.lock:
+            by_path = {item["path"]: item for key in ("images", "videos") for item in self.catalog[key]}
+            stored = 0
+            for path, value in items.items():
+                item = by_path.get(path)
+                if item is None or not isinstance(value, list) or len(value) != 3:
+                    continue
+                digest, width, height = value
+                if not (isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{16}", digest)):
+                    continue
+                if not all(isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100000 for v in (width, height)):
+                    continue
+                self.fingerprints[path] = [item.get("size"), item.get("mtime"), digest, width, height]
+                stored += 1
+            if stored:
+                # Forget files that left the library, unless it is offline.
+                if by_path:
+                    self.fingerprints = {k: v for k, v in self.fingerprints.items() if k in by_path}
+                temporary = self.fingerprints_path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(self.fingerprints, separators=(",", ":")), encoding="utf-8")
+                temporary.replace(self.fingerprints_path)
+            return stored
 
     # ---- seen times (Rediscover) ----
 
@@ -1115,31 +1199,60 @@ class MediaLibrary:
                 raise ValueError("The library changed. Reload before deleting.")
             item = next((item for key in ("images", "videos")
                          for item in self.catalog[key] if item["path"] == relative_path), None)
-            source = self.resolve_media_path(relative_path)
-            if item is None or source is None:
-                raise ValueError("This file is no longer in the library.")
-            fs_path = self.fs_paths.get(relative_path, relative_path)
-            if (self.media_dir / fs_path).is_symlink():
-                raise ValueError("Delete the original file, not a symbolic link.")
-            # Renaming on the same drive is immediate, including large videos.
-            token = uuid.uuid4().hex
-            entry = self._trash_root() / token
-            entry.mkdir(parents=True)
-            # fsPath is the real name on disk when it is not valid UTF-8;
-            # json.dumps escapes it, so the record stays plain ASCII.
-            record = {"path": relative_path, "fsPath": fs_path, "item": dict(item), "deletedAt": utc_now_iso()}
-            try:
-                (entry / "record.json").write_text(json.dumps(record), encoding="utf-8")
-                source.rename(entry / "media")
-            except OSError:
-                (entry / "record.json").unlink(missing_ok=True)
-                entry.rmdir()
-                raise
+            token = self._move_to_trash(relative_path, item)
             for key in ("images", "videos"):
                 self.catalog[key] = [i for i in self.catalog[key] if i["path"] != relative_path]
             self.catalog["updatedAt"] = utc_now_iso()
             # Keep ratings on disk so restoring also survives a process restart.
             return {"token": token, "path": relative_path, "updatedAt": self.catalog["updatedAt"]}
+
+    def trash_many(self, paths, expected_library):
+        """Trash several files in one request (Grid, Look-alikes, Junk,
+        Folders). Each moves exactly as trash_media moves one; a file that
+        cannot be moved is reported and the others still go."""
+        if not isinstance(paths, list) or not paths or len(paths) > 20000 or not all(isinstance(p, str) for p in paths):
+            raise ValueError("Send a list of media paths.")
+        with self.lock:
+            if expected_library != str(self.media_dir):
+                raise ValueError("The library changed. Reload before deleting.")
+            by_path = {item["path"]: item for key in ("images", "videos") for item in self.catalog[key]}
+            trashed, failed = [], []
+            for relative_path in dict.fromkeys(paths):
+                try:
+                    trashed.append({"path": relative_path, "token": self._move_to_trash(relative_path, by_path.get(relative_path))})
+                except (OSError, ValueError) as error:
+                    failed.append({"path": relative_path, "error": str(error)})
+            gone = {entry["path"] for entry in trashed}
+            if gone:
+                for key in ("images", "videos"):
+                    self.catalog[key] = [i for i in self.catalog[key] if i["path"] not in gone]
+                self.catalog["updatedAt"] = utc_now_iso()
+            return {"trashed": trashed, "failed": failed, "updatedAt": self.catalog["updatedAt"]}
+
+    def _move_to_trash(self, relative_path, item) -> str:
+        """Move one catalogued file into .heaven-trash/<token>/; the caller
+        holds the lock and takes it out of the catalog."""
+        source = self.resolve_media_path(relative_path)
+        if item is None or source is None:
+            raise ValueError("This file is no longer in the library.")
+        fs_path = self.fs_paths.get(relative_path, relative_path)
+        if (self.media_dir / fs_path).is_symlink():
+            raise ValueError("Delete the original file, not a symbolic link.")
+        # Renaming on the same drive is immediate, including large videos.
+        token = uuid.uuid4().hex
+        entry = self._trash_root() / token
+        entry.mkdir(parents=True)
+        # fsPath is the real name on disk when it is not valid UTF-8;
+        # json.dumps escapes it, so the record stays plain ASCII.
+        record = {"path": relative_path, "fsPath": fs_path, "item": dict(item), "deletedAt": utc_now_iso()}
+        try:
+            (entry / "record.json").write_text(json.dumps(record), encoding="utf-8")
+            source.rename(entry / "media")
+        except OSError:
+            (entry / "record.json").unlink(missing_ok=True)
+            entry.rmdir()
+            raise
+        return token
 
     def restore_media(self, token, expected_library):
         with self.lock:
@@ -1175,6 +1288,23 @@ class MediaLibrary:
                 self.appended.append((payload["path"], "image" if is_image else "video"))
                 self.catalog["updatedAt"] = utc_now_iso()
             return client_path(record["path"])
+
+    def restore_many(self, tokens, expected_library) -> dict:
+        """Undo for a Grid page or a whole folder: every token restored as
+        restore_media restores one, and the entries sent back in one go."""
+        if not isinstance(tokens, list) or not tokens or len(tokens) > 20000:
+            raise ValueError("Send a list of trash entries.")
+        with self.lock:
+            restored, failed = [], []
+            for token in tokens:
+                try:
+                    restored.append(self.restore_media(token, expected_library))
+                except (OSError, ValueError, KeyError) as error:
+                    failed.append({"token": token if isinstance(token, str) else "", "error": str(error)})
+            wanted = set(restored)
+            items = [{**item, "kind": kind} for key, kind in (("images", "image"), ("videos", "video"))
+                     for item in self.catalog[key] if item["path"] in wanted]
+            return {"items": items, "failed": failed, "updatedAt": self.catalog["updatedAt"]}
 
     def restored_payload(self, path) -> dict:
         """What the page needs to put a restored file back without reloading
@@ -1248,6 +1378,23 @@ class MediaLibrary:
                         self.state.get(key, {}).pop(path, None)
             self._save_state()
             return {"removed": removed, "freedBytes": freed, "freeBytes": self._free_bytes()}
+
+    def delete_trash_folder(self, expected_library):
+        """Empty the trash, then delete the .heaven-trash folder itself with
+        whatever empty_trash leaves in it (stray files, broken entries)."""
+        with self.lock:
+            result = self.empty_trash(expected_library)
+            root = self._trash_root()
+            if root.is_dir():
+                leftovers = 0
+                for directory, _dirs, names in os.walk(root):
+                    for name in names:
+                        leftovers += (Path(directory) / name).lstat().st_size
+                # rmtree removes symlinks inside without following them.
+                shutil.rmtree(root)
+                result["freedBytes"] += leftovers
+                result["freeBytes"] = self._free_bytes()
+            return result
 
     def _free_bytes(self):
         """Space left on the drive that holds the library, or None if unknown."""
@@ -1472,6 +1619,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"kept": self.server.library.dangerous_kept_payload()})
             return
 
+        if parsed.path == "/api/fingerprints":
+            self._send_json({"fingerprints": self.server.library.fingerprints_payload()})
+            return
+
         if parsed.path == "/api/trash":
             try:
                 self._send_json({"entries": self.server.library.trash_entries()})
@@ -1629,10 +1780,19 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/dangerous-kept":
+            if isinstance(payload.get("paths"), list):
+                changed = self.server.library.set_dangerous_kept_many(payload["paths"], payload.get("kept"))
+                self._send_json({"ok": True, "changed": changed})
+                return
             if not self.server.library.set_dangerous_kept(payload.get("path"), payload.get("kept")):
                 self._send_json({"error": "That file is not in the library."}, HTTPStatus.BAD_REQUEST)
                 return
             self._send_json({"ok": True})
+            return
+
+        if parsed.path == "/api/fingerprints":
+            stored = self.server.library.save_fingerprints(payload.get("items"))
+            self._send_json({"ok": True, "stored": stored})
             return
 
         if parsed.path == "/api/sessions-clear":
@@ -1640,10 +1800,17 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True})
             return
 
-        if parsed.path in {"/api/trash", "/api/restore", "/api/empty-trash"}:
+        if parsed.path in {"/api/trash", "/api/trash-many", "/api/restore", "/api/restore-many", "/api/empty-trash",
+                           "/api/delete-trash-folder"}:
             try:
-                if parsed.path == "/api/empty-trash":
+                if parsed.path == "/api/restore-many":
+                    result = self.server.library.restore_many(payload.get("tokens"), payload.get("library"))
+                elif parsed.path == "/api/trash-many":
+                    result = self.server.library.trash_many(payload.get("paths"), payload.get("library"))
+                elif parsed.path == "/api/empty-trash":
                     result = self.server.library.empty_trash(payload.get("library"))
+                elif parsed.path == "/api/delete-trash-folder":
+                    result = self.server.library.delete_trash_folder(payload.get("library"))
                 elif parsed.path == "/api/trash":
                     if not isinstance(payload.get("path"), str):
                         raise ValueError("Missing media path.")

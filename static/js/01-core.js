@@ -106,6 +106,10 @@ const DRAWER_MODES = [
   "ladder",
   "spotlight",
   "highlights",
+  "dgrid",
+  "djunk",
+  "dsimilar",
+  "dfolders",
 ];
 const FOCUS_MODES = ["swipe", "toktinder", "escalation", "session", "mosaic", "feed", "dangerous", "duel", "rediscover",
   "beat", "redlight", "dice", "ladder", "spotlight", "highlights"];
@@ -137,6 +141,10 @@ const ALL_MODES = [
   "highlights",
   "downloads",
   "bookmarks",
+  "dgrid",
+  "djunk",
+  "dsimilar",
+  "dfolders",
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -848,13 +856,19 @@ function handleKeydown(event) {
     return;
   }
   if (mode === "dangerous") {
-    const action = { ArrowLeft: "delete", ArrowRight: "keep", ArrowDown: "skip", ArrowUp: "keep" }[key];
+    const action = { ArrowLeft: "delete", ArrowRight: "keep", ArrowDown: "skip", ArrowUp: "love" }[key];
     if (action) {
       event.preventDefault();
       actDangerous(action);
     } else if (lower === "u") {
       event.preventDefault();
       undoDangerous();
+    } else if (lower === "b") {
+      event.preventDefault();
+      toggleBlitz();
+    } else if (key === " " && !el("dangerousVideo").hidden) {
+      event.preventDefault();
+      toggleDangerousPlayback();
     }
     return;
   }

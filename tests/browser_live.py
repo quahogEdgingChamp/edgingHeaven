@@ -139,9 +139,11 @@ with tempfile.TemporaryDirectory(prefix="heaven-live-") as tmp:
         page.keyboard.press("ArrowRight")
         page.wait_for_function(f"dangerousKept.paths.has({json.dumps(first)})", timeout=5000)
         second = page.evaluate("dangerous.items[dangerous.index].path")
+        # ↑ Loves by default (tests/browser_cleanup.py); switched off it only keeps.
+        page.evaluate("() => { state.settings.dangerousUpLoves = false; }")
         page.keyboard.press("ArrowUp")
         page.wait_for_function(f"dangerousKept.paths.has({json.dumps(second)})", timeout=5000)
-        check("Keep and ↑ remember the file without rating it",
+        check("Keep, and ↑ with Love switched off, remember the file without rating it",
               library.state["ratings"] == {} and set(library.dangerous_kept_payload()) == {first, second}, library.state["ratings"])
         page.keyboard.press("u")
         page.wait_for_function(f"!dangerousKept.paths.has({json.dumps(second)})", timeout=5000)

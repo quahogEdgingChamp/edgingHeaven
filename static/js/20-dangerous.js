@@ -81,10 +81,12 @@ function startDangerous(rebuild = false) {
       ...state.library.images.map(i => ({ ...i, kind: "photo" })),
       ...state.library.videos.map(i => ({ ...i, kind: "video" })),
     ].filter(item => dangerousEligible(item, selected));
-    shuffleBalanced(dangerous.items);
+    orderCleanupItems(dangerous.items, state.settings.dangerousOrder);
     dangerous.index = 0;
   }
   syncSegmented(el("dangerousKind"), "dangerousKind", state.settings.dangerousKind || "all");
+  syncSettingControls(el("dangerousDrawer"));
+  renderCleanupMeters();
   el("dangerousHideKept").setAttribute("aria-checked", String(!!state.settings.dangerousHideKept));
   syncDrawerSummaries();
   renderDangerous();
@@ -114,6 +116,10 @@ function renderDangerous() {
     }
   }
   if (item) markSeen(item.path);
+  if (el("dangerousFrames").dataset.path !== (item?.path || "")) {
+    el("dangerousFrames").dataset.path = item?.path || "";
+    renderFrameStrip(item);
+  }
   el("dangerousName").textContent = item?.name || "";
   el("dangerousFolder").textContent = item ? (item.folder || "Library root") : "";
   el("dangerousType").textContent = item ? (isVideo ? "VIDEO" : "PHOTO") : "DONE";
@@ -180,9 +186,11 @@ function toggleDangerousPlayback() {
 
 function syncDangerousActions() {
   const empty = !dangerous.items[dangerous.index];
-  ["dangerousKeep", "dangerousSkip", "dangerousDelete", "dangerousShuffle", "dangerousHideKept"].forEach(id => {
-    el(id).disabled = dangerous.busy || (empty && ["dangerousKeep", "dangerousSkip", "dangerousDelete"].includes(id));
+  ["dangerousKeep", "dangerousLove", "dangerousSkip", "dangerousDelete", "dangerousShuffle", "dangerousHideKept"].forEach(id => {
+    el(id).disabled = dangerous.busy || (empty && ["dangerousKeep", "dangerousLove", "dangerousSkip", "dangerousDelete"].includes(id));
   });
+  el("dangerousLove").hidden = state.settings.dangerousUpLoves === false;
+  el("dangerousBlitzButton").disabled = empty && !blitz.running;
   el("dangerousDelete").disabled ||= !state.canTrash;
   el("dangerousUndo").disabled = dangerous.busy || !dangerous.history.length;
   el("dangerousSessionCount").textContent = `${dangerous.kept} kept · ${dangerous.deleted} deleted`;
@@ -195,7 +203,9 @@ async function actDangerous(action) {
   dangerous.busy = true;
   syncDangerousActions();
   const library = state.currentMediaDirectory;
-  if (action === "love") action = "keep"; // ↑: nothing here is a rating
+  // ↑ keeps and Loves (a real rating, so the other modes can use it), unless
+  // that is switched off; then it only keeps, like →.
+  if (action === "love" && state.settings.dangerousUpLoves === false) action = "keep";
   const entry = { action, item, index: dangerous.index, library };
   try {
     if (action === "delete") {
@@ -211,13 +221,20 @@ async function actDangerous(action) {
       state.feed.dirty = true;
       // No toast: it covered the next picture, and the count and Undo say it.
       dangerous.deleted++;
-    } else if (action === "keep") {
+      cleanupCount("delete", item.size || 0);
+    } else if (action === "keep" || action === "love") {
       if (state.features.has("dangerousKept")) {
         await postJson("/api/dangerous-kept", { path: item.path, kept: true });
         if (state.currentMediaDirectory !== library) return;
         dangerousKept.paths.add(item.path);
       }
+      if (action === "love") {
+        entry.previousRating = item.rating ?? null;
+        await postJson("/api/rating", { path: item.path, rating: "love" });
+        recordRating(item.path, "love", item);
+      }
       dangerous.kept++;
+      cleanupCount("keep");
     }
     dangerous.history.push(entry);
     dangerous.index++;
@@ -244,12 +261,18 @@ async function undoDangerous() {
       if (result.item) restoreLibraryItem(result);
       else await loadState();
       dangerous.deleted--;
-    } else if (entry.action === "keep") {
+      cleanupCount("restore", entry.item.size || 0);
+    } else if (entry.action === "keep" || entry.action === "love") {
+      if (entry.action === "love") {
+        await postJson("/api/rating", { path: entry.item.path, rating: entry.previousRating });
+        recordRating(entry.item.path, entry.previousRating, entry.item);
+      }
       if (state.features.has("dangerousKept")) {
         await postJson("/api/dangerous-kept", { path: entry.item.path, kept: false });
         dangerousKept.paths.delete(entry.item.path);
       }
       dangerous.kept--;
+      cleanupCount("unkeep");
     }
     dangerous.history.pop();
     // Filters or a shuffle may have changed the deck since this action.
@@ -311,15 +334,37 @@ async function emptyTrash() {
     const { entries } = await fetchJson("/api/trash");
     if (!entries.length) { toast("Trash is already empty."); return; }
     if (!window.confirm(`Permanently erase ${plural(entries.length, "file", "files")} from the drive? This frees the space and cannot be undone.`)) return;
-    const result = await postJson("/api/empty-trash", { library });
-    // Erased files can no longer be undone from Dangerous.
-    dangerous.history = dangerous.history.filter(h => h.action !== "delete");
-    syncDangerousActions();
-    if (el("trashList").childNodes.length) await reviewTrash();
-    // freeBytes is missing until the server is restarted onto this version.
-    const free = Number.isFinite(result.freeBytes) ? ` ${formatBytes(result.freeBytes)} free on the drive now.` : "";
-    toast(`Erased ${plural(result.removed, "file", "files")}, freed ${formatBytes(result.freedBytes)}.${free}`, 10000);
+    await trashErased(await postJson("/api/empty-trash", { library }));
   } catch (error) { toast(error.message); }
   finally { button.disabled = false; }
+}
+
+// Removes the whole .heaven-trash folder, including anything Empty trash
+// leaves there (files it did not put in the trash, broken entries).
+async function deleteTrashFolder() {
+  const button = el("deleteTrashFolder");
+  button.disabled = true;
+  try {
+    const library = state.currentMediaDirectory;
+    const { entries } = await fetchJson("/api/trash");
+    const count = entries.length ? `${plural(entries.length, "deleted file", "deleted files")} and anything else in it` : "everything in it";
+    if (!window.confirm(`Delete the whole .heaven-trash folder from the drive, with ${count}? Nothing in it can be restored afterwards.`)) return;
+    await trashErased(await postJson("/api/delete-trash-folder", { library }));
+  } catch (error) {
+    toast(error.message === "Not found." ? "The server needs a restart before this button works." : error.message);
+  }
+  finally { button.disabled = false; }
+}
+
+async function trashErased(result) {
+  // Erased files can no longer be undone from Dangerous.
+  dangerous.history = dangerous.history.filter(h => h.action !== "delete");
+  cleanup.history = cleanup.history.filter(entry => !entry.trashed.length);
+  syncCleanupButtons();
+  syncDangerousActions();
+  if (el("trashList").childNodes.length) await reviewTrash();
+  // freeBytes is missing until the server is restarted onto this version.
+  const free = Number.isFinite(result.freeBytes) ? ` ${formatBytes(result.freeBytes)} free on the drive now.` : "";
+  toast(`Erased ${plural(result.removed, "file", "files")}, freed ${formatBytes(result.freedBytes)}.${free}`, 10000);
 }
 

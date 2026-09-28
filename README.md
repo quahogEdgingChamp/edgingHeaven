@@ -4,8 +4,9 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 
 ## Features
 
-- Seventeen modes, grouped the same way in the sidebar, the overview and the phone mode picker:
-  - **Sort & rate:** `Photo deck`, `Video deck`, `Feed`, `Rediscover`, `Dangerous`
+- Twenty-one modes, grouped the same way in the sidebar, the overview and the phone mode picker:
+  - **Sort & rate:** `Photo deck`, `Video deck`, `Feed`, `Rediscover`
+  - **Dangerous** (they delete files, red everywhere): `Swipe`, `Grid`, `Junk`, `Look-alikes`, `Folders`
   - **Sit back:** `Escalation` (which now includes the old Stream mode), `Session`,
     `Beat`, `Red light`, `Dice`, `Mosaic`
   - **Your best:** `Ladder`, `Spotlight`, `Highlights`
@@ -104,10 +105,12 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 - Keyboard:
   - `M` mode picker · `A` open/close controls · `F` focus · `Esc` close / leave focus
   - `1`–`9`, `0`: Photo deck, Video deck, Feed, Rediscover, Duel, Escalation,
-    Mosaic, Session, Gallery, Collection. Dangerous has no number key on purpose;
-    the six newer modes are in the mode picker (`M`)
+    Mosaic, Session, Gallery, Collection. The Dangerous modes have no number key on
+    purpose; they and the newer modes are in the mode picker (`M`)
   - Decks, Rediscover: `←` pass, `→` keep, `↑` love, `↓` skip, `U` undo
-  - Dangerous: `←` delete, `→` or `↑` keep (not a rating), `↓` skip, `U` undo
+  - Dangerous Swipe: `←` delete, `→` keep, `↑` keep and Love (or only keep, if
+    switched off), `↓` skip, `Space` play/pause, `B` Blitz, `U` undo. The other
+    Dangerous modes' keys are in the table under [Dangerous](#dangerous)
   - Feed: `↑` `↓` previous/next clip, `←` pass, `→` keep, `L` love, `Space` play/pause
   - `B`: mark a moment (Video deck, Feed, Rediscover, video preview)
   - Duel: `←` left wins, `→` right wins, `↓` new pair, `U` undo
@@ -299,19 +302,49 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 
 ### Dangerous
 
-- For clearing space, not for rating. Random photos and videos. Swipe left / `←`
-  moves the **original file** into `<media folder>/.heaven-trash/<token>/media`;
-  right (or `↑`) keeps it; down skips; `U` undoes
+Its own section in the sidebar, red everywhere (sidebar, mode picker, overview,
+title), so a mode that deletes is never mistaken for one that only looks. Every
+mode here moves the **original file** into `<media folder>/.heaven-trash/<token>/media`
+and has Undo; nothing is erased until you empty the trash.
+
+| Mode | What you decide | Keys |
+|---|---|---|
+| **Swipe** | One file at a time: left deletes, right keeps, up keeps and **Loves**, down skips | `← → ↑ ↓`, Space play, `B` Blitz, `U` |
+| **Grid** | A page of 9–20 files: tap the ones to delete, the rest are kept in one go | arrows, Space/`X` mark, Enter, `S`, `A`, `V`, `U` |
+| **Junk** | Only suspects, most likely first, each tile saying why: photos under 30 KB (tiny) or 80 KB (small), under 480 px, clips under 1.5 / 4 MB, names like screenshot, avatar, preview or a promo handle. Nothing is marked for you | as Grid |
+| **Look-alikes** | Sets of near-identical shots in one model (resized, re-saved, bursts): the best copy (most pixels, then biggest) is kept, the rest marked | tap to switch, Enter, `K` keep all, `S`, `U` |
+| **Folders** | One subfolder at a time (a model's `Loose Files (Bunkr)` is its own): 12 samples, then Keep folder, Delete folder (asks first), or Sort in Grid | `K`, `S`, `M`, `G`, `U` |
+
 - **Keep is not a like.** It only remembers that you kept the file here, so with
   `Hide files I already kept here` (on by default) it does not come up again. Kept
-  files are stored as `dangerousKept` in `state.json`, separate from ratings
-- Its way in is red everywhere (sidebar, mode picker, overview, title), so it is
-  never mistaken for a mode that only looks
-- Control center: media type, hide kept files, folders, sound
+  files are stored as `dangerousKept` in `state.json`, separate from ratings.
+  Swipe's **↑ / Love** is the exception on purpose: it keeps *and* rates Love, so
+  Collection, Ladder and Highlights get something from your cleaning. Switch it off
+  in Swipe's controls and ↑ only keeps, like →
+- Swipe's controls: media type, hide kept, **order** (shuffled, biggest first,
+  junk first), Love on ↑, a **frame strip** under clips (six stills; tap one to
+  jump there), **Blitz** (30 s / 1 / 2 min timed round, best score kept), and a
+  speed button (1× / 1.5× / 2×) in the video bar
+- Every mode shows what this visit freed. **Goal** (in any Dangerous control
+  center) turns that into a bar and says when you reach it. The space only comes
+  back when the trash is emptied
+- **Look-alikes fingerprints in the browser**: the server has no image decoder,
+  so the page reads each photo once, shrinks it to 9×8 greys and keeps a 64-bit
+  difference hash (clips use their saved still). Fingerprints are stored in
+  `<data dir>/fingerprints.json` with each file's size and date, so they are made
+  once for all devices and redone only when a file changes. Photos are compared
+  only within the same model. Near copies / Close / Loose set how different two
+  pictures may be (4, 8 or 12 of 64 bits)
+- Grid, Look-alikes and Folders delete and restore many files per request
+  (`/api/trash-many`, `/api/restore-many`, chunks of 200) and keep with one state
+  write (`/api/dangerous-kept` with `paths`). A server without them (feature
+  `cleanup` missing) still works, one request per file
 - `Settings → Review trash` restores files, including after restarts.
   `Settings → Empty trash` (after a confirm) permanently erases every trashed
-  file, its ratings and its video still; that is the only permanent delete.
-  Read-only drives keep Delete disabled
+  file, its ratings and its video still. `Settings → Delete trash folder` does the
+  same, then deletes the `.heaven-trash` folder itself with anything else left in it
+  (files the app did not put there); the next Dangerous delete makes a new one.
+  Those two are the only permanent deletes. Read-only drives keep Delete disabled
 
 ## Activate on qwertyserver
 
@@ -334,6 +367,12 @@ scrprsimp/.venv/bin/python -m pytest -q scrprsimp/tests   # simp itself
 The tests cover drive reconnection, trash/restart/restore, overwrite and traversal protection, byte-range equivalence of the virtual MP4 layout, duel ratings, seen times, stored video thumbnails, Love ratings, marked moments, session history, the PIN lock over real HTTP (locked API and media, backoff, change/remove, hashed storage), and Downloads
 against a stand-in simp (validation, one job at a time, cancelling the whole process group, log offsets,
 cookies, the PIN). Actual phone hardware and remote-network speed still need device testing.
+
+`tests/browser_cleanup.py` deletes and restores for real on a temporary copy of
+three test-library folders: Grid, Junk, Look-alikes (with a resized copy it makes
+in the browser), Folders, Swipe's order, Love, frame strip, speed, goal and Blitz,
+and the same Grid page against a server without the batch endpoints:
+`python3 tests/browser_cleanup.py --media-dir /mnt/edging-heaven/testing`.
 
 `tests/browser_live.py` checks using a download while it runs (files arriving
 without reshuffling, Arriving, Sort in Dangerous, Keep without rating, Drive full

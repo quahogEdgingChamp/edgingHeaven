@@ -144,10 +144,18 @@ function brokenStreakExhausted(mode) {
 }
 
 function removeLibraryItem(path) {
+  removeLibraryItems([path]);
+}
+
+// Many at once (a Grid page, a whole folder): one pass over the library,
+// not one per file.
+function removeLibraryItems(paths) {
+  const gone = new Set(paths);
+  if (!gone.size) return;
   invalidateMediaPools();
   ["images", "videos"].forEach((key) => {
     if (Array.isArray(state.library[key])) {
-      state.library[key] = state.library[key].filter((item) => item.path !== path);
+      state.library[key] = state.library[key].filter((item) => !gone.has(item.path));
     }
   });
 
@@ -155,18 +163,17 @@ function removeLibraryItem(path) {
     const config = deckConfig(mode);
     const items = state[config.itemsKey];
     const removedBefore = items.filter(
-      (item, index) => item.path === path && index < state[config.indexKey]
+      (item, index) => gone.has(item.path) && index < state[config.indexKey]
     ).length;
-    state[config.itemsKey] = items.filter((item) => item.path !== path);
+    state[config.itemsKey] = items.filter((item) => !gone.has(item.path));
     state[config.indexKey] = clampNumber(
       state[config.indexKey] - removedBefore,
       0,
       Math.max(0, state[config.itemsKey].length - 1)
     );
-    state.history[mode] = state.history[mode].filter((entry) => entry.path !== path);
+    state.history[mode] = state.history[mode].filter((entry) => !gone.has(entry.path));
   });
-
-  state.escalationRecentPaths = state.escalationRecentPaths.filter((entry) => entry !== path);
+  state.escalationRecentPaths = state.escalationRecentPaths.filter((entry) => !gone.has(entry));
   syncCountsFromLibrary();
   syncUndoButtons();
 }

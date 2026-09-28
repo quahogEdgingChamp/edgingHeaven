@@ -9,25 +9,29 @@ MODE_CARDS.push({ mode: "duel", name: "Duel",
 MODE_CARDS.push({ mode: "rediscover", name: "Rediscover",
   blurb: "Never-seen files first, then whatever you have not looked at for longest.",
   icon: "M12 4a8 8 0 1 1-7.4 5M4 4v5h5M12 8v4l3 2", stat: () => "oldest first" });
-MODE_CARDS.push({ mode: "dangerous", name: "Dangerous",
-  blurb: "Clean up. Swipe left moves the file to trash, right keeps it.",
+MODE_CARDS.push({ mode: "dangerous", name: "Swipe",
+  blurb: "One file at a time: left moves it to trash, right keeps it, up keeps and loves it.",
   icon: "M12 3l9 17H3zM12 9v5M12 17v1", stat: () => (state.canTrash ? "keep / delete" : "read-only drive") });
 const workspaceNames = { home: "Overview", duel: "Duel", rediscover: "Rediscover", swipe: "Photo deck", toktinder: "Video deck",
   escalation: "Escalation", session: "Session", gallery: "Gallery", ranked: "Collection",
-  mosaic: "Mosaic", feed: "Feed", dangerous: "Dangerous", beat: "Beat", redlight: "Red light", dice: "Dice",
+  mosaic: "Mosaic", feed: "Feed", dangerous: "Swipe", dgrid: "Grid", djunk: "Junk", dsimilar: "Look-alikes",
+  dfolders: "Folders", beat: "Beat", redlight: "Red light", dice: "Dice",
   ladder: "Ladder", spotlight: "Spotlight", highlights: "Highlights", downloads: "Downloads",
   bookmarks: "Bookmarks" };
 // One grouping for the sidebar, the overview and the mode picker.
 const MODE_GROUPS = [
-  { label: "Sort & rate", modes: ["swipe", "toktinder", "feed", "rediscover", "dangerous"] },
+  { label: "Sort & rate", modes: ["swipe", "toktinder", "feed", "rediscover"] },
+  // Everything that deletes lives here, red, away from the modes that only look.
+  { label: "Dangerous", modes: ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders"] },
   { label: "Sit back", modes: ["escalation", "session", "beat", "redlight", "dice", "mosaic"] },
   { label: "Your best", modes: ["ladder", "spotlight", "highlights"] },
   { label: "Your library", modes: ["gallery", "ranked", "duel", "bookmarks", "downloads"] },
 ];
 const MODE_TONES = { duel: "warm", rediscover: "violet", mosaic: "violet", escalation: "warm", session: "warm", dangerous: "danger",
+  dgrid: "danger", djunk: "danger", dsimilar: "danger", dfolders: "danger",
   beat: "warm", redlight: "danger", dice: "violet", ladder: "warm", spotlight: "violet", highlights: "violet" };
 const workspaceEyebrows = { home: "Your library", duel: "Your library", rediscover: "Sort & rate", swipe: "Sort & rate", toktinder: "Sort & rate", feed: "Sort & rate",
-  dangerous: "Sort & rate", mosaic: "Sit back", escalation: "Sit back", session: "Sit back",
+  dangerous: "Dangerous", dgrid: "Dangerous", djunk: "Dangerous", dsimilar: "Dangerous", dfolders: "Dangerous", mosaic: "Sit back", escalation: "Sit back", session: "Sit back",
   beat: "Sit back", redlight: "Sit back", dice: "Sit back", ladder: "Your best", spotlight: "Your best", highlights: "Your best",
   gallery: "Your library", ranked: "Your library", downloads: "Your library",
   bookmarks: "Your library" };
@@ -138,6 +142,7 @@ function initWorkspace() {
   });
   el("showTrash").addEventListener("click", reviewTrash);
   el("emptyTrash").addEventListener("click", emptyTrash);
+  el("deleteTrashFolder").addEventListener("click", deleteTrashFolder);
 
   // Immersive chrome wakes on any interaction and fades when left alone.
   ["pointermove", "pointerdown", "keydown", "touchstart"].forEach(type =>
