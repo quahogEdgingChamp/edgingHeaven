@@ -2049,7 +2049,10 @@ body.immersive.idle .play-stage[data-hud="compact"] .play-hud { opacity: 0; }
 .model-folder-list li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); font-size: 0.8125rem; }
 .model-folder-list span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .model-folder-list b { flex: none; color: var(--muted); font-weight: 560; font-variant-numeric: tabular-nums; }
-#modelGrid { flex: none; min-height: 0; overflow: visible; }
+/* Grids inside a scrolling page: a .gallery-grid is its own scroller with
+   overscroll-behavior: contain, so a swipe that started on a picture never
+   reached the page and the page would not scroll. */
+#modelGrid, #dlArrivalsGrid { flex: none; min-height: 0; overflow: visible; }
 .session-chart .bar i { background: var(--hold); }
 .session-recent { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .session-recent li { display: grid; grid-template-columns: minmax(90px, auto) 1fr auto; align-items: baseline; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); font-size: 0.8125rem; }
@@ -2091,3 +2094,90 @@ body.locked .shell, body.locked .drawer { visibility: hidden; }
 .panic-page i { display: block; height: 12px; margin: 18px 0; border-radius: 6px; background: #eee; }
 .panic-page i.short { width: 55%; }
 body.panic .shell, body.panic .drawer, body.panic .workspace-toast { visibility: hidden; }
+
+/* ---- Downloads (simp, run by the server) ---- */
+.dl-notice { margin: 0; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--surface-2); font-size: 0.875rem; overflow-wrap: anywhere; }
+.dl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; }
+.dl-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dl-cards textarea {
+  width: 100%;
+  min-height: 88px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px; /* stops iOS zooming on focus */
+  resize: vertical;
+}
+.dl-cards textarea:focus { border-color: var(--accent); outline: none; }
+#dlAuth.is-error { color: var(--danger); }
+/* A fixed height: sized to its text, the box grew with every poll and fell
+   back to the minimum whenever another job's output replaced it. svh does not
+   change when a phone's address bar slides in or out. */
+.dl-log {
+  margin: 0;
+  height: min(50vh, 440px);
+  height: min(50svh, 440px);
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--media-bg);
+  color: var(--on-media-muted);
+  font: 0.75rem/1.55 ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dl-rows { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dl-rows li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); font-size: 0.8125rem; }
+.dl-rows li.is-shown { border-color: var(--accent); }
+.dl-row-text { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
+.dl-row-text strong { font-weight: 650; overflow-wrap: anywhere; }
+.dl-url { overflow-wrap: anywhere; }
+.dl-row-actions { display: flex; gap: 6px; flex: none; }
+.dl-badge { flex: none; min-width: 88px; padding: 3px 8px; border: 1px solid var(--line-2); border-radius: var(--r-full); color: var(--muted); font-size: 0.6875rem; font-weight: 650; text-align: center; }
+.dl-badge.is-running, .dl-badge.is-queued { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.dl-badge.is-done { color: var(--keep); border-color: color-mix(in srgb, var(--keep) 45%, transparent); }
+.dl-badge.is-failed, .dl-badge.is-error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-soft); }
+@media (max-width: 560px) {
+  .dl-rows li { flex-wrap: wrap; }
+  .dl-badge { min-width: 0; }
+  .dl-row-actions { width: 100%; justify-content: flex-end; }
+}
+
+/* ---- Bookmarks (SimpCity bookmarks with previews) ---- */
+.bm-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
+.bm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; }
+.bm-card { display: grid; grid-template-rows: auto 1fr; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.bm-card.is-have { border-color: color-mix(in srgb, var(--keep) 35%, var(--line)); }
+.bm-previews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; aspect-ratio: 3 / 2; background: var(--media-bg); }
+.bm-previews img { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
+.bm-previews:has(img:only-of-type) { grid-template-columns: 1fr; }
+.bm-no-preview { grid-column: 1 / -1; align-self: center; justify-self: center; color: var(--on-media-muted); font-size: 0.75rem; }
+.bm-body { display: grid; align-content: start; gap: 4px; padding: 12px 14px 14px; min-width: 0; }
+.bm-title { font-weight: 650; overflow-wrap: anywhere; }
+.bm-body .subtle { overflow-wrap: anywhere; }
+.bm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.bm-link { margin-left: auto; text-decoration: none; }
+@media (max-width: 760px) {
+  .bm-toolbar { grid-template-columns: minmax(0, 1fr); }
+}
+.dl-held { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: var(--r-md); background: var(--surface-2); }
+.dl-held p { margin: 0; font-size: 0.875rem; }
+.dl-badge.is-full, .dl-badge.is-held { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+
+/* Dangerous deletes files: every way into it is red, never the calm accent
+   of the modes that only look, so it cannot be mistaken for one of them. */
+.workspace-link[data-mode="dangerous"] { color: var(--danger); }
+.workspace-link[data-mode="dangerous"]:hover,
+.workspace-link[data-mode="dangerous"].active { background: var(--danger-soft); color: var(--danger); }
+.workspace-link[data-mode="dangerous"].active kbd { color: var(--danger); }
+.launcher-card[data-mode="dangerous"] { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.launcher-card[data-mode="dangerous"] svg { stroke: var(--danger); }
+.launcher-card[data-mode="dangerous"] strong { color: var(--danger); }
+.launcher-card[data-mode="dangerous"].active { border-color: var(--danger); background: var(--danger-soft); }
+.home-mode[data-tone="danger"] { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.home-mode[data-tone="danger"] strong { color: var(--danger); }
+body[data-mode="dangerous"] #workspaceTitle { color: var(--danger); }
+body[data-mode="dangerous"] #modeMenuButton { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); }

@@ -1,5 +1,28 @@
 # simp → Edging Heaven: run the downloader on the server, control it from the website
 
+> **Done 2026-09-27 on qwertyserver** (uncommitted). What is left is the user's:
+> `sudo systemctl restart edging-heaven.service`, a SimpCity login (upload
+> `cookies.txt` on the Downloads page, or copy the desktop's `state/` and cookies),
+> optionally `sudo apt install ffmpeg`, then one real download from the phone.
+> The current, maintained description is `~/infomds/SIMP.md` on the server and
+> "Downloads" in `../README.md`. Where the build differs from the plan below:
+>
+> - The folder is `scrprsimp/` (renamed from `simp/`), and the data dir is
+>   `~/.local/share/edging-heaven/scrprsimp/`. The package and command are still `simp`.
+> - cyberdrop-dl-patched 10.10.0 is installed in simp's own venv via the existing
+>   `[cdl]` extra, not with pipx (not installed; would need sudo).
+> - Trap 2 needed no unit change: cyberdrop-dl 10 honours `CDL_APPDATA_FOLDER`,
+>   which simp now points at `state/cdl/appdata/`. Checked with strace inside a
+>   bubblewrap sandbox with a read-only home: no write outside the data dir.
+> - Trap 4: `download.redownload_missing` (false on the server). Trap 6:
+>   `download.max_file_bytes` (4294967295 on the server). Trap 9: cyberdrop-dl's
+>   temp files are `<name>.part`, invisible to the scanner. Trap 10: left as is.
+> - Job logs are in `<data dir>/scrprsimp/jobs/<id>.log`, outside simp's `state/`,
+>   so `simp clear state` cannot erase the job list.
+> - The UI is a **Downloads** page under "Your library", plus **New posts** on a
+>   model's page. Code: `simpjobs.py`, `/api/simp/*` in `server.py`,
+>   `static/js/33-downloads.js`; tests: `tests/test_simp_jobs.py`, `tests/browser_features.py`.
+
 Handoff notes for a new chat. Written 2026-09-27 on the desktop (`fedora`).
 Facts marked **verified** were checked on that date; **unverified** ones must be
 checked on `qwertyserver` first. SSH from the assistant failed with `Permission denied (publickey)`, since the key
@@ -55,15 +78,15 @@ browser ──tailnet──▶ Edging Heaven server.py (stdlib, 127.0.0.1:8420)
                      /mnt/edging-heaven/baza/<model>/   ◀── EH rescans when the job ends
 ```
 
-- **simp's code lives in the Edging Heaven repo** as `edgingHeaven/simp/`, so a
+- **simp's code lives in the Edging Heaven repo** as `edgingHeaven/scrprsimp/`, so a
   `git pull` on the server deploys both. simp's own `.gitignore` still applies
   inside the subfolder, so cookies, state, `config.toml` and `.venv` stay out of git.
 - **simp runs as a subprocess**, never imported into `server.py`. That keeps Edging
-  Heaven stdlib-only, and simp keeps its own venv at `edgingHeaven/simp/.venv`.
+  Heaven stdlib-only, and simp keeps its own venv at `edgingHeaven/scrprsimp/.venv`.
 - **simp's runtime data lives in Edging Heaven's writable data dir**:
-  `~/.local/share/edging-heaven/simp/` holds `config.toml`, `whereto.txt`,
+  `~/.local/share/edging-heaven/scrprsimp/` holds `config.toml`, `whereto.txt`,
   `cookies/simpcity.txt` and `state/`. Run it as
-  `simp -c ~/.local/share/edging-heaven/simp/config.toml …`. simp resolves relative
+  `simp -c ~/.local/share/edging-heaven/scrprsimp/config.toml …`. simp resolves relative
   paths against the config file's folder, and this directory is already in the
   service's `ReadWritePaths` (see trap 2).
 - On the server `whereto.txt` contains `/mnt/edging-heaven/baza` and
@@ -151,11 +174,11 @@ Rules:
 ## Steps
 
 1. On the server, check the **unverified** items (commands below).
-2. Put simp into the repo as `edgingHeaven/simp/`, commit, push, and pull on the
+2. Put simp into the repo as `edgingHeaven/scrprsimp/`, commit, push, and pull on the
    server. First confirm `git status` shows no cookies, state or `config.toml`.
 3. On the server: create the venv, `pip install -e simp/`, and
    `pipx install cyberdrop-dl-patched`.
-4. Create `~/.local/share/edging-heaven/simp/`, copy state, cookies and config over
+4. Create `~/.local/share/edging-heaven/scrprsimp/`, copy state, cookies and config over
    (trap 8), and set `whereto.txt` to `/mnt/edging-heaven/baza`.
 5. Make the drive `rw` (Dangerous activation, trap 1) and extend `ReadWritePaths`
    (trap 2).

@@ -15,20 +15,22 @@ MODE_CARDS.push({ mode: "dangerous", name: "Dangerous",
 const workspaceNames = { home: "Overview", duel: "Duel", rediscover: "Rediscover", swipe: "Photo deck", toktinder: "Video deck",
   escalation: "Escalation", session: "Session", gallery: "Gallery", ranked: "Collection",
   mosaic: "Mosaic", feed: "Feed", dangerous: "Dangerous", beat: "Beat", redlight: "Red light", dice: "Dice",
-  ladder: "Ladder", spotlight: "Spotlight", highlights: "Highlights" };
+  ladder: "Ladder", spotlight: "Spotlight", highlights: "Highlights", downloads: "Downloads",
+  bookmarks: "Bookmarks" };
 // One grouping for the sidebar, the overview and the mode picker.
 const MODE_GROUPS = [
   { label: "Sort & rate", modes: ["swipe", "toktinder", "feed", "rediscover", "dangerous"] },
   { label: "Sit back", modes: ["escalation", "session", "beat", "redlight", "dice", "mosaic"] },
   { label: "Your best", modes: ["ladder", "spotlight", "highlights"] },
-  { label: "Your library", modes: ["gallery", "ranked", "duel"] },
+  { label: "Your library", modes: ["gallery", "ranked", "duel", "bookmarks", "downloads"] },
 ];
 const MODE_TONES = { duel: "warm", rediscover: "violet", mosaic: "violet", escalation: "warm", session: "warm", dangerous: "danger",
   beat: "warm", redlight: "danger", dice: "violet", ladder: "warm", spotlight: "violet", highlights: "violet" };
 const workspaceEyebrows = { home: "Your library", duel: "Your library", rediscover: "Sort & rate", swipe: "Sort & rate", toktinder: "Sort & rate", feed: "Sort & rate",
   dangerous: "Sort & rate", mosaic: "Sit back", escalation: "Sit back", session: "Sit back",
   beat: "Sit back", redlight: "Sit back", dice: "Sit back", ladder: "Your best", spotlight: "Your best", highlights: "Your best",
-  gallery: "Your library", ranked: "Your library" };
+  gallery: "Your library", ranked: "Your library", downloads: "Your library",
+  bookmarks: "Your library" };
 
 function modeKey(mode) {
   const index = ALL_MODES.indexOf(mode);
@@ -86,9 +88,9 @@ function initWorkspace() {
     queueSettingsSave();
     startDangerous(true);
   });
-  el("dangerousUnrated").addEventListener("click", () => {
-    state.settings.dangerousUnrated = !state.settings.dangerousUnrated;
-    el("dangerousUnrated").setAttribute("aria-checked", String(state.settings.dangerousUnrated));
+  el("dangerousHideKept").addEventListener("click", () => {
+    state.settings.dangerousHideKept = !state.settings.dangerousHideKept;
+    el("dangerousHideKept").setAttribute("aria-checked", String(state.settings.dangerousHideKept));
     queueSettingsSave();
     startDangerous(true);
   });

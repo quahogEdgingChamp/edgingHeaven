@@ -302,3 +302,33 @@ and [systemd mount options](https://www.freedesktop.org/software/systemd/man/lat
 ## Installed library
 
 Selected folder: `/mnt/edging-heaven/baza`.
+
+## Downloads (simp)
+
+The Downloads page runs simp (`scrprsimp/`, SimpCity → media) as a child of
+`edging-heaven.service`. The unit needs no change: simp's files live in the
+service's writable data dir, and simp tells cyberdrop-dl to keep its own
+config, cache and logs there too (`CDL_APPDATA_FOLDER`), because the sandbox
+makes the rest of the home directory read-only.
+
+```bash
+cd /home/qwerty/git/edgingHeaven
+python3 -m venv scrprsimp/.venv
+scrprsimp/.venv/bin/pip install -e './scrprsimp[cdl]'     # simp + cyberdrop-dl-patched
+
+D=/home/qwerty/.local/share/edging-heaven/scrprsimp
+(umask 077; mkdir -p "$D/cookies" "$D/state")
+sed -e 's/^redownload_missing = true/redownload_missing = false/' \
+    -e 's/^max_file_bytes = 0/max_file_bytes = 4294967295/' \
+    -e 's/^min_free_bytes = 0/min_free_bytes = 3221225472/' \
+    scrprsimp/config.example.toml > "$D/config.toml"
+printf '/mnt/edging-heaven/baza\n' > "$D/whereto.txt"
+chmod 600 "$D/config.toml" "$D/whereto.txt"
+sudo systemctl restart edging-heaven.service
+```
+
+`redownload_missing = false` keeps files deleted in Dangerous mode from coming
+back; `max_file_bytes` skips files FAT32 cannot hold. Then upload a SimpCity
+`cookies.txt` on the Downloads page (or copy an existing `state/` and
+`cookies/simpcity.txt` into `$D`). Optional: `sudo apt install ffmpeg` for HLS
+videos. Full notes: `~/infomds/SIMP.md` on this server, `scrprsimp/README.md` here.

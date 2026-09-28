@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+import httpx
 from rich.console import Console
 from rich.table import Table
 
@@ -20,7 +21,8 @@ from .download import (
 )
 from .estimate import estimate_models
 from .hosts import MediaLink, link_to_dict, links_from_rows
-from .thread import crawl_thread
+from .space import DriveFull, check_space
+from .thread import CrawlLinks, crawl_thread
 from .util import ensure_dir, polite_sleep
 
 console = Console()
@@ -82,6 +84,13 @@ def _parser() -> argparse.ArgumentParser:
 
     bm = sub.add_parser("bookmarks", help="List / export bookmarked model threads")
     bm.add_argument("--json", action="store_true", help="Print JSON")
+    bm.add_argument(
+        "--save",
+        action="store_true",
+        help="Write state/bookmarks.json with preview pictures of models not downloaded yet "
+        "(Edging Heaven's Bookmarks page)",
+    )
+    bm.add_argument("--previews", type=int, default=3, help="Pictures per model with --save (default 3)")
     _add_bookmark_page_args(bm)
     bm.set_defaults(func=cmd_bookmarks)
 
@@ -172,6 +181,10 @@ def cmd_bookmarks(args: argparse.Namespace, cfg: Config) -> int:
             limit=getattr(args, "limit", 0) or 0,
             pages=_pages_arg(args),
         )
+        if args.save:
+            from .previews import save_bookmarks
+
+            save_bookmarks(client, cfg, bookmarks, max(0, args.previews))
 
     export_path = cfg.resolve(cfg.paths.urls_export)
     export_url_list(export_path, [b.url for b in bookmarks])
@@ -179,6 +192,8 @@ def cmd_bookmarks(args: argparse.Namespace, cfg: Config) -> int:
 
     if args.json:
         print(json.dumps([b.__dict__ for b in bookmarks], indent=2, ensure_ascii=False))
+        return 0
+    if args.save:
         return 0
 
     table = Table(title="Bookmarked models")
@@ -211,7 +226,7 @@ def _crawl_all(
                 links = crawl_thread(client, bm.url, cfg, full=full)
             except Exception as exc:
                 console.print(f"  [red]crawl failed:[/] {exc}")
-                links = []
+                links = CrawlLinks(failed_pages=[1])
             results.append((bm, links))
             row = {
                 "title": bm.title,
@@ -219,6 +234,7 @@ def _crawl_all(
                 "media": [link_to_dict(l) for l in links],
                 # legacy flat fields kept for older tooling
                 "kinds": [l.kind.value for l in links],
+                "crawl_failed": bool(getattr(links, "failed_pages", ())),
             }
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
             fh.flush()
@@ -236,7 +252,7 @@ def _estimate(cfg: Config, results: list[tuple[Bookmark, list[MediaLink]]]) -> N
         estimate_models(client, [(bm.url, links) for bm, links in results], cfg)
 
 
-def _summarize(results: list[ModelResult]) -> int:
+def _summarize(results: list[ModelResult], crawl_failed: int = 0) -> int:
     """Print totals across models; exit code 1 if anything failed."""
     ok = sum(r.ok for r in results)
     skipped = sum(r.skipped for r in results)
@@ -244,14 +260,27 @@ def _summarize(results: list[ModelResult]) -> int:
     cdl_failed = [r.slug for r in results if r.cdl_failed]
     console.print(
         f"[bold]Summary:[/] {len(results)} model(s) · [green]{ok} downloaded[/] · "
-        f"{skipped} already had · [red]{failed} failed[/] (direct)"
+        f"{skipped} skipped · [red]{failed} failed[/] (direct)"
+        + (f" · {crawl_failed} incomplete crawl(s)" if crawl_failed else "")
     )
     if cdl_failed:
         console.print(f"  [red]cyberdrop-dl failed for:[/] {', '.join(cdl_failed)}")
+    if crawl_failed:
+        console.print("  Crawl incomplete: rerun the original command to retry missing pages.")
     if failed or cdl_failed:
         console.print("  Retry with: [bold]simp retry[/]  (lists in state/failed/)")
         return 1
-    return 0
+    return 1 if crawl_failed else 0
+
+
+def _stopped_for_space(done: list[ModelResult], exc: DriveFull) -> int:
+    """Exit 3: the drive reached its reserve. Edging Heaven holds the job for Resume."""
+    _summarize(done)
+    console.print(
+        f"[red]{exc}[/] Stopped. Nothing half-written was kept; run this again with "
+        "more space and it continues where it stopped."
+    )
+    return 3
 
 
 def cmd_scrape(args: argparse.Namespace, cfg: Config) -> int:
@@ -266,7 +295,10 @@ def cmd_scrape(args: argparse.Namespace, cfg: Config) -> int:
     if not args.no_estimate and results:
         _estimate(cfg, results)
     console.print(f"[bold green]Done.[/] {len(results)} threads, {total} media URLs.")
-    return 0
+    incomplete = sum(bool(getattr(links, "failed_pages", ())) for _, links in results)
+    if incomplete:
+        console.print(f"[yellow]{incomplete} incomplete crawl(s). Rerun scrape to retry missing pages.[/]")
+    return 1 if incomplete else 0
 
 
 def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
@@ -284,10 +316,16 @@ def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
             links = links_from_rows(
                 row.get("media", []), exclude_extensions=cfg.download.exclude_extensions
             )
+            if row.get("crawl_failed"):
+                links = CrawlLinks(links, failed_pages=[1])
             results.append((bm, links))
         if args.limit and args.limit > 0:
             results = results[: args.limit]
     else:
+        try:
+            check_space(cfg, cfg.models_root())  # no crawl for a download that cannot happen
+        except DriveFull as exc:
+            return _stopped_for_space([], exc)
         with build_client(cfg) as client:
             assert_logged_in(client, cfg)
             bookmarks = collect_targets(
@@ -302,38 +340,49 @@ def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
     from .util import thread_slug_from_url
 
     done: list[ModelResult] = []
-    with build_client(cfg) as client:
-        for i, (bm, links) in enumerate(results, 1):
-            slug = thread_slug_from_url(bm.url)
-            console.print(f"[bold]download ({i}/{len(results)})[/] {slug}  ({bm.title})")
-            if not links:
-                console.print("  (no media)")
-                continue
-            done.append(download_model(client, bm.url, bm.title, links, cfg))
+    try:
+        with build_client(cfg) as client:
+            for i, (bm, links) in enumerate(results, 1):
+                slug = thread_slug_from_url(bm.url)
+                console.print(f"[bold]download ({i}/{len(results)})[/] {slug}  ({bm.title})")
+                if not links:
+                    console.print("  (no media)")
+                    continue
+                done.append(download_model(client, bm.url, bm.title, links, cfg))
+    except DriveFull as exc:
+        return _stopped_for_space(done, exc)
 
     console.print("[bold green]Pipeline finished.[/]")
-    return _summarize(done)
+    incomplete = sum(bool(getattr(links, "failed_pages", ())) for _, links in results)
+    return _summarize(done, incomplete)
 
 
 def cmd_thread(args: argparse.Namespace, cfg: Config) -> int:
     urls: list[str] = list(args.urls)
     done: list[ModelResult] = []
-    with build_client(cfg) as client:
-        assert_logged_in(client, cfg)
-        for i, url in enumerate(urls, 1):
-            title = args.title if len(urls) == 1 else ""
-            console.print(
-                f"[bold]thread ({i}/{len(urls)})[/] {url}"
-            )
-            try:
-                links = crawl_thread(client, url, cfg, full=args.full_crawl)
-            except Exception as exc:
-                console.print(f"  [red]crawl failed:[/] {exc}")
-                continue
-            if links and not args.no_estimate:
-                estimate_models(client, [(url, links)], cfg)
-            done.append(download_model(client, url, title, links, cfg))
-    return _summarize(done)
+    incomplete = 0
+    try:
+        with build_client(cfg) as client:
+            assert_logged_in(client, cfg)
+            for i, url in enumerate(urls, 1):
+                title = args.title if len(urls) == 1 else ""
+                console.print(
+                    f"[bold]thread ({i}/{len(urls)})[/] {url}"
+                )
+                check_space(cfg, cfg.models_root())  # before crawling, not after
+                try:
+                    links = crawl_thread(client, url, cfg, full=args.full_crawl)
+                except Exception as exc:
+                    console.print(f"  [red]crawl failed:[/] {exc}")
+                    incomplete += 1
+                    continue
+                incomplete += bool(getattr(links, "failed_pages", ()))
+                if links and not args.no_estimate:
+                    estimate_models(client, [(url, links)], cfg)
+                done.append(download_model(client, url, title, links, cfg))
+    except DriveFull as exc:
+        return _stopped_for_space(done, exc)
+    return _summarize(done, incomplete)
 
 
 def cmd_retry(args: argparse.Namespace, cfg: Config) -> int:
@@ -347,10 +396,13 @@ def cmd_retry(args: argparse.Namespace, cfg: Config) -> int:
         console.print("[green]No failed downloads to retry.[/]")
         return 0
     done: list[ModelResult] = []
-    with build_client(cfg) as client:
-        for i, slug in enumerate(slugs, 1):
-            console.print(f"[bold]retry ({i}/{len(slugs)})[/] {slug}")
-            done.append(retry_model(client, cfg, slug))
+    try:
+        with build_client(cfg) as client:
+            for i, slug in enumerate(slugs, 1):
+                console.print(f"[bold]retry ({i}/{len(slugs)})[/] {slug}")
+                done.append(retry_model(client, cfg, slug))
+    except DriveFull as exc:
+        return _stopped_for_space(done, exc)
     return _summarize(done)
 
 
@@ -384,9 +436,14 @@ def cmd_clear(args: argparse.Namespace, cfg: Config) -> int:
 def main(argv: list[str] | None = None) -> None:
     parser = _parser()
     args = parser.parse_args(argv)
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        sys.exit(2)
     ensure_dir(cfg.resolve(cfg.paths.state_dir))
-    if args.cmd in {"download", "thread", "retry"}:
+    # bookmarks --save checks which models are downloaded: it needs the drive too.
+    if args.cmd in {"download", "thread", "retry"} or (args.cmd == "bookmarks" and args.save):
         whereto = cfg.read_whereto()
         # Only create the whereto folder itself, never its parents: a missing
         # parent means the drive isn't mounted.
@@ -413,7 +470,11 @@ def main(argv: list[str] | None = None) -> None:
             )
     try:
         code = args.func(args, cfg)
-    except (OSError, RuntimeError) as exc:
+    except DriveFull as exc:
+        console.print(f"[red]{exc}[/]")
+        code = 3
+    except (OSError, RuntimeError, httpx.HTTPError) as exc:
+        # e.g. a 403 on /account/bookmarks: one readable line, not a traceback
         console.print(f"[red]{exc}[/]")
         code = 2
     except KeyboardInterrupt:

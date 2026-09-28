@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from collections.abc import Callable, Iterable, Iterator
+from typing import TypeVar
 
 import httpx
 from rich.console import Console
@@ -9,6 +12,33 @@ from rich.console import Console
 from .util import polite_sleep
 
 console = Console()
+T = TypeVar("T")
+R = TypeVar("R")
+
+
+def bounded_results(
+    pool: ThreadPoolExecutor, fn: Callable[[T], R], items: Iterable[T], limit: int,
+) -> Iterator[tuple[T, R]]:
+    """Keep only `limit` futures in memory; replenish as workers finish."""
+    iterator = iter(items)
+    pending = {}
+    try:
+        while True:
+            while len(pending) < limit:
+                try:
+                    item = next(iterator)
+                except StopIteration:
+                    break
+                pending[pool.submit(fn, item)] = item
+            if not pending:
+                return
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                yield pending.pop(future), future.result()
+    finally:
+        for future in pending:
+            future.cancel()
+
 
 # The forum client asks for HTML first (like a browser loading a page). Some hosts
 # (GIPHY) honour that and serve their web page instead of the file, so media

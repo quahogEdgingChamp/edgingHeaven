@@ -34,6 +34,8 @@ class PathsConfig:
     state_dir: str = "state"
     # cyberdrop-dl db/cache/logs live here (project-local, not ~/.local)
     cdl_dir: str = "state/cdl"
+    # Empty = a sibling of models_root on the same drive, outside the web library.
+    cdl_staging_dir: str = ""
     urls_export: str = "state/bookmark_urls.txt"
     media_export: str = "state/media_urls.txt"
     # Optional one-line path file. If set, media goes to <path>/models/<slug>/
@@ -46,6 +48,8 @@ class ScrapeConfig:
     delay_min: float = 1.0
     delay_max: float = 2.5
     concurrency: int = 4
+    # Overlap slow forum responses, with one shared delay between page starts.
+    page_concurrency: int = 2
     include_watched: bool = False
     skip_title_contains: list[str] = field(default_factory=list)
     thread_url_must_contain: str = "/threads/"
@@ -53,6 +57,7 @@ class ScrapeConfig:
 
 @dataclass
 class DownloadConfig:
+    deduplicate: bool = True
     use_cyberdrop_dl: bool = True
     cyberdrop_dl_bin: str = "cyberdrop-dl"
     use_direct: bool = True
@@ -64,6 +69,17 @@ class DownloadConfig:
     exclude_extensions: list[str] = field(
         default_factory=lambda: sorted(DEFAULT_EXCLUDE_EXT)
     )
+    # Direct downloads the index says are done, but whose file is gone: fetch
+    # them again (true), or trust the index and leave them gone (false). Edging
+    # Heaven's Dangerous mode deletes by moving files to .heaven-trash, so on
+    # the server this is false.
+    redownload_missing: bool = True
+    # Skip any file bigger than this (direct + cyberdrop-dl). 0 = no limit.
+    # FAT32 cannot hold a file of 4 GiB or more: 4294967295 there.
+    max_file_bytes: int = 0
+    # Stop downloading when less than this many bytes would be left free on the
+    # drive (direct + cyberdrop-dl). 0 = no reserve. The server keeps 3 GiB.
+    min_free_bytes: int = 0
 
 
 @dataclass
@@ -100,7 +116,7 @@ class Config:
                 line = line[1:-1].strip()
             if not line:
                 continue
-            return Path(line).expanduser().resolve()
+            return self.resolve(line).resolve()
         return None
 
     def media_root(self) -> Path:
@@ -138,7 +154,9 @@ def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
 def load_config(path: Path | None = None) -> Config:
     """Load config.toml from path, or fall back to defaults + config.example.toml."""
     root = Path.cwd()
-    cfg_path = path or (root / "config.toml")
+    cfg_path = (path or (root / "config.toml")).expanduser().resolve()
+    if path is not None and not cfg_path.is_file():
+        raise FileNotFoundError(f"Config file not found: {cfg_path}")
     data: dict[str, Any] = {}
     if cfg_path.is_file():
         with cfg_path.open("rb") as fh:

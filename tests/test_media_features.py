@@ -84,6 +84,22 @@ class TrashTests(unittest.TestCase):
         self.assertEqual(self.library.library_payload()["images"][0]["rating"], "like")
         self.assertEqual(self.library.trash_entries(), [])
 
+    def test_restore_puts_back_one_file_without_a_rescan(self):
+        self.library.set_rating("photo.jpg", "like")
+        scan_id = self.library.scan_id
+        token = self.library.trash_media("photo.jpg", str(self.media))["token"]
+        self.library.scan = lambda: self.fail("restore must not rescan the library")
+        path = self.library.restore_media(token, str(self.media))
+        self.assertEqual(self.library.scan_id, scan_id)
+        payload = self.library.restored_payload(path)
+        self.assertEqual(payload["item"]["path"], "photo.jpg")
+        self.assertEqual(payload["item"]["kind"], "image")
+        self.assertEqual(payload["item"]["rating"], "like")
+        self.assertEqual(payload["updatedAt"], self.library.library_payload()["updatedAt"])
+        # Other pages pick it up through the additions feed.
+        additions = self.library.additions(scan_id, 0)
+        self.assertEqual([item["path"] for item in additions["items"]], ["photo.jpg"])
+
     def test_duplicate_restore_never_overwrites(self):
         token = self.library.trash_media("photo.jpg", str(self.media))["token"]
         (self.media / "photo.jpg").write_bytes(b"replacement")

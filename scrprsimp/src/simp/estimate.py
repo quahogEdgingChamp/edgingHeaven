@@ -142,7 +142,7 @@ def estimate_models(
     for thread_url, links in models:
         index = DownloadIndex.for_model(cfg, thread_slug_from_url(thread_url))
         for link in links:
-            if index.done(link.url):
+            if index.done(link.url) or index.is_gone(link.url):
                 est.already_done += 1
             else:
                 pending.append(link)

@@ -61,6 +61,22 @@ function rebuildDeck(mode) {
   state[config.indexKey] = 0;
 }
 
+// Files from a download in progress join a deck after the card on screen, at
+// random places, if they pass its folders and Show filter. An empty or
+// finished deck shows the first of them right away.
+function addToDeck(mode, items) {
+  const config = deckConfig(mode);
+  const selected = normalizedFolderSelection(config.foldersKey);
+  const filter = ratingFilterValue(config.filterKey);
+  const deck = state[config.itemsKey];
+  const wasEmpty = state[config.indexKey] >= deck.length;
+  items.filter((item) => matchesFolderSelection(item, selected) && matchesRatingFilter(item, filter)).forEach((item) => {
+    const start = Math.min(deck.length, state[config.indexKey] + (wasEmpty ? 0 : 1));
+    deck.splice(start + Math.floor(Math.random() * (deck.length - start + 1)), 0, item);
+  });
+  if (wasEmpty && deck.length && state.currentMode === mode) renderDeck(mode);
+}
+
 function currentDeckItem(mode) {
   const config = deckConfig(mode);
   if (!config || !state[config.itemsKey].length) {

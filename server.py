@@ -19,8 +19,9 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from faststart import layout as faststart_layout, read_chunks
+from simpjobs import SimpError, SimpJobs
 
 
 IMAGE_EXTENSIONS = {
@@ -98,7 +99,11 @@ DEFAULT_SETTINGS = {
     "rankedSort": "recent",
     "rankedKind": "all",
     "dangerousKind": "all",
+    # Old: "only unrated files" in Dangerous. Replaced by dangerousHideKept,
+    # since Dangerous no longer rates anything; kept so old state still loads.
     "dangerousUnrated": False,
+    # Dangerous skips files you already kept there (see dangerousKept below).
+    "dangerousHideKept": True,
     "dangerousFolders": [],
     # "Show: All / Unrated / Liked" for the lean-back modes.
     "escalationRatingFilter": "all",
@@ -203,7 +208,11 @@ LOCK_FREE_ATTEMPTS = 5
 # Reachable without unlocking: the page itself, so it can show the PIN pad.
 PUBLIC_PATHS = {"/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/api/lock", "/api/unlock"}
 STATIC_JS_RE = re.compile(r"/js/[0-9a-z-]+\.js")
-FEATURES = ["love", "marks", "sessions", "lock"]
+FEATURES = ["love", "marks", "sessions", "lock", "simp", "bookmarks", "additions", "dangerousKept"]
+# Downloads (simpjobs.py): /api/simp/jobs/<id>/log and /api/simp/jobs/<id>/cancel.
+SIMP_JOB_RE = re.compile(r"/api/simp/jobs/([a-f0-9]{12})/(log|cancel|arrivals)")
+# Bookmark previews: /api/simp/previews/<model, URL-encoded>/<n>.<ext>
+SIMP_PREVIEW_RE = re.compile(r"/api/simp/previews/([^/]+)/([^/]+)")
 
 DUEL_START = 1500.0
 # Seen times are flushed by the page in batches; one request never needs more.
@@ -310,12 +319,18 @@ class MediaLibrary:
         self.state_path = state_path
         self.lock = threading.RLock()
         self.state = self._load_state()
+        self._import_dangerous_kept()
         # When each file was last on screen. Its own file: it changes every
         # few seconds while browsing, and rewriting all of state.json for
         # that would be wasteful.
         self.seen_path = state_path.parent / "seen.json"
         self.seen = self._load_seen()
         self.catalog = {"images": [], "videos": [], "updatedAt": None}
+        # Files a download added since the last full scan, oldest first, as
+        # (path, kind). Pages fetch these instead of the whole catalog, so a
+        # download in progress never reshuffles a deck (see add_new_files).
+        self.scan_id = uuid.uuid4().hex
+        self.appended = []
         # client_path -> real relative path, only for names that differ.
         self.fs_paths = {}
         self._directory_identity = None
@@ -358,7 +373,29 @@ class MediaLibrary:
             # stored hashed with their expiry, so a restart keeps you in.
             "lock": loaded.get("lock") if isinstance(loaded.get("lock"), dict) else None,
             "lockTokens": loaded.get("lockTokens") if isinstance(loaded.get("lockTokens"), dict) else {},
+            # Files kept in Dangerous: {path: when}. Not a rating -- Dangerous
+            # is for clearing space, and this only stops a kept file from
+            # coming up there again.
+            "dangerousKept": loaded.get("dangerousKept") if isinstance(loaded.get("dangerousKept"), dict) else {},
         }
+
+    def _import_dangerous_kept(self) -> None:
+        """dangerous-kept-import.json next to state.json: a list of paths to
+        count as kept in Dangerous, read once and renamed to .imported. Used
+        when Dangerous stopped rating files: its old likes became this list."""
+        source = self.state_path.parent / "dangerous-kept-import.json"
+        try:
+            paths = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if isinstance(paths, list):
+            now = utc_now_iso()
+            kept = self.state.setdefault("dangerousKept", {})
+            for path in paths:
+                if isinstance(path, str):
+                    kept.setdefault(path, now)
+            self._save_state()
+        source.replace(source.with_name(source.name + ".imported"))
 
     def _save_state(self) -> None:
         payload = {
@@ -372,6 +409,7 @@ class MediaLibrary:
             "sessions": self.state.get("sessions", []),
             "lock": self.state.get("lock"),
             "lockTokens": self.state.get("lockTokens", {}),
+            "dangerousKept": self.state.get("dangerousKept", {}),
         }
         self._write_state_payload(payload)
 
@@ -419,9 +457,13 @@ class MediaLibrary:
                 "libraryReady": self.media_dir is not None,
                 "mediaDirectory": self.state.get("mediaDirectory"),
                 "updatedAt": self.catalog["updatedAt"],
+                "scanId": self.scan_id,
+                "appended": len(self.appended),
             }
 
     def _scan_locked(self) -> None:
+        self.scan_id = uuid.uuid4().hex
+        self.appended = []
         if self.media_dir is None or not self.media_dir.exists() or not self.media_dir.is_dir():
             with self.lock:
                 self.catalog = {"images": [], "videos": [], "updatedAt": None}
@@ -442,61 +484,13 @@ class MediaLibrary:
         except OSError:
             file_paths = []
         for file_path in file_paths:
-            try:
-                if not file_path.is_file():
-                    continue
-                file_stat = file_path.stat()
-                file_size = file_stat.st_size
-            except OSError:
+            entry = self._catalog_entry(self.media_dir, file_path, broken)
+            if entry is None:
                 continue
-
-            ext = file_path.suffix.lower()
-            if ext not in IMAGE_EXTENSIONS and ext not in VIDEO_EXTENSIONS:
-                continue
-
-            # A zero-byte file is always a failed copy or a stub. Cheap to
-            # detect here; the browser would only show a broken-image glyph.
-            if file_size == 0:
-                continue
-
-            relative_path = file_path.relative_to(self.media_dir).as_posix()
-            fs_path = relative_path
-            relative_path = client_path(relative_path)
-            if relative_path != fs_path:
-                # A real file already has the display name; skip rather than
-                # let two files answer to one path.
-                if (self.media_dir / relative_path).exists():
-                    continue
-                fs_paths[relative_path] = fs_path
-            if relative_path in broken:
-                continue
-            folder = ""
-            if file_path.parent != self.media_dir:
-                folder = client_path(file_path.parent.relative_to(self.media_dir).as_posix())
-
-            # `name` is not sent: it is always the tail of `path`, and with
-            # hash-style filenames that duplication was ~1.8MB of a 2.9MB
-            # payload. The client splits it back off on arrival. `rating` and
-            # `ratedAt` are omitted when unset for the same reason -- most of
-            # a library is unrated, and "rating": null 13,000 times is 400KB.
-            payload = {
-                "path": relative_path,
-                "folder": folder,
-                "size": file_size,
-                # Epoch seconds; the gallery sorts on it.
-                "mtime": int(file_stat.st_mtime),
-            }
-            rating = self.state["ratings"].get(relative_path)
-            if rating:
-                payload["rating"] = rating
-                rated_at = self.state.get("ratingTimes", {}).get(relative_path)
-                if rated_at:
-                    payload["ratedAt"] = rated_at
-
-            if ext in IMAGE_EXTENSIONS:
-                images.append(payload)
-            else:
-                videos.append(payload)
+            payload, is_image, fs_path = entry
+            if fs_path:
+                fs_paths[payload["path"]] = fs_path
+            (images if is_image else videos).append(payload)
 
         with self.lock:
             # Forget entries whose file is gone: either it was deleted, or it
@@ -516,6 +510,123 @@ class MediaLibrary:
             }
             self._save_state()
 
+    def _catalog_entry(self, root: Path, file_path: Path, broken: set):
+        """One media file as the catalog lists it: (payload, is_image, real
+        relative path when it differs from the client's), or None to skip."""
+        try:
+            if not file_path.is_file():
+                return None
+            file_stat = file_path.stat()
+            file_size = file_stat.st_size
+        except OSError:
+            return None
+
+        ext = file_path.suffix.lower()
+        if ext not in IMAGE_EXTENSIONS and ext not in VIDEO_EXTENSIONS:
+            return None
+
+        # A zero-byte file is always a failed copy or a stub. Cheap to
+        # detect here; the browser would only show a broken-image glyph.
+        if file_size == 0:
+            return None
+
+        relative_path = file_path.relative_to(root).as_posix()
+        fs_path = relative_path
+        relative_path = client_path(relative_path)
+        if relative_path != fs_path:
+            # A real file already has the display name; skip rather than
+            # let two files answer to one path.
+            if (root / relative_path).exists():
+                return None
+        if relative_path in broken:
+            return None
+        folder = ""
+        if file_path.parent != root:
+            folder = client_path(file_path.parent.relative_to(root).as_posix())
+
+        # `name` is not sent: it is always the tail of `path`, and with
+        # hash-style filenames that duplication was ~1.8MB of a 2.9MB
+        # payload. The client splits it back off on arrival. `rating` and
+        # `ratedAt` are omitted when unset for the same reason -- most of
+        # a library is unrated, and "rating": null 13,000 times is 400KB.
+        payload = {
+            "path": relative_path,
+            "folder": folder,
+            "size": file_size,
+            # Epoch seconds; the gallery sorts on it.
+            "mtime": int(file_stat.st_mtime),
+        }
+        rating = self.state["ratings"].get(relative_path)
+        if rating:
+            payload["rating"] = rating
+            rated_at = self.state.get("ratingTimes", {}).get(relative_path)
+            if rated_at:
+                payload["ratedAt"] = rated_at
+        return payload, ext in IMAGE_EXTENSIONS, fs_path if relative_path != fs_path else None
+
+    def add_new_files(self, directories) -> list:
+        """Add files that appeared under these directories (a download in
+        progress) without a full rescan. Each directory counts as the whole
+        top-level folder (model) it is in; anything outside the library, and
+        the trash, is ignored. Returns the added catalog entries."""
+        with self.lock:
+            root = self.media_dir
+            if root is None:
+                return []
+            known = self._catalog_paths()
+            broken = set(self.state.get("brokenPaths", set()))
+        models = []
+        for directory in directories:
+            try:
+                parts = Path(directory).resolve().relative_to(root).parts
+            except (OSError, ValueError):
+                continue
+            if parts and parts[0] != ".heaven-trash" and parts[0] not in models:
+                models.append(parts[0])
+        found = []
+        # Walked outside the lock: listing a big model folder on USB takes a
+        # moment, and browsing must not wait for it. Only new names are stat'ed.
+        for model in models:
+            for directory, dirs, names in os.walk(root / model):
+                dirs[:] = [name for name in dirs if name != ".heaven-trash"]
+                for name in names:
+                    file_path = Path(directory) / name
+                    if client_path(file_path.relative_to(root).as_posix()) in known:
+                        continue
+                    entry = self._catalog_entry(root, file_path, broken)
+                    if entry is not None:
+                        found.append(entry)
+        if not found:
+            return []
+        with self.lock:
+            if self.media_dir != root:
+                return []
+            known = self._catalog_paths()
+            added = []
+            for payload, is_image, fs_path in sorted(found, key=lambda entry: entry[0]["path"]):
+                if payload["path"] in known:
+                    continue
+                if fs_path:
+                    self.fs_paths[payload["path"]] = fs_path
+                self.catalog["images" if is_image else "videos"].append(payload)
+                self.appended.append((payload["path"], "image" if is_image else "video"))
+                added.append(payload)
+            if added:
+                self.catalog["updatedAt"] = utc_now_iso()
+            return added
+
+    def additions(self, scan_id, start) -> Optional[dict]:
+        """Files added since the page's copy of the catalog: the entries of
+        appended[start:] that are still in the library (not trashed since).
+        None when a full scan happened since; the page reloads everything."""
+        with self.lock:
+            if scan_id != self.scan_id:
+                return None
+            wanted = {path: kind for path, kind in self.appended[max(0, start):]}
+            items = [{**item, "kind": kind} for key, kind in (("images", "image"), ("videos", "video"))
+                     for item in self.catalog[key] if wanted.get(item["path"]) == kind]
+            return {"scanId": self.scan_id, "next": len(self.appended), "updatedAt": self.catalog["updatedAt"], "items": items}
+
     def library_payload(self) -> dict:
         with self.lock:
             all_items = [*self.catalog["images"], *self.catalog["videos"]]
@@ -530,6 +641,8 @@ class MediaLibrary:
                 "videos": list(self.catalog["videos"]),
                 "folders": folders,
                 "updatedAt": self.catalog["updatedAt"],
+                "scanId": self.scan_id,
+                "appended": len(self.appended),
                 "counts": {
                     "images": len(self.catalog["images"]),
                     "videos": len(self.catalog["videos"]),
@@ -596,6 +709,7 @@ class MediaLibrary:
                 self.state["ratingTimes"] = {}
                 self.state["duel"] = {}
                 self.state["marks"] = {}
+                self.state["dangerousKept"] = {}
                 self.seen = {}
                 self._save_seen()
 
@@ -691,6 +805,7 @@ class MediaLibrary:
             self.state["brokenPaths"] = set()
             self.state["marks"] = {}
             self.state["sessions"] = []
+            self.state["dangerousKept"] = {}
             # The PIN is privacy, not library data: resetting the library keeps it.
             self._write_state_payload({"lock": self.state.get("lock"), "lockTokens": self.state.get("lockTokens", {})})
 
@@ -712,6 +827,27 @@ class MediaLibrary:
             else:
                 return False
 
+            self._save_state()
+            return True
+
+    # ---- kept in Dangerous ----
+
+    def dangerous_kept_payload(self) -> dict:
+        with self.lock:
+            known = self._catalog_paths()
+            return {path: when for path, when in self.state.get("dangerousKept", {}).items() if path in known}
+
+    def set_dangerous_kept(self, relative_path, kept) -> bool:
+        if not isinstance(relative_path, str) or not isinstance(kept, bool):
+            return False
+        with self.lock:
+            if relative_path not in self._catalog_paths():
+                return False
+            table = self.state.setdefault("dangerousKept", {})
+            if kept:
+                table[relative_path] = utc_now_iso()
+            else:
+                table.pop(relative_path, None)
             self._save_state()
             return True
 
@@ -1027,8 +1163,28 @@ class MediaLibrary:
             (entry / "media").rename(destination)
             (entry / "record.json").unlink()
             entry.rmdir()
-            self.scan()
+            # Only this file comes back. A full scan here held the lock for as
+            # long as walking the whole drive takes, stalling every picture and
+            # poll behind an Undo, and its new scanId made pages reload it all.
+            found = self._catalog_entry(self.media_dir, self.media_dir / fs_path, set(self.state.get("brokenPaths", set())))
+            if found is not None and found[0]["path"] not in self._catalog_paths():
+                payload, is_image, real_path = found
+                if real_path:
+                    self.fs_paths[payload["path"]] = real_path
+                self.catalog["images" if is_image else "videos"].append(payload)
+                self.appended.append((payload["path"], "image" if is_image else "video"))
+                self.catalog["updatedAt"] = utc_now_iso()
             return client_path(record["path"])
+
+    def restored_payload(self, path) -> dict:
+        """What the page needs to put a restored file back without reloading
+        the library: its catalog entry, and the catalog's new updatedAt."""
+        with self.lock:
+            for key, kind in (("images", "image"), ("videos", "video")):
+                item = next((item for item in self.catalog[key] if item["path"] == path), None)
+                if item is not None:
+                    return {"item": {**item, "kind": kind}, "updatedAt": self.catalog["updatedAt"]}
+            return {"updatedAt": self.catalog["updatedAt"]}
 
     def trash_entries(self):
         with self.lock:
@@ -1088,7 +1244,7 @@ class MediaLibrary:
                 # The file is gone for good, so its ratings must not attach to
                 # a different file that later lands on the same path.
                 if isinstance(path, str) and isinstance(fs_path, str) and not (self.media_dir / fs_path).exists():
-                    for key in ("ratings", "ratingTimes", "duel", "marks"):
+                    for key in ("ratings", "ratingTimes", "duel", "marks", "dangerousKept"):
                         self.state.get(key, {}).pop(path, None)
             self._save_state()
             return {"removed": removed, "freedBytes": freed, "freeBytes": self._free_bytes()}
@@ -1104,9 +1260,14 @@ class MediaLibrary:
 class AppServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, server_address, handler_class, library: MediaLibrary):
+    def __init__(self, server_address, handler_class, library: MediaLibrary, simp: Optional[SimpJobs] = None):
         super().__init__(server_address, handler_class)
         self.library = library
+        # Downloads: simp's config, cookies, state and job logs sit next to
+        # state.json, inside the one folder the sandboxed service may write.
+        # While a job runs, the model folders it writes to are added to the
+        # library as files land (no full rescan, so no deck is reshuffled).
+        self.simp = simp if simp is not None else SimpJobs(library.state_path.parent / "scrprsimp", add_files=library.add_new_files)
         # Wrong PINs, counted for the whole server: behind `tailscale serve`
         # every request comes from 127.0.0.1, so a per-address count is the
         # same thing. After a few free tries each miss doubles the wait.
@@ -1244,6 +1405,46 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
 
+    def _handle_simp(self, parsed, payload):
+        """Downloads. GET status and a job's log; POST a job, a cancel, cookies.
+        payload is None for a GET."""
+        simp = self.server.simp
+        job = SIMP_JOB_RE.fullmatch(parsed.path)
+        try:
+            if payload is None and parsed.path == "/api/simp/status":
+                self._send_json(simp.status())
+            elif payload is None and parsed.path == "/api/simp/bookmarks":
+                self._send_json(simp.bookmarks())
+            elif payload is None and SIMP_PREVIEW_RE.fullmatch(parsed.path):
+                model, name = (unquote(part) for part in SIMP_PREVIEW_RE.fullmatch(parsed.path).groups())
+                picture = simp.preview_file(model, name)
+                if picture is None:
+                    self._send_json({"error": "No such preview."}, HTTPStatus.NOT_FOUND)
+                else:
+                    self._serve_file(picture, cache_control="private, max-age=86400")
+            elif payload is None and job and job.group(2) == "log":
+                try:
+                    offset = int(parse_qs(parsed.query).get("offset", ["0"])[0])
+                except ValueError:
+                    raise SimpError("Bad log offset.")
+                self._send_json(simp.log(job.group(1), offset))
+            elif payload is not None and parsed.path == "/api/simp/jobs":
+                self._send_json({"ok": True, "job": simp.submit(payload)})
+            elif payload is None and job and job.group(2) == "arrivals":
+                self._send_json(simp.arrivals(job.group(1)))
+            elif payload is not None and job and job.group(2) == "cancel":
+                self._send_json({"ok": True, "job": simp.cancel(job.group(1))})
+            elif payload is not None and parsed.path == "/api/simp/resume":
+                self._send_json({"ok": True, **simp.resume()})
+            elif payload is not None and parsed.path == "/api/simp/cookies":
+                self._send_json({"ok": True, **simp.save_cookies(payload.get("text"))})
+            else:
+                self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+        except SimpError as error:
+            self._send_json({"error": str(error)}, HTTPStatus(error.status))
+        except OSError as error:
+            self._send_json({"error": f"Could not reach simp's files: {error}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
     def do_GET(self):
         parsed = urlparse(self.path)
 
@@ -1259,8 +1460,16 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"marks": self.server.library.marks_payload()})
             return
 
+        if parsed.path.startswith("/api/simp/"):
+            self._handle_simp(parsed, None)
+            return
+
         if parsed.path == "/api/sessions":
             self._send_json({"sessions": self.server.library.sessions_payload()})
+            return
+
+        if parsed.path == "/api/dangerous-kept":
+            self._send_json({"kept": self.server.library.dangerous_kept_payload()})
             return
 
         if parsed.path == "/api/trash":
@@ -1272,6 +1481,19 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/library-status":
             self._send_json(self.server.library.availability_payload())
+            return
+
+        if parsed.path == "/api/library-additions":
+            query = parse_qs(parsed.query)
+            try:
+                start = int(query.get("from", ["0"])[0])
+            except ValueError:
+                start = 0
+            result = self.server.library.additions(query.get("scan", [""])[0], start)
+            if result is None:
+                self._send_json({"error": "The library was rescanned. Reload it."}, HTTPStatus.CONFLICT)
+                return
+            self._send_json(result)
             return
 
         if parsed.path == "/api/state":
@@ -1386,6 +1608,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._handle_lock_post(parsed.path, payload)
             return
 
+        if parsed.path.startswith("/api/simp/"):
+            self._handle_simp(parsed, payload)
+            return
+
         if parsed.path == "/api/marks":
             spans = self.server.library.set_marks(payload.get("path"), payload.get("marks"))
             if spans is None:
@@ -1402,6 +1628,13 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "session": record})
             return
 
+        if parsed.path == "/api/dangerous-kept":
+            if not self.server.library.set_dangerous_kept(payload.get("path"), payload.get("kept")):
+                self._send_json({"error": "That file is not in the library."}, HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True})
+            return
+
         if parsed.path == "/api/sessions-clear":
             self.server.library.clear_sessions()
             self._send_json({"ok": True})
@@ -1416,7 +1649,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                         raise ValueError("Missing media path.")
                     result = self.server.library.trash_media(payload["path"], payload.get("library"))
                 else:
-                    result = {"path": self.server.library.restore_media(payload.get("token"), payload.get("library"))}
+                    path = self.server.library.restore_media(payload.get("token"), payload.get("library"))
+                    result = {"path": path, **self.server.library.restored_payload(path)}
                 self._send_json({"ok": True, **result})
             except (OSError, ValueError) as error:
                 message = ("This folder is read-only. Enable writing on the media drive to delete files."

@@ -1,9 +1,11 @@
 """Browser checks for Love, marked moments, the six timed modes, model pages,
-session history, panic, the PIN lock and toy sync.
+session history, panic, the PIN lock, toy sync and Downloads.
 
 Uses only the test library, like browser_design.py: ratings, marks, sessions
 and the PIN go to a temporary data directory, trash/restore are blocked, and
-the toy is a mock Intiface server on a free local port.
+the toy is a mock Intiface server on a free local port. Downloads run the
+stand-in simp from test_simp_jobs.py, which writes only into the temporary
+directory; nothing reaches SimpCity or the test library.
 
 Run: python3 tests/browser_features.py --media-dir /mnt/edging-heaven/testing
 Needs Playwright and, for the toy check, the `websockets` package.
@@ -21,6 +23,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright  # noqa: E402
 from server import AppServer, MediaLibrary, RequestHandler  # noqa: E402
+import simpjobs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_simp_jobs import FAKE_SIMP, GOOD_COOKIES  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--media-dir", type=Path, required=True)
@@ -89,7 +94,36 @@ def check(label, condition, detail=""):
 
 with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
     library = MediaLibrary(args.media_dir, Path(tmp) / "state.json")
-    server = AppServer(("127.0.0.1", 0), RequestHandler, library)
+    # Downloads: a stand-in simp that "downloads" into tmp/downloads, and a
+    # known thread for every model of the test library.
+    simp_root = Path(tmp) / "scrprsimp"
+    (simp_root / "state" / "crawl").mkdir(parents=True)
+    (simp_root / "config.toml").write_text('[paths]\nmodels_subdir = ""\n')
+    (simp_root / "whereto.txt").write_text(f"{Path(tmp) / 'downloads'}\n")
+    (Path(tmp) / "downloads").mkdir()
+    for folder in sorted(path.name for path in args.media_dir.iterdir() if path.is_dir()):
+        (simp_root / "state" / "crawl" / f"simpcity.cr_{folder}.1.json").write_text(
+            json.dumps({"thread": f"https://simpcity.cr/threads/{folder}.1/", "last_page": 3, "links": []}))
+    # Bookmarks: one model the test library has, one it doesn't (with two
+    # pictures copied from the test library as its previews), and one link
+    # that is not a SimpCity thread.
+    have_model = sorted(path.name for path in args.media_dir.iterdir() if path.is_dir())[0]
+    (simp_root / "bookmark_rows.json").write_text(json.dumps([
+        {"url": f"https://simpcity.cr/threads/{have_model}.1/", "title": have_model.replace("_", " ").title(), "model": have_model, "previews": []},
+        {"url": "https://simpcity.cr/threads/new-model.5/", "title": "New Model", "model": "new-model", "previews": ["0.jpg", "1.png"]},
+        {"url": "https://elsewhere.example/x/", "title": "Odd One", "model": "odd", "previews": []},
+    ]))
+    shots = simp_root / "state" / "previews" / "new-model"
+    shots.mkdir(parents=True)
+    pictures = sorted(args.media_dir.glob("*/*.jp*g"))
+    (shots / "0.jpg").write_bytes(pictures[0].read_bytes())
+    (shots / "1.png").write_bytes(pictures[1].read_bytes())
+    fake_simp = Path(tmp) / "fake-simp"
+    fake_simp.write_text(FAKE_SIMP.replace("{python}", sys.executable))
+    fake_simp.chmod(0o755)
+    simpjobs.CANCEL_STEPS = ((simpjobs.signal.SIGINT, 0.5), (simpjobs.signal.SIGTERM, 0.5), (simpjobs.signal.SIGKILL, 2))
+    simp = simpjobs.SimpJobs(simp_root, fake_simp)
+    server = AppServer(("127.0.0.1", 0), RequestHandler, library, simp=simp)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{server.server_port}"
 
@@ -114,8 +148,9 @@ with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
             context.route("**/api/restore", lambda route: route.abort())
             page = context.new_page()
             page.on("pageerror", lambda err: errors.append(f"{err}\n{err.stack}"))
-            # 401s while locked and the 403 of a deliberately wrong PIN are expected.
-            page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" and not any(code in msg.text for code in ("401", "403")) else None)
+            # 401s while locked, the 403 of a deliberately wrong PIN and the 400
+            # of a deliberately refused download link are expected.
+            page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" and not any(code in msg.text for code in ("400", "401", "403")) else None)
             page.on("dialog", lambda dialog: dialog.accept())
             return page
 
@@ -255,8 +290,76 @@ with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
         page.click("#rankedFolders .ranked-model-link")
         page.wait_for_function("!el('rankedModelPage').hidden", timeout=5000)
         check("model page opens with its best files", page.evaluate("el('modelGrid').children.length") > 0)
+        page.wait_for_selector("#modelUpdate:not([hidden])", timeout=5000)
+        model = page.evaluate("state.ranked.model")
+        page.click("#modelUpdate")
+        page.wait_for_function("downloads.status?.jobs?.length === 1", timeout=5000)
+        job = page.evaluate("downloads.status.jobs[0]")
+        check("model page: New posts queues that model's thread",
+              job["args"] == ["thread", f"https://simpcity.cr/threads/{model}.1/"] and job["label"] == f"New posts: {model}", job)
         page.click("#modelBack")
         check("model page back", page.evaluate("el('rankedModelPage').hidden"))
+
+        # ---- Downloads (stand-in simp; see the top of this file)
+        page.evaluate("() => setMode('downloads')")
+        page.wait_for_function("!el('dlForms').hidden && el('dlJobs').children.length === 1", timeout=5000)
+        page.wait_for_function("downloads.status.jobs[0].status === 'error'", timeout=10000)
+        check("no cookies yet: the login shows as failed", "Signed out" in page.inner_text("#dlStats"), page.inner_text("#dlStats"))
+        page.set_input_files("#dlCookieFile", files=[{"name": "cookies.txt", "mimeType": "text/plain", "buffer": GOOD_COOKIES.encode()}])
+        page.wait_for_function("downloads.status?.auth?.ok === true", timeout=10000)
+        check("uploading cookies.txt checks the login", "Signed in" in page.inner_text("#dlStats"))
+        page.fill("#dlUrls", "https://example.com/threads/x.1/")
+        page.click("#dlThreadGo")
+        page.wait_for_function("el('workspaceToast').textContent.includes('Not a SimpCity thread link')", timeout=5000)
+        check("a non-SimpCity link is refused", page.evaluate("downloads.status.jobs.length") == 2)
+        page.fill("#dlUrls", "https://simpcity.cr/threads/brand-new.77/page-3")
+        page.click("#dlThreadGo")
+        page.wait_for_function("downloads.status.jobs[0].label === 'Download brand-new' && downloads.status.jobs[0].status === 'done'", timeout=10000)
+        page.wait_for_function("el('dlLog').textContent.includes('Summary:')", timeout=10000)
+        check("a thread downloads and its output shows", "$ simp thread https://simpcity.cr/threads/brand-new.77/" in page.inner_text("#dlLog"))
+        check("the finished job is listed as done", page.inner_text("#dlJobs li:first-child .dl-badge") == "Done")
+        check("the new thread joins the known ones",
+              "brand-new" in page.inner_text("#dlThreads") and (Path(tmp) / "downloads" / "brand-new" / "new.jpg").is_file())
+        page.fill("#dlUrls", "https://simpcity.cr/threads/slow.5/")
+        page.click("#dlThreadGo")
+        page.wait_for_selector("#dlCancel:not([hidden])", timeout=10000)
+        page.wait_for_function("el('dlLog').textContent.includes('crawling slow thread')", timeout=10000)
+        check("the running job's output follows live", True)
+        page.click("#dlCancel")
+        page.wait_for_function("downloads.status.jobs[0].status === 'cancelled'", timeout=15000)
+        check("cancel stops the running job", page.inner_text("#dlJobs li:first-child .dl-badge") == "Cancelled")
+
+        # ---- Bookmarks (same stand-in simp)
+        page.evaluate("() => setMode('bookmarks')")
+        page.wait_for_function("!el('bmEmpty').hidden && el('bmEmpty').textContent.includes('No bookmarks yet')", timeout=5000)
+        check("bookmarks start empty", True)
+        page.click("#bmRefresh")
+        page.wait_for_function("el('bmGrid').children.length === 3", timeout=15000)
+        check("Refresh from SimpCity fills the grid", page.inner_text("#bmStats").split()[:1] == ["3"], page.inner_text("#bmStats"))
+        page.wait_for_function("""() => [...el('bmGrid').querySelectorAll('.bm-card:nth-child(-n+2) img')].every(i => i.complete && i.naturalWidth > 0)""", timeout=15000)
+        cards = page.evaluate("""() => [...el('bmGrid').children].map(card => ({
+            title: card.querySelector('.bm-title').textContent,
+            meta: card.querySelector('.subtle').textContent,
+            sources: [...card.querySelectorAll('img')].map(i => new URL(i.src).pathname),
+            buttons: [...card.querySelectorAll('button, a')].map(b => b.textContent)}))""")
+        check("a model you have shows three of its own photos and what you kept",
+              cards[0]["sources"] == ["/media"] * 3 and cards[0]["meta"].startswith("In library") and cards[0]["buttons"] == ["New posts", "Open", "SimpCity"], cards[0])
+        check("a model you don't have shows its saved previews",
+              cards[1]["sources"] == ["/api/simp/previews/new-model/0.jpg", "/api/simp/previews/new-model/1.png"] and cards[1]["buttons"] == ["Download", "SimpCity"], cards[1])
+        check("a non-thread link gets no Download button", cards[2]["buttons"] == [] and cards[2]["meta"].endswith("Not downloaded yet"), cards[2])
+        page.click('#bmFilter [data-bm-filter="missing"]')
+        check("filter: not downloaded", page.evaluate("el('bmGrid').children.length") == 2)
+        page.fill("#bmSearch", "new mod")
+        page.wait_for_function("el('bmGrid').children.length === 1", timeout=5000)
+        page.click("#bmGrid .bm-card button")
+        page.wait_for_function("downloads.status.jobs[0].label === 'Download new-model'", timeout=10000)
+        check("Download on a bookmark queues its thread", True)
+        page.fill("#bmSearch", "")
+        page.click('#bmFilter [data-bm-filter="have"]')
+        page.wait_for_function("el('bmGrid').children.length === 1", timeout=5000)
+        page.click("#bmGrid .bm-card button:has-text('Open')")
+        page.wait_for_function(f"state.currentMode === 'ranked' && state.ranked.model === {json.dumps(have_model)}", timeout=5000)
+        check("Open goes to that model's page", True)
 
         # ---- Panic
         page.evaluate("() => setMode('escalation')")

@@ -110,6 +110,7 @@ async function renderModelPage(model) {
 
   el("modelDuel").disabled = items.length < 2;
   el("modelLadder").disabled = kept.length < 2;
+  syncModelUpdate(model);
 }
 
 function modelModeWith(mode, model, filter) {

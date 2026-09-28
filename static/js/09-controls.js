@@ -33,7 +33,7 @@ const MODE_SETTING_KEYS = {
   gallery: ["galleryRatingFilter", "galleryKind", "gallerySort"],
   mosaic: ["mosaicRatingFilter", "mosaicTiles", "mosaicSwapSeconds", "mosaicIncludePhotos", "mosaicVolume"],
   feed: ["feedRatingFilter", "feedVolume", "feedAutoAdvance"],
-  dangerous: ["dangerousKind", "dangerousUnrated"],
+  dangerous: ["dangerousKind", "dangerousHideKept"],
   duel: ["duelKind", "duelRatingFilter"],
   rediscover: ["rediscoverKind", "rediscoverRatingFilter"],
 };
@@ -47,7 +47,7 @@ const MODE_DEFAULTS = {
   sessionRatingFilter: "all",
   mosaicRatingFilter: "all",
   dangerousKind: "all",
-  dangerousUnrated: false,
+  dangerousHideKept: true,
   swipeRatingFilter: "all",
   toktinderRatingFilter: "all",
   escalationRamp: true,
@@ -226,7 +226,7 @@ const DRAWER_SUMMARIES = {
   },
   dangerous: () => {
     const kind = state.settings.dangerousKind === "photo" ? "photos" : state.settings.dangerousKind === "video" ? "videos" : "photos and videos";
-    const which = state.settings.dangerousUnrated ? `unrated ${kind}` : kind;
+    const which = state.settings.dangerousHideKept ? `${kind} you have not kept here yet` : kind;
     const left = Math.max(0, dangerous.items.length - dangerous.index);
     return `Reviewing ${which} — ${plural(left, "file", "files")} left in this deck.${state.canTrash ? "" : " The drive is read-only, so Delete is off."}`;
   },

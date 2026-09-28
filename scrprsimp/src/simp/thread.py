@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -20,12 +21,20 @@ from .hosts import (
     links_from_rows,
     with_thread_page,
 )
-from .net import get_retry
-from .util import absolute_url, ensure_dir, polite_sleep, sanitize_filename
+from .net import bounded_results, get_retry
+from .util import absolute_url, ensure_dir, looks_like_login_page, polite_sleep, sanitize_filename
 
 console = Console()
 
 _PAGE_RE = re.compile(r"/page-(\d+)", re.I)
+
+
+class CrawlLinks(list[MediaLink]):
+    """Usable links plus pages that must be retried; list-compatible for callers."""
+
+    def __init__(self, links=(), *, failed_pages=()):
+        super().__init__(links)
+        self.failed_pages = tuple(sorted(set(failed_pages)))
 
 
 def _max_thread_page(soup: BeautifulSoup) -> int:
@@ -82,43 +91,65 @@ def extract_media_from_html(
     soup = BeautifulSoup(html, "lxml")
     found: list[MediaLink] = []
     seen: set[str] = set()
+    # Pictures that only preview a link cyberdrop-dl downloads (see below).
+    previews: set[str] = set()
 
-    def add(raw_url: str, source: str) -> None:
+    def normalize(raw_url: str) -> str:
+        return _fullsize_image_url(_unwrap_redirect(absolute_url(page_url, raw_url)))
+
+    def resolve(raw_url: str, source: str) -> MediaLink | None:
         if not raw_url:
-            return
-        url = absolute_url(page_url, raw_url)
-        url = _unwrap_redirect(url)
-        url = _fullsize_image_url(url)
-        if is_excluded_ext(url, cfg.download.exclude_extensions):
-            return
+            return None
+        url = normalize(raw_url)
+        if url in previews or is_excluded_ext(url, cfg.download.exclude_extensions):
+            return None
         link = classify_url(
             url, source=source, exclude_extensions=cfg.download.exclude_extensions
         )
-        if not link:
-            return
-        if not is_wanted(link, cfg.download.images, cfg.download.videos):
-            return
-        if link.url in seen:
+        if not link or not is_wanted(link, cfg.download.images, cfg.download.videos):
+            return None
+        return link
+
+    def add(raw_url: str, source: str) -> None:
+        link = resolve(raw_url, source)
+        if not link or link.url in seen:
             return
         seen.add(link.url)
         found.append(with_thread_page(link, thread_page))
+
+    def image_src(img: Tag) -> str:
+        for attr in ("data-url", "data-src", "src"):
+            val = img.get(attr)
+            if val and not val.startswith("data:"):
+                return val
+        return ""
 
     # Restrict to post bodies — skip nav/sidebar/avatars.
     bodies: list[Tag] = list(soup.select("article.message-body, .message-userContent, .bbWrapper"))
     if not bodies:
         bodies = [soup]  # type: ignore[list-item]
 
+    images = "img.bbImage, img[data-url], a.js-lbImage img, .bbImageWrapper img"
+
+    def wrapping_href(img: Tag) -> str:
+        parent = img.parent
+        return parent.get("href", "") if parent and parent.name == "a" else ""
+
+    # A picture linked to a host cyberdrop-dl handles (a goonbox.cr/img page
+    # around its simp6.cuckcapital.cr file, an album around its cover) is that
+    # link's own file: fetching both put every picture on the drive twice, once
+    # in the model folder, once in "... (GoonBox)". Only the link is kept.
+    for body in bodies:
+        for img in body.select(images):
+            src, target = image_src(img), resolve(wrapping_href(img), "bbimage-link")
+            if src and target and target.prefer_cdl and normalize(src) != target.url:
+                previews.add(normalize(src))
+
     for body in bodies:
         # Native / lightbox images
-        for img in body.select("img.bbImage, img[data-url], a.js-lbImage img, .bbImageWrapper img"):
-            for attr in ("data-url", "data-src", "src"):
-                val = img.get(attr)
-                if val and not val.startswith("data:"):
-                    add(val, "bbimage")
-                    break
-            parent = img.parent
-            if parent and parent.name == "a" and parent.get("href"):
-                add(parent["href"], "bbimage-link")
+        for img in body.select(images):
+            add(image_src(img), "bbimage")
+            add(wrapping_href(img), "bbimage-link")
 
         # Attachment links
         for a in body.select("a[href*='/attachments/'], a.file-preview"):
@@ -205,9 +236,9 @@ def crawl_thread(
     cfg: Config,
     *,
     full: bool = False,
-) -> list[MediaLink]:
+) -> CrawlLinks:
     """
-    Collect media links from every page of a model thread.
+    Collect media links and report pages that could not be fetched.
 
     Links found earlier are cached in state/crawl/; a later crawl resumes at the
     last page it saw (new posts only ever land there or after), plus any pages
@@ -228,10 +259,10 @@ def crawl_thread(
         console.print(f"  crawling [cyan]{thread_url}[/]")
 
     first = get_retry(client, _page_url(thread_url, start))
-    if first is None:
+    if first is None or looks_like_login_page(first.text) or "/login" in str(first.url):
         if cached:
             console.print("    [yellow]thread unreachable — using cached links[/]")
-            return old_links
+            return CrawlLinks(old_links, failed_pages=retry_pages | {start})
         raise RuntimeError(f"could not load {thread_url}")
     # XenForo redirects a page past the end to the real last page.
     start = _page_of(str(first.url))
@@ -242,16 +273,30 @@ def crawl_thread(
     todo = sorted(
         (set(range(start + 1, last_page + 1)) | retry_pages) - {start}
     )
-    for page in (p for p in todo if p <= last_page):
-        polite_sleep(cfg.scrape.delay_min, cfg.scrape.delay_max)
+
+    def paced_pages():
+        for page in todo:
+            if page <= last_page:
+                polite_sleep(cfg.scrape.delay_min, cfg.scrape.delay_max)
+                yield page
+
+    def fetch_page(page):
         r = get_retry(client, _page_url(thread_url, page))
-        if r is None:
-            console.print(f"    [yellow]skipping page {page} — will retry next crawl[/]")
-            failed.append(page)
-            continue
-        fresh.extend(
-            extract_media_from_html(r.text, str(r.url), cfg, thread_page=page)
-        )
+        if r is None or looks_like_login_page(r.text) or "/login" in str(r.url):
+            return None
+        return extract_media_from_html(r.text, str(r.url), cfg, thread_page=page)
+
+    workers = max(1, min(cfg.scrape.page_concurrency, 4))
+    pages = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for page, links in bounded_results(pool, fetch_page, paced_pages(), workers):
+            if links is None:
+                console.print(f"    [yellow]skipping page {page} — will retry next crawl[/]")
+                failed.append(page)
+            else:
+                pages[page] = links
+    for page in sorted(pages):
+        fresh.extend(pages[page])
 
     # De-dupe preserving order
     seen: set[str] = set()
@@ -268,4 +313,4 @@ def crawl_thread(
         f"    → {len(unique)} media URLs ({new} new, {last_page} "
         f"page{'s' if last_page != 1 else ''})"
     )
-    return unique
+    return CrawlLinks(unique, failed_pages=failed)

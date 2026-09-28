@@ -29,7 +29,7 @@ if not args.media_dir.is_dir():
     parser.error("The test library is unavailable")
 
 MODES = ["home", "swipe", "toktinder", "feed", "rediscover", "duel", "escalation", "mosaic", "session", "gallery", "ranked", "dangerous",
-         "beat", "redlight", "dice", "ladder", "spotlight", "highlights"]
+         "beat", "redlight", "dice", "ladder", "spotlight", "highlights", "downloads", "bookmarks"]
 VIEWPORTS = [(1440, 900), (1920, 1080), (1180, 820), (820, 1180), (390, 844), (360, 640), (320, 568), (844, 390)]
 HIDE_MEDIA = "img, video { opacity: 0 !important; }"
 
@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-design-") as tmp:
                 for mode in MODES:
                     page.evaluate("(m) => setMode(m)", mode)
                     page.wait_for_timeout(120)
-                    for focus in ((False, True) if mode not in ("home", "gallery", "ranked") else (False,)):
+                    for focus in ((False, True) if mode not in ("home", "gallery", "ranked", "downloads", "bookmarks") else (False,)):
                         if focus:
                             page.evaluate("setFocusMode(true)")
                             page.wait_for_timeout(60)

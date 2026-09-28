@@ -466,7 +466,8 @@ async function rateLightboxItem(rating) {
   haptic();
   syncLightboxRating();
 
-  const grid = state.currentMode !== "ranked" ? controls.galleryGrid : state.ranked.model != null ? el("modelGrid") : controls.rankedGrid;
+  const grid = state.currentMode === "downloads" ? el("dlArrivalsGrid")
+    : state.currentMode !== "ranked" ? controls.galleryGrid : state.ranked.model != null ? el("modelGrid") : controls.rankedGrid;
   const tile = grid.querySelector(`.gallery-tile[data-index="${state.gallery.lightboxIndex}"]`);
   if (tile) {
     tile.querySelector(".gallery-rating")?.remove();

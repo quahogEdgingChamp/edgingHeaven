@@ -14,7 +14,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23b7ecd3'/%3E%3Cpath d='M10 7h3v8c5-5 10-2 9 4l-1 7h-3l1-7c1-4-4-4-6 1l-1 6H9z' fill='%23102e29'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="/styles.css?v=8" />
+    <link rel="stylesheet" href="/styles.css?v=9" />
   </head>
   <body data-mode="home">
     <!-- One sprite for every interface icon; buttons reference it with <use>. -->
@@ -700,6 +700,7 @@
                   <button id="modelLadder" class="ghost-button">Ladder</button>
                   <button id="modelDuel" class="ghost-button">Duel</button>
                   <button id="modelGallery" class="ghost-button">Browse all</button>
+                  <button id="modelUpdate" class="ghost-button" hidden><svg aria-hidden="true"><use href="#i-refresh" /></svg>New posts</button>
                 </div>
                 <div id="modelStats" class="ranked-stats"></div>
                 <section id="modelFolders" class="ranked-section">
@@ -710,6 +711,128 @@
                   <div class="ranked-section-head"><h2 id="modelGridTitle">Best by duel rank</h2></div>
                   <div id="modelGrid" class="gallery-grid"></div>
                 </section>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================== Downloads ============================== -->
+        <section id="downloadsMode" class="mode-panel" aria-label="Downloads">
+          <div class="ranked-layout">
+            <div class="ranked-scroller" id="downloadsScroller">
+              <div class="ranked-overview">
+                <p id="dlNotice" class="dl-notice" role="status" hidden></p>
+                <section id="dlHeld" class="dl-held" hidden>
+                  <p id="dlHeldText"></p>
+                  <div class="setup-actions">
+                    <button id="dlResume" class="primary-button small-button">Resume</button>
+                    <button id="dlDropHeld" class="text-button">Drop them</button>
+                  </div>
+                </section>
+                <div id="dlStats" class="ranked-stats"></div>
+                <section id="dlNow" class="ranked-section" hidden>
+                  <div class="ranked-section-head">
+                    <h2 id="dlNowTitle">Running</h2>
+                    <button id="dlCancel" class="danger-button small-button" hidden>Cancel</button>
+                  </div>
+                  <p id="dlNowMeta" class="subtle"></p>
+                  <pre id="dlLog" class="dl-log" tabindex="0" aria-label="Job output"></pre>
+                </section>
+                <section id="dlArrivals" class="ranked-section" hidden>
+                  <div class="ranked-section-head">
+                    <h2 id="dlArrivalsTitle">Arrived so far</h2>
+                    <div class="setup-actions">
+                      <button id="dlArrivalsDangerous" class="ghost-button small-button">Sort in Dangerous</button>
+                      <button id="dlArrivalsOpen" class="ghost-button small-button">Open model</button>
+                    </div>
+                  </div>
+                  <p class="subtle">Already in the library: every mode can use them while the rest downloads. Tap one to look at it.</p>
+                  <div id="dlArrivalsGrid" class="gallery-grid"></div>
+                </section>
+                <div id="dlForms" class="dl-cards">
+                  <div class="settings-card">
+                    <p class="panel-label">Thread links</p>
+                    <label class="setup-path">
+                      <span>One per line</span>
+                      <textarea id="dlUrls" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://simpcity.cr/threads/name.12345/"></textarea>
+                    </label>
+                    <div class="setup-actions"><button id="dlThreadGo" class="primary-button small-button">Download</button></div>
+                    <p class="subtle">Each thread goes into a folder named after it, one model each. A link to a page or a post in the thread works too.</p>
+                  </div>
+                  <div class="settings-card">
+                    <p class="panel-label">Bookmarks</p>
+                    <div class="dl-fields">
+                      <label class="setup-path"><span>Pages</span><input id="dlPages" type="text" value="1" autocomplete="off" autocapitalize="off" spellcheck="false" /></label>
+                      <label class="setup-path"><span>At most</span><input id="dlLimit" type="number" min="0" max="1000" step="1" value="0" inputmode="numeric" /></label>
+                    </div>
+                    <div class="setup-actions"><button id="dlBookmarksGo" class="primary-button small-button">Download bookmarks</button></div>
+                    <p class="subtle">Pages of your SimpCity bookmarks: 1, 2-4, 1,3,8 or all. “At most” stops after that many models; 0 takes every model on those pages.</p>
+                  </div>
+                  <div class="settings-card">
+                    <p class="panel-label">SimpCity login</p>
+                    <p id="dlAuth" class="subtle">Checking…</p>
+                    <div class="setup-actions">
+                      <button id="dlCheckAuth" class="ghost-button small-button">Check login</button>
+                      <button id="dlCookieButton" class="ghost-button small-button">Upload cookies.txt</button>
+                      <input id="dlCookieFile" type="file" accept=".txt,text/plain" hidden />
+                    </div>
+                    <p class="subtle">Log in to SimpCity in a browser, export its cookies as a <b>cookies.txt</b> (Netscape format, e.g. the “Get cookies.txt LOCALLY” extension) and upload it here. It stays on the server, readable only by it. When the login stops working, upload a fresh one.</p>
+                  </div>
+                </div>
+                <section id="dlFailedSection" class="ranked-section" hidden>
+                  <div class="ranked-section-head">
+                    <h2>Failed downloads</h2>
+                    <button id="dlRetryAll" class="text-button">Retry all</button>
+                  </div>
+                  <ol id="dlFailed" class="dl-rows"></ol>
+                </section>
+                <section class="ranked-section">
+                  <div class="ranked-section-head">
+                    <h2>Jobs</h2>
+                    <span id="dlTarget" class="subtle"></span>
+                  </div>
+                  <ol id="dlJobs" class="dl-rows"></ol>
+                  <p id="dlJobsEmpty" class="subtle ranked-empty" hidden>Nothing downloaded from here yet.</p>
+                </section>
+                <section id="dlThreadsSection" class="ranked-section" hidden>
+                  <div class="ranked-section-head">
+                    <h2>Models with a known thread</h2>
+                    <button id="dlUpdateAll" class="text-button">Check all for new posts</button>
+                  </div>
+                  <p class="subtle">simp remembers the last page it read in each thread, so a check only reads from there on.</p>
+                  <ol id="dlThreads" class="dl-rows"></ol>
+                </section>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================== Bookmarks ============================== -->
+        <section id="bookmarksMode" class="mode-panel" aria-label="Bookmarks">
+          <div class="ranked-layout">
+            <div class="ranked-scroller" id="bookmarksScroller">
+              <div class="ranked-overview">
+                <p id="bmNotice" class="dl-notice" role="status" hidden></p>
+                <div id="bmStats" class="ranked-stats"></div>
+                <div class="bm-toolbar">
+                  <label class="search-field">
+                    <svg aria-hidden="true"><use href="#i-search" /></svg>
+                    <input id="bmSearch" type="search" placeholder="Search bookmarks" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search bookmarks" />
+                  </label>
+                  <div id="bmFilter" class="segmented compact" role="group" aria-label="Which bookmarks">
+                    <button type="button" class="segment" data-bm-filter="all">All</button>
+                    <button type="button" class="segment" data-bm-filter="missing">Not yet</button>
+                    <button type="button" class="segment" data-bm-filter="have">In library</button>
+                  </div>
+                  <div class="setup-actions">
+                    <button id="bmRefresh" class="ghost-button small-button"><svg aria-hidden="true"><use href="#i-refresh" /></svg><span class="label">Refresh from SimpCity</span></button>
+                    <button id="bmDownloadMissing" class="primary-button small-button" hidden>Download the rest</button>
+                  </div>
+                </div>
+                <p id="bmMeta" class="subtle"></p>
+                <div id="bmGrid" class="bm-grid"></div>
+                <p id="bmEmpty" class="subtle ranked-empty" hidden></p>
+                <button id="bmMore" class="ghost-button small-button ranked-more-models" hidden>Show more</button>
               </div>
             </div>
           </div>
@@ -1012,7 +1135,7 @@
             <div class="dangerous-actions">
               <button id="dangerousDelete" class="deck-button delete"><svg aria-hidden="true"><use href="#i-trash" /></svg><span>Delete</span><kbd>←</kbd></button>
               <button id="dangerousSkip" class="deck-button skip"><svg aria-hidden="true"><use href="#i-down" /></svg><span>Skip</span><kbd>↓</kbd></button>
-              <button id="dangerousKeep" class="deck-button keep"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep</span><kbd>→</kbd></button>
+              <button id="dangerousKeep" class="deck-button keep"><svg aria-hidden="true"><use href="#i-check" /></svg><span>Keep</span><kbd>→</kbd></button>
             </div>
             <p class="dangerous-footnote">Delete moves the original into local trash — Undo or Settings brings it back. <span id="dangerousSessionCount">0 kept · 0 deleted</span></p>
 
@@ -1030,13 +1153,13 @@
                     <button type="button" class="segment" data-dangerous-kind="photo">Photos</button>
                     <button type="button" class="segment" data-dangerous-kind="video">Videos</button>
                   </div>
-                  <button id="dangerousUnrated" class="switch-row" role="switch" aria-checked="false"><span>Only files I haven't rated</span><i aria-hidden="true"></i></button>
+                  <button id="dangerousHideKept" class="switch-row" role="switch" aria-checked="true"><span>Hide files I already kept here</span><i aria-hidden="true"></i></button>
                 </section>
                 <section class="cc-section">
                   <h3>Sound</h3>
                   <button id="dangerousSound" class="sound-toggle" aria-pressed="false">Sound off</button>
                 </section>
-                <p class="cc-keys">← delete · → keep · ↑ love · ↓ skip · U undo</p>
+                <p class="cc-keys">← delete · → or ↑ keep · ↓ skip · U undo</p>
               </div>
               <footer class="drawer-footer">
                 <button id="dangerousShuffle" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Shuffle deck</button>
@@ -1667,37 +1790,39 @@
       </div>
     </div>
 
-    <script src="/js/01-core.js?v=8" defer></script>
-    <script src="/js/02-decks.js?v=8" defer></script>
-    <script src="/js/03-shell.js?v=8" defer></script>
-    <script src="/js/04-escalation.js?v=8" defer></script>
-    <script src="/js/05-media.js?v=8" defer></script>
-    <script src="/js/06-ratings.js?v=8" defer></script>
-    <script src="/js/07-session.js?v=8" defer></script>
-    <script src="/js/08-gallery.js?v=8" defer></script>
-    <script src="/js/09-controls.js?v=8" defer></script>
-    <script src="/js/10-collection.js?v=8" defer></script>
-    <script src="/js/11-mosaic.js?v=8" defer></script>
-    <script src="/js/12-feed.js?v=8" defer></script>
-    <script src="/js/13-settings.js?v=8" defer></script>
-    <script src="/js/14-picking.js?v=8" defer></script>
-    <script src="/js/15-folders.js?v=8" defer></script>
-    <script src="/js/16-workspace.js?v=8" defer></script>
-    <script src="/js/17-seen.js?v=8" defer></script>
-    <script src="/js/18-duel.js?v=8" defer></script>
-    <script src="/js/19-rediscover.js?v=8" defer></script>
-    <script src="/js/20-dangerous.js?v=8" defer></script>
-    <script src="/js/21-ui.js?v=8" defer></script>
-    <script src="/js/22-play.js?v=8" defer></script>
-    <script src="/js/23-toy.js?v=8" defer></script>
-    <script src="/js/24-privacy.js?v=8" defer></script>
-    <script src="/js/25-marks.js?v=8" defer></script>
-    <script src="/js/26-highlights.js?v=8" defer></script>
-    <script src="/js/27-ladder.js?v=8" defer></script>
-    <script src="/js/28-spotlight.js?v=8" defer></script>
-    <script src="/js/29-beat.js?v=8" defer></script>
-    <script src="/js/30-redlight.js?v=8" defer></script>
-    <script src="/js/31-dice.js?v=8" defer></script>
-    <script src="/js/32-models.js?v=8" defer></script>
+    <script src="/js/01-core.js?v=9" defer></script>
+    <script src="/js/02-decks.js?v=9" defer></script>
+    <script src="/js/03-shell.js?v=9" defer></script>
+    <script src="/js/04-escalation.js?v=9" defer></script>
+    <script src="/js/05-media.js?v=9" defer></script>
+    <script src="/js/06-ratings.js?v=9" defer></script>
+    <script src="/js/07-session.js?v=9" defer></script>
+    <script src="/js/08-gallery.js?v=9" defer></script>
+    <script src="/js/09-controls.js?v=9" defer></script>
+    <script src="/js/10-collection.js?v=9" defer></script>
+    <script src="/js/11-mosaic.js?v=9" defer></script>
+    <script src="/js/12-feed.js?v=9" defer></script>
+    <script src="/js/13-settings.js?v=9" defer></script>
+    <script src="/js/14-picking.js?v=9" defer></script>
+    <script src="/js/15-folders.js?v=9" defer></script>
+    <script src="/js/16-workspace.js?v=9" defer></script>
+    <script src="/js/17-seen.js?v=9" defer></script>
+    <script src="/js/18-duel.js?v=9" defer></script>
+    <script src="/js/19-rediscover.js?v=9" defer></script>
+    <script src="/js/20-dangerous.js?v=9" defer></script>
+    <script src="/js/21-ui.js?v=9" defer></script>
+    <script src="/js/22-play.js?v=9" defer></script>
+    <script src="/js/23-toy.js?v=9" defer></script>
+    <script src="/js/24-privacy.js?v=9" defer></script>
+    <script src="/js/25-marks.js?v=9" defer></script>
+    <script src="/js/26-highlights.js?v=9" defer></script>
+    <script src="/js/27-ladder.js?v=9" defer></script>
+    <script src="/js/28-spotlight.js?v=9" defer></script>
+    <script src="/js/29-beat.js?v=9" defer></script>
+    <script src="/js/30-redlight.js?v=9" defer></script>
+    <script src="/js/31-dice.js?v=9" defer></script>
+    <script src="/js/32-models.js?v=9" defer></script>
+    <script src="/js/33-downloads.js?v=9" defer></script>
+    <script src="/js/34-bookmarks.js?v=9" defer></script>
   </body>
 </html>

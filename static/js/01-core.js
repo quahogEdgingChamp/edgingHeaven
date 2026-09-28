@@ -135,6 +135,8 @@ const ALL_MODES = [
   "ladder",
   "spotlight",
   "highlights",
+  "downloads",
+  "bookmarks",
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -156,14 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
 async function checkLibraryConnection() {
   try {
     if (!document.hidden) {
-      const status = await fetchJson("/api/library-status");
-      if (
-        status.libraryReady !== state.libraryReady ||
-        (status.mediaDirectory || "") !== state.currentMediaDirectory ||
-        status.updatedAt !== state.library.updatedAt
-      ) {
-        await loadState();
-      }
+      await refreshLibrary();
     }
   } catch (error) {
     console.debug("Waiting for the library connection", error);
@@ -566,6 +561,8 @@ function bindEvents() {
   bindModeLauncher();
   bindDrawerControls();
   bindPrivacyCards();
+  bindDownloads();
+  bindBookmarks();
   bindMarking();
   controls.swipeUndoButton.addEventListener("click", () => undoLastAction("swipe"));
   controls.toktinderUndoButton.addEventListener("click", () => undoLastAction("toktinder"));
@@ -851,7 +848,7 @@ function handleKeydown(event) {
     return;
   }
   if (mode === "dangerous") {
-    const action = { ArrowLeft: "delete", ArrowRight: "keep", ArrowDown: "skip", ArrowUp: "love" }[key];
+    const action = { ArrowLeft: "delete", ArrowRight: "keep", ArrowDown: "skip", ArrowUp: "keep" }[key];
     if (action) {
       event.preventDefault();
       actDangerous(action);
@@ -1046,6 +1043,83 @@ async function loadState({ rebuild = false } = {}) {
     toyConnect();
   }
   syncDocumentTitle();
+}
+
+// Library changes, as the five-second poll sees them. Files a download adds
+// while it runs arrive as additions and are merged in place (see
+// applyLibraryAdditions); anything else -- a rescan, a reconnected drive,
+// another device deleting -- reloads the whole library as before.
+async function refreshLibrary() {
+  const status = await fetchJson("/api/library-status");
+  const sameLibrary = status.libraryReady === state.libraryReady && (status.mediaDirectory || "") === state.currentMediaDirectory;
+  if (sameLibrary && state.features.has("additions") && status.scanId === state.library.scanId
+      && status.appended > (state.library.appended || 0)) {
+    await applyLibraryAdditions();
+  } else if (!sameLibrary || status.updatedAt !== state.library.updatedAt) {
+    await loadState();
+  }
+}
+
+// New files from a download in progress, added without reshuffling anything:
+// decks and Dangerous get them after the card on screen, the other modes
+// through their pools on the next pick, and nothing that is playing restarts.
+async function applyLibraryAdditions() {
+  let payload;
+  try {
+    payload = await fetchJson(`/api/library-additions?scan=${encodeURIComponent(state.library.scanId)}&from=${state.library.appended || 0}`);
+  } catch (error) {
+    if (error.locked) throw error;
+    await loadState(); // rescanned in the meantime
+    return;
+  }
+  const known = new Set([...state.library.images, ...state.library.videos].map((item) => item.path));
+  const fresh = { images: [], videos: [] };
+  payload.items.forEach(({ kind, ...item }) => {
+    if (!known.has(item.path)) fresh[kind === "video" ? "videos" : "images"].push(item);
+  });
+  state.library.appended = payload.next;
+  state.library.updatedAt = payload.updatedAt;
+  const added = [...fresh.images, ...fresh.videos];
+  if (!added.length) return;
+  hydrateLibraryNames(fresh);
+  state.library.images.push(...fresh.images);
+  state.library.videos.push(...fresh.videos);
+  state.library.counts = { ...(state.library.counts || {}), images: state.library.images.length, videos: state.library.videos.length };
+
+  const newFolders = [...new Set(added.map((item) => item.folder || ""))].filter((folder) => !state.library.folders.includes(folder));
+  if (newFolders.length) {
+    adoptNewFolders(newFolders);
+    state.library.folders = [...state.library.folders, ...newFolders]
+      .sort((a, b) => (a !== "") - (b !== "") || a.toLowerCase().localeCompare(b.toLowerCase()));
+    renderFolderFilters();
+  }
+  state.librarySignature = librarySignature();
+  invalidateMediaPools();
+  addToDeck("swipe", fresh.images);
+  addToDeck("toktinder", fresh.videos);
+  addToDangerous(added.map((item) => ({ ...item, kind: fresh.videos.includes(item) ? "video" : "photo" })));
+  if (state.currentMode !== "feed") state.feed.dirty = true;
+  syncCountsFromLibrary();
+  syncWorkspace();
+  if (state.currentMode === "ranked") renderRanked();
+  if (["downloads", "bookmarks"].includes(state.currentMode)) MODE_HANDLERS[state.currentMode].refresh();
+}
+
+// A folder that appears inside a model (cyberdrop-dl makes some) joins every
+// folder selection that already had all of that model's folders; picking
+// "this model" should not quietly exclude the part still downloading.
+function adoptNewFolders(folders) {
+  Object.keys(state.settings).filter((key) => key.endsWith("Folders")).forEach((key) => {
+    const selection = state.settings[key];
+    if (!Array.isArray(selection) || !selection.length) return; // empty = every folder already
+    folders.forEach((folder) => {
+      const model = folder.split("/")[0];
+      const siblings = state.library.folders.filter((known) => known === model || known.startsWith(`${model}/`));
+      if (siblings.length && siblings.every((known) => selection.includes(known)) && !selection.includes(folder)) {
+        selection.push(folder);
+      }
+    });
+  });
 }
 
 // The server stops sending `name` because it is always the tail of `path`,

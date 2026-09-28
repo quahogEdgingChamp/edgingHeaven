@@ -19,6 +19,10 @@ download_dir = "downloads"
 state_dir = "state"
 # cyberdrop-dl db/cache/logs — kept inside the project (not ~/.local)
 cdl_dir = "state/cdl"
+# Verification staging for cyberdrop-dl. Empty = a sibling of the library
+# named .<library-name>.simp-incoming on the same drive. Must be outside the
+# library and on the same filesystem; the library's parent must be writable.
+cdl_staging_dir = ""
 urls_export = "state/bookmark_urls.txt"
 media_export = "state/media_urls.txt"
 # Optional: whereto.txt with one path → <path>/<models_subdir>/<model>/
@@ -33,6 +37,9 @@ delay_min = 2.0
 delay_max = 4.0
 # Max concurrent host downloads (direct fallback only).
 concurrency = 2
+# Forum pages in flight at once (1-4, default 2). Page starts still obey the
+# delay above; slow responses can overlap. Set 1 for sequential crawling.
+page_concurrency = 2
 # Also scrape Watched Threads in addition to Bookmarks.
 include_watched = false
 # Skip threads whose title matches any of these (case-insensitive substrings).
@@ -41,6 +48,10 @@ skip_title_contains = []
 thread_url_must_contain = "/threads/"
 
 [download]
+# Keep one exact copy per model, comparing SHA-256 of complete photos/videos.
+# A new URL must first transfer to a temporary file; known URLs skip immediately.
+# Different encodings/resolutions are different files. No old files are removed.
+deduplicate = true
 # Hand discovered host URLs to cyberdrop-dl-patched when available.
 use_cyberdrop_dl = true
 cyberdrop_dl_bin = "cyberdrop-dl"
@@ -50,7 +61,21 @@ use_direct = true
 # File types to keep.
 images = true
 videos = true
-# Skip files already downloaded (by URL, or same name + same size).
+# Skip known URLs without requesting them. False also disables content dedupe
+# for deliberate re-downloads. With deduplicate=true, names/sizes alone never
+# prove two new links identical.
 skip_existing = true
 # Never download these extensions (direct + cyberdrop-dl). [] = keep everything.
 exclude_extensions = [".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".cab", ".iso"]
+# Direct downloads the index remembers but whose file is gone: fetch again
+# (true) or leave them gone (false). On the server this is false, because
+# Edging Heaven deletes files by moving them to .heaven-trash.
+redownload_missing = true
+# Skip files bigger than this many bytes (direct + cyberdrop-dl). 0 = no limit.
+# Direct downloads also enforce this while streaming unknown/compressed sizes.
+# FAT32 cannot hold a file of 4 GiB or more: use 4294967295 there.
+max_file_bytes = 0
+# Stop before the drive gets fuller than this: simp and cyberdrop-dl leave this
+# many bytes free (0 = no reserve). A job that reaches it stops cleanly (exit 3,
+# nothing half-written kept) and the next run continues. The server keeps 3 GiB.
+min_free_bytes = 0

@@ -6,8 +6,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from rich.console import Console
 
 from .config import Config
+
+console = Console()
 
 
 def _domain_matches(cookie_domain: str, host: str) -> bool:
@@ -129,3 +132,6 @@ def assert_logged_in(client: httpx.Client, cfg: Config) -> None:
             "Session looks logged-out. Re-export cookies while logged into "
             f"{cfg.site.base_url} and try again."
         )
+    # Edging Heaven reads this line (and the error above) from job logs to
+    # show whether the cookies still work.
+    console.print(f"Signed in to {cfg.site.base_url}")

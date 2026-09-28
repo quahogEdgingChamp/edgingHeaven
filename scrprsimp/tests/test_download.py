@@ -1,3 +1,4 @@
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -8,11 +9,13 @@ import simp.download as download
 from simp.config import Config
 from simp.download import (
     cdl_exclude_regex,
+    direct_download_one,
     download_direct_batch,
     download_model,
     failed_path,
     image_from_page,
     retry_model,
+    run_cyberdrop_dl,
 )
 from simp.hosts import MediaKind, MediaLink, is_excluded_ext
 from simp.index import DownloadIndex
@@ -120,12 +123,12 @@ def test_batch_collisions_pages_retries(server, cfg, tmp_path):
         res = download_direct_batch(client, links, dest, cfg, index)
 
     files = sorted(p.name for p in dest.iterdir())
-    assert len(files) == 4, files  # IMG.jpg, IMG_<hash>.jpg, full.jpg, flaky.jpg
+    assert len(files) == 3, files  # flaky.jpg has the same content as /a/IMG.jpg
     assert not any(f.endswith(".part") for f in files)
     sizes = sorted(p.stat().st_size for p in dest.iterdir())
-    assert sizes == [1000, 1000, 2000, 3000]
-    assert res.ok == 4
-    assert res.skipped == 2  # both pages resolve to the already-downloaded full.jpg
+    assert sizes == [1000, 2000, 3000]
+    assert res.ok == 3
+    assert res.skipped == 3  # both viewer pages plus the identical flaky.jpg
     assert sorted(l.url.rsplit("/", 1)[-1] for l, _ in res.failed) == ["empty", "missing.jpg"]
 
     # Second run: everything finished is skipped without any request.
@@ -204,3 +207,124 @@ def test_video_page_is_not_replaced_by_thumbnail(server, cfg, tmp_path):
         res = download_direct_batch(client, [video], dest, cfg, index)
     assert res.ok == 0 and len(res.failed) == 1
     assert list(dest.iterdir()) == []
+
+
+def test_trusted_index_keeps_deleted_files_gone(server, cfg, tmp_path):
+    dest = tmp_path / "downloads" / "model"
+    link = server.link("/a/IMG.jpg")
+    with httpx.Client() as client:
+        download_direct_batch(client, [link], dest, cfg, DownloadIndex.for_model(cfg, "model"))
+    (dest / "IMG.jpg").unlink()  # deleted in Edging Heaven (moved to .heaven-trash)
+
+    cfg.download.redownload_missing = False
+    server.hits.clear()
+    with httpx.Client() as client:
+        res = download_direct_batch(client, [link], dest, cfg, DownloadIndex.for_model(cfg, "model"))
+    assert res.skipped == 1 and not server.hits
+    assert not (dest / "IMG.jpg").exists()
+
+    cfg.download.redownload_missing = True  # the default: fetch it again
+    with httpx.Client() as client:
+        res = download_direct_batch(client, [link], dest, cfg, DownloadIndex.for_model(cfg, "model"))
+    assert res.ok == 1 and (dest / "IMG.jpg").read_bytes() == A
+
+
+def test_max_file_bytes_skips_big_files(server, cfg, tmp_path):
+    cfg.download.max_file_bytes = 1500
+    dest = tmp_path / "downloads" / "model"
+    index = DownloadIndex.for_model(cfg, "model")
+    links = [server.link("/a/IMG.jpg"), server.link("/img/full.jpg")]  # 1000 B, 3000 B
+    with httpx.Client() as client:
+        res = download_direct_batch(client, links, dest, cfg, index)
+    assert res.ok == 1 and res.skipped == 1 and not res.failed
+    assert [p.name for p in dest.iterdir()] == ["IMG.jpg"]
+
+
+@pytest.mark.parametrize("deduplicate", [True, False])
+def test_cyberdrop_command(cfg, tmp_path, monkeypatch, deduplicate):
+    cfg.download.deduplicate = deduplicate
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append((cmd, kw))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(download.shutil, "which", lambda name: "/opt/cyberdrop-dl")
+    monkeypatch.setattr(download.subprocess, "run", fake_run)
+    monkeypatch.delenv("CDL_APPDATA_FOLDER", raising=False)
+    cfg.download.max_file_bytes = 4294967295
+    cfg.download.min_free_bytes = 3221225472
+    urls = tmp_path / "urls.txt"
+    urls.write_text("https://bunkr.si/a/x\n")
+    assert run_cyberdrop_dl(cfg, urls, tmp_path / "out") == 0
+    cmd, kw = calls[0]
+    assert "--no-auto-dedupe" in cmd  # simp verifies within the model, not CDL's global DB
+    assert cmd[cmd.index("--hashing") + 1] == "off"
+    for kind in ("image", "video", "audio", "non_media"):
+        assert cmd[cmd.index(f"--{kind}.size.max") + 1] == "4294967295"
+    assert cmd[cmd.index("--min-free-space") + 1] == "3221225472"
+    # cyberdrop-dl's own app data stays with simp's state, not in ~/.config
+    assert kw["env"]["CDL_APPDATA_FOLDER"] == str(tmp_path / "state" / "cdl" / "appdata")
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_size_cap_checks_streamed_decoded_bytes(cfg, tmp_path, compressed):
+    import gzip
+
+    cfg.download.max_file_bytes = 1500
+    body = gzip.compress(FULL) if compressed else FULL
+    headers = {"Content-Type": "image/jpeg"}
+    if compressed:
+        headers.update({"Content-Encoding": "gzip", "Content-Length": str(len(body))})
+
+    def host(request):
+        return httpx.Response(200, headers=headers, stream=httpx.ByteStream(body))
+
+    dest = tmp_path / "downloads" / "model"
+    index = DownloadIndex.for_model(cfg, "model")
+    link = MediaLink(url="https://host/full.jpg", kind=MediaKind.IMAGE, source="href")
+    with httpx.Client(transport=httpx.MockTransport(host)) as client:
+        status, _ = direct_download_one(client, link, dest, cfg, index)
+        assert status == "skip" and not list(dest.iterdir())
+        assert index.done(link.url) is None
+        # A larger limit succeeds with the same index (the name was released).
+        cfg.download.max_file_bytes = 4000
+        assert direct_download_one(client, link, dest, cfg, index)[0] == "ok"
+    assert (dest / "full.jpg").read_bytes() == FULL
+
+
+def test_same_name_same_size_different_urls_are_not_deduplicated(cfg, tmp_path):
+    dest = tmp_path / "downloads" / "model"
+    index = DownloadIndex.for_model(cfg, "model")
+    links = [MediaLink(url=f"https://host/{n}/photo.jpg", kind=MediaKind.IMAGE, source="href") for n in (1, 2)]
+
+    def host(request):
+        return httpx.Response(200, content=A if "/1/" in request.url.path else b"Z" * len(A))
+
+    with httpx.Client(transport=httpx.MockTransport(host)) as client:
+        for link in links:
+            assert direct_download_one(client, link, dest, cfg, index)[0] == "ok"
+    assert sorted(p.read_bytes() for p in dest.iterdir()) == [A, b"Z" * len(A)]
+
+
+def test_duplicate_urls_in_batch_are_requested_once(server, cfg, tmp_path):
+    link = server.link("/a/IMG.jpg")
+    dest = tmp_path / "downloads" / "model"
+    with httpx.Client() as client:
+        result = download_direct_batch(client, [link] * 20, dest, cfg, DownloadIndex.for_model(cfg, "model"))
+    assert result.ok == 1 and result.skipped == 19
+    assert server.hits == ["/a/IMG.jpg"]
+
+
+def test_reuse_preserves_nested_paths(server, cfg, tmp_path):
+    dest = tmp_path / "downloads" / "model"
+    (dest / "album").mkdir(parents=True)
+    (dest / "album/IMG.jpg").write_bytes(A)
+    link = server.link("/a/IMG.jpg")
+    index = DownloadIndex.for_model(cfg, "model")
+    index.record("album/IMG.jpg", link.url)
+    for _ in range(2):
+        with httpx.Client() as client:
+            result = download_direct_batch(client, [link], dest, cfg, DownloadIndex.for_model(cfg, "model"))
+        assert result.skipped == 1 and not server.hits
+    assert DownloadIndex.for_model(cfg, "model").done(link.url) == dest / "album/IMG.jpg"

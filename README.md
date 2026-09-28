@@ -9,7 +9,7 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   - **Sit back:** `Escalation` (which now includes the old Stream mode), `Session`,
     `Beat`, `Red light`, `Dice`, `Mosaic`
   - **Your best:** `Ladder`, `Spotlight`, `Highlights`
-  - **Your library:** `Gallery`, `Collection`, `Duel`
+  - **Your library:** `Gallery`, `Collection`, `Duel`, and the `Bookmarks` and `Downloads` pages
 - Two levels of keep: **Keep** and **Love** (swipe up, `↑` or `L`). Love counts
   as kept everywhere; `Show` gains a `Loved` option in every mode
 - **Marked moments:** press `B` (or **Mark**) at the start and end of a moment
@@ -21,6 +21,11 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 - **Privacy:** an optional server-enforced **PIN lock**, a **panic key** (`` ` ``
   or a three-finger tap) that silences everything behind a blank page, a plain
   tab title, and blanking the page when you switch away
+- **Downloads** from SimpCity on the server: paste thread links, pull pages of
+  your bookmarks, **New posts** on a model page, retry failures, follow the live
+  output and cancel. The server runs [simp](scrprsimp/README.md) (in `scrprsimp/`)
+  one job at a time and rescans when a job ends. **Bookmarks** shows every SimpCity
+  bookmark with three pictures (your own photos for models you already have)
 - **Toy sync** through Intiface Central (Buttplug protocol) — the running mode
   drives the intensity; holds and stops turn it off
 - Crossfades between pictures in Escalation, Session and the timed modes
@@ -60,7 +65,8 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 - JSON-backed persistence for ratings, duel rankings, settings, saved folder
   sets and seen times; LAN/Tailscale-friendly range requests and a virtual
   fast-start MP4 layout (originals unchanged)
-- No build step and no external Python packages
+- No build step and no external Python packages (simp, the optional downloader,
+  keeps its packages in its own venv, `scrprsimp/.venv`, and runs as a separate process)
 
 ## Supported Media
 
@@ -100,7 +106,8 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   - `1`–`9`, `0`: Photo deck, Video deck, Feed, Rediscover, Duel, Escalation,
     Mosaic, Session, Gallery, Collection. Dangerous has no number key on purpose;
     the six newer modes are in the mode picker (`M`)
-  - Decks, Rediscover, Dangerous: `←` pass/delete, `→` keep, `↑` love, `↓` skip, `U` undo
+  - Decks, Rediscover: `←` pass, `→` keep, `↑` love, `↓` skip, `U` undo
+  - Dangerous: `←` delete, `→` or `↑` keep (not a rating), `↓` skip, `U` undo
   - Feed: `↑` `↓` previous/next clip, `←` pass, `→` keep, `L` love, `Space` play/pause
   - `B`: mark a moment (Video deck, Feed, Rediscover, video preview)
   - Duel: `←` left wins, `→` right wins, `↓` new pair, `U` undo
@@ -218,6 +225,58 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   marked moments, its sub-folders, its best files, and Spotlight / Ladder /
   Duel / Browse for exactly that model
 
+### Downloads
+
+- Runs `simp` (SimpCity → media, `scrprsimp/`) on the server. Jobs:
+  **Thread links** (up to 20, one per line; a page or post link in the thread
+  works too), **Bookmarks** (pages `1`, `2-4`, `1,3,8` or `all`, and "at most" N
+  models), **Retry** for models with failed files, **Check login**, and **New
+  posts**, which reads a known thread from the last page simp saw. **New posts**
+  is also on a model's page in Collection, once simp has downloaded that model
+  from its thread link
+- One job runs at a time; the rest wait. The running job's output streams on the
+  page; **Cancel** stops simp and cyberdrop-dl together
+- **Use it while it downloads:** every ~10 s the server adds the files that have
+  finished to the library (only the folder being written, no full rescan). Open
+  pages fetch just those additions, so decks and Dangerous keep their place and
+  get the new files after the one on screen. **Arriving** shows the newest files of
+  the job; **Sort in Dangerous** opens Dangerous on that model's files. Direct
+  images arrive one by one; files fetched by cyberdrop-dl (Bunkr, PixelDrain, …)
+  arrive together when that stage of the job ends, because they are checked for
+  duplicates first in `<drive>/.<library>.simp-incoming/`, outside the library
+- **No duplicate copies:** a new file identical (same bytes, SHA-256) to one
+  already in that model's folder is not kept, whatever its name or URL. Each
+  model is checked on its own; the same photo under two models stays in both.
+  Resized or re-encoded copies count as different files. Details:
+  [Content verification](scrprsimp/README.md#content-verification-photos-and-videos).
+  Duplicates from before this check were removed once on 2026-09-28 (11,315
+  copies, 11.27 GiB; ratings, marks and kept flags stayed on the copy kept)
+- A thread crawl that could not read every page ends the job as **Failed**, even
+  though the files it did find were downloaded; submit it again to fill the gaps
+- **Drive reserve:** simp keeps 3 GiB free on the drive. A job that reaches it ends
+  as **Drive full**; it and the downloads waiting behind it are held until
+  **Resume** (needs more than 4 GiB free). Resuming never downloads a file twice
+- **Upload cookies.txt**: a Netscape-format export from a browser logged in to
+  SimpCity. It is the login; stored mode 600 next to `state.json`, never served
+- simp's config, cookies, download history and job logs live in
+  `<data dir>/scrprsimp/`. Setup, the server's config and the traps (FAT32,
+  read-only home, deleted files staying deleted) are in `deploy/EDGING-HEAVEN.md`
+  and `scrprsimp/README.md`. `simp clear` is intentionally not on the page
+
+### Bookmarks
+
+- Every model thread you bookmarked on SimpCity, as a card with three pictures:
+  your own photos (loved and kept first) for a model you have, or small pictures
+  simp saved from the thread for one you don't. Shows files and keeps per model
+- **Refresh from SimpCity** runs `simp bookmarks --save` as a download job (the
+  first time about 10–15 minutes for ~140 bookmarks; later only what is new). The
+  list fills in while it runs
+- Search, `All / Not yet / In library`, **Download** or **New posts**, **Open**
+  (the model page), **SimpCity** (the thread), and **Download the rest** — mind the
+  free space on the drive before using that one
+- Pictures are stored in `<data dir>/scrprsimp/state/previews/` and served by this
+  server; the page never loads anything from SimpCity itself
+
 ### Privacy (Settings)
 
 - **PIN lock** (off until you set one): 4–12 digits. The server then refuses
@@ -240,9 +299,15 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 
 ### Dangerous
 
-- Random photos and videos. Swipe left / `←` moves the **original file** into
-  `<media folder>/.heaven-trash/<token>/media`; right keeps it; down skips; `U` undoes
-- Control center: media type, only-unrated, folders, sound
+- For clearing space, not for rating. Random photos and videos. Swipe left / `←`
+  moves the **original file** into `<media folder>/.heaven-trash/<token>/media`;
+  right (or `↑`) keeps it; down skips; `U` undoes
+- **Keep is not a like.** It only remembers that you kept the file here, so with
+  `Hide files I already kept here` (on by default) it does not come up again. Kept
+  files are stored as `dangerousKept` in `state.json`, separate from ratings
+- Its way in is red everywhere (sidebar, mode picker, overview, title), so it is
+  never mistaken for a mode that only looks
+- Control center: media type, hide kept files, folders, sound
 - `Settings → Review trash` restores files, including after restarts.
   `Settings → Empty trash` (after a confirm) permanently erases every trashed
   file, its ratings and its video still; that is the only permanent delete.
@@ -262,15 +327,23 @@ This checks the expected UUID/mount, backs up `/etc/fstab` to `/etc/fstab.before
 
 ```bash
 python3 -m unittest discover -s tests -v
-node --check static/app.js
+for f in static/js/*.js; do node --check "$f"; done
+scrprsimp/.venv/bin/python -m pytest -q scrprsimp/tests   # simp itself
 ```
 
-The tests cover drive reconnection, trash/restart/restore, overwrite and traversal protection, byte-range equivalence of the virtual MP4 layout, duel ratings, seen times, stored video thumbnails, Love ratings, marked moments, session history, and the PIN lock over real HTTP (locked API and media, backoff, change/remove, hashed storage). Actual phone hardware and remote-network speed still need device testing.
+The tests cover drive reconnection, trash/restart/restore, overwrite and traversal protection, byte-range equivalence of the virtual MP4 layout, duel ratings, seen times, stored video thumbnails, Love ratings, marked moments, session history, the PIN lock over real HTTP (locked API and media, backoff, change/remove, hashed storage), and Downloads
+against a stand-in simp (validation, one job at a time, cancelling the whole process group, log offsets,
+cookies, the PIN). Actual phone hardware and remote-network speed still need device testing.
+
+`tests/browser_live.py` checks using a download while it runs (files arriving
+without reshuffling, Arriving, Sort in Dangerous, Keep without rating, Drive full
+and Resume) on a temporary copy of two test-library folders:
+`python3 tests/browser_live.py --media-dir /mnt/edging-heaven/testing`.
 
 `tests/browser_features.py` drives Love, marking, Highlights, Session clip
 playback, Beat, Red light, Dice, Ladder, Spotlight, crossfades, session history,
-model pages, panic, toy sync (against a mock Intiface server) and the PIN lock
-in Chromium, with the same rules as the design check below (testing library
+model pages, panic, toy sync (against a mock Intiface server), the PIN lock and
+the Downloads page (stand-in simp writing only to a temporary folder) in Chromium, with the same rules as the design check below (testing library
 only, temporary data, trash blocked). It needs Playwright and `websockets`.
 
 ```bash

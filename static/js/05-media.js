@@ -171,6 +171,31 @@ function removeLibraryItem(path) {
   syncUndoButtons();
 }
 
+// A file restored from trash rejoins the library in place. Reloading the
+// whole library for it (loadState) refetched every entry and reshuffled
+// Dangerous's deck; a server.py from before restores sent the entry back
+// still needs that, so the caller falls back to it.
+function restoreLibraryItem({ item, updatedAt }) {
+  const { kind, ...entry } = item;
+  const key = kind === "video" ? "videos" : "images";
+  if (!state.library[key].some((known) => known.path === entry.path)) {
+    hydrateLibraryNames({ [key]: [entry] });
+    state.library[key].push(entry);
+  }
+  const folder = entry.folder || "";
+  if (!state.library.folders.includes(folder)) {
+    state.library.folders = [...state.library.folders, folder]
+      .sort((a, b) => (a !== "") - (b !== "") || a.toLowerCase().localeCompare(b.toLowerCase()));
+    renderFolderFilters();
+  }
+  state.library.counts = { ...(state.library.counts || {}), images: state.library.images.length, videos: state.library.videos.length };
+  state.library.updatedAt = updatedAt;
+  state.librarySignature = librarySignature();
+  state.feed.dirty = true;
+  invalidateMediaPools();
+  syncCountsFromLibrary();
+}
+
 // Over Tailscale a dropped request looks exactly like a corrupt file. Give
 // every element one silent retry before condemning the path, so a flaky link
 // cannot quietly delete half a library.

@@ -65,6 +65,7 @@ def describe_targets(cfg: Config) -> list[tuple[str, str, str]]:
     rows = [
         ("history", str(cdl["db"]), status_for(cdl["db"])),
         ("history", str(state / "done"), status_for(state / "done")),
+        ("history", str(state / "content"), status_for(state / "content")),
         ("cache", str(cdl["cache"]), status_for(cdl["cache"])),
         ("logs", str(cdl["logs"]), status_for(cdl["logs"])),
         ("crawl", str(state / "media_urls.jsonl"), status_for(state / "media_urls.jsonl")),
@@ -93,6 +94,8 @@ def clear_target(cfg: Config, name: str) -> list[str]:
                 removed.append(str(p))
         if _rm(state / "done"):
             removed.append(str(state / "done"))
+        if _rm(state / "content"):
+            removed.append(str(state / "content"))
         # CDL requires --db path to exist; leave an empty stub for next run.
         cdl["db"].touch()
         removed.append(f"(recreated empty stub) {cdl['db']}")

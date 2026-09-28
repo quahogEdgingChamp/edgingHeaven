@@ -12,8 +12,63 @@ function releaseInactiveMedia(mode) {
   if (dangerous.preloader) { dangerous.preloader.src = ""; dangerous.preloader = null; }
 }
 
+/* Dangerous is for clearing space, not for rating: Keep only remembers that
+   you looked at a file here and kept it (server: dangerousKept), so it does
+   not come up again while "Hide files I already kept here" is on. */
+const dangerousKept = { paths: new Set(), loaded: false, loading: null };
+
+async function loadDangerousKept() {
+  if (!state.features.has("dangerousKept")) return;
+  dangerousKept.loading ||= fetchJson("/api/dangerous-kept")
+    .then((payload) => {
+      dangerousKept.paths = new Set(Object.keys(payload.kept || {}));
+      dangerousKept.loaded = true;
+    })
+    .catch(() => {})
+    .finally(() => { dangerousKept.loading = null; });
+  return dangerousKept.loading;
+}
+
+function dangerousEligible(item, selected = normalizedFolderSelection("dangerousFolders")) {
+  const kind = state.settings.dangerousKind || "all";
+  if ((kind === "photo" && item.kind === "video") || (kind === "video" && item.kind !== "video")) return false;
+  if (!matchesFolderSelection(item, selected)) return false;
+  // Before the server knows dangerousKept, "kept here" still means rated.
+  const kept = state.features.has("dangerousKept") ? dangerousKept.paths.has(item.path) : !!item.rating;
+  return !state.settings.dangerousHideKept || !kept;
+}
+
+// Files from a download in progress join the deck after the one on screen.
+function addToDangerous(items) {
+  if (!dangerous.items.length && !dangerous.index) return; // not dealt yet: they are in the next deal
+  const selected = normalizedFolderSelection("dangerousFolders");
+  const wasEmpty = dangerous.index >= dangerous.items.length;
+  items.filter((item) => dangerousEligible(item, selected)).forEach((item) => {
+    const start = Math.min(dangerous.items.length, dangerous.index + (wasEmpty ? 0 : 1));
+    dangerous.items.splice(start + Math.floor(Math.random() * (dangerous.items.length - start + 1)), 0, item);
+  });
+  if (wasEmpty && dangerous.index < dangerous.items.length && state.currentMode === "dangerous") renderDangerous();
+}
+
+// Downloads → Sort in Dangerous: that model's files you have not kept yet.
+function sortModelInDangerous(model) {
+  state.settings.dangerousFolders = modelFolders(model);
+  state.folderCleared.dangerous = false;
+  state.settings.dangerousHideKept = true;
+  renderFolderFilter("dangerous");
+  queueSettingsSave();
+  setMode("dangerous");
+  startDangerous(true);
+}
+
 function startDangerous(rebuild = false) {
   if (dangerous.busy) return;
+  if (state.features.has("dangerousKept") && !dangerousKept.loaded) {
+    loadDangerousKept().then(() => {
+      if (dangerousKept.loaded && state.currentMode === "dangerous") startDangerous(true);
+    });
+    return;
+  }
   if (dangerous.library !== state.currentMediaDirectory) {
     dangerous.library = state.currentMediaDirectory;
     dangerous.history = [];
@@ -21,17 +76,16 @@ function startDangerous(rebuild = false) {
     rebuild = true;
   }
   if (rebuild || !dangerous.items.length) {
-    const kind = state.settings.dangerousKind || "all";
     const selected = normalizedFolderSelection("dangerousFolders");
     dangerous.items = [
-      ...(kind !== "video" ? state.library.images.map(i => ({ ...i, kind: "photo" })) : []),
-      ...(kind !== "photo" ? state.library.videos.map(i => ({ ...i, kind: "video" })) : []),
-    ].filter(item => matchesFolderSelection(item, selected) && (!state.settings.dangerousUnrated || !item.rating));
+      ...state.library.images.map(i => ({ ...i, kind: "photo" })),
+      ...state.library.videos.map(i => ({ ...i, kind: "video" })),
+    ].filter(item => dangerousEligible(item, selected));
     shuffleBalanced(dangerous.items);
     dangerous.index = 0;
   }
   syncSegmented(el("dangerousKind"), "dangerousKind", state.settings.dangerousKind || "all");
-  el("dangerousUnrated").setAttribute("aria-checked", String(!!state.settings.dangerousUnrated));
+  el("dangerousHideKept").setAttribute("aria-checked", String(!!state.settings.dangerousHideKept));
   syncDrawerSummaries();
   renderDangerous();
 }
@@ -64,6 +118,8 @@ function renderDangerous() {
   el("dangerousFolder").textContent = item ? (item.folder || "Library root") : "";
   el("dangerousType").textContent = item ? (isVideo ? "VIDEO" : "PHOTO") : "DONE";
   el("dangerousProgress").textContent = item ? `${(dangerous.index + 1).toLocaleString()} / ${dangerous.items.length.toLocaleString()}` : "Deck complete";
+  // Tune's "… files left in this deck" follows every swipe, not just a new deal.
+  if (controls.dangerousSummary) controls.dangerousSummary.textContent = DRAWER_SUMMARIES.dangerous();
   syncDangerousActions();
 }
 
@@ -124,7 +180,7 @@ function toggleDangerousPlayback() {
 
 function syncDangerousActions() {
   const empty = !dangerous.items[dangerous.index];
-  ["dangerousKeep", "dangerousSkip", "dangerousDelete", "dangerousShuffle", "dangerousUnrated"].forEach(id => {
+  ["dangerousKeep", "dangerousSkip", "dangerousDelete", "dangerousShuffle", "dangerousHideKept"].forEach(id => {
     el(id).disabled = dangerous.busy || (empty && ["dangerousKeep", "dangerousSkip", "dangerousDelete"].includes(id));
   });
   el("dangerousDelete").disabled ||= !state.canTrash;
@@ -139,7 +195,8 @@ async function actDangerous(action) {
   dangerous.busy = true;
   syncDangerousActions();
   const library = state.currentMediaDirectory;
-  const entry = { action, item, index: dangerous.index, previousRating: item.rating ?? null, library };
+  if (action === "love") action = "keep"; // ↑: nothing here is a rating
+  const entry = { action, item, index: dangerous.index, library };
   try {
     if (action === "delete") {
       const result = await postJson("/api/trash", { path: item.path, library });
@@ -152,13 +209,14 @@ async function actDangerous(action) {
       state.library.updatedAt = result.updatedAt;
       state.librarySignature = librarySignature();
       state.feed.dirty = true;
+      // No toast: it covered the next picture, and the count and Undo say it.
       dangerous.deleted++;
-      toast("Moved to local trash. Press U to undo.");
-    } else if (action === "keep" || action === "love") {
-      const rating = action === "love" ? "love" : "like";
-      await postJson("/api/rating", { path: item.path, rating });
-      if (state.currentMediaDirectory !== library) return;
-      recordRating(item.path, rating, item);
+    } else if (action === "keep") {
+      if (state.features.has("dangerousKept")) {
+        await postJson("/api/dangerous-kept", { path: item.path, kept: true });
+        if (state.currentMediaDirectory !== library) return;
+        dangerousKept.paths.add(item.path);
+      }
       dangerous.kept++;
     }
     dangerous.history.push(entry);
@@ -182,12 +240,15 @@ async function undoDangerous() {
   syncDangerousActions();
   try {
     if (entry.action === "delete") {
-      await postJson("/api/restore", { token: entry.token, library: entry.library });
-      await loadState();
+      const result = await postJson("/api/restore", { token: entry.token, library: entry.library });
+      if (result.item) restoreLibraryItem(result);
+      else await loadState();
       dangerous.deleted--;
-    } else if (entry.action === "keep" || entry.action === "love") {
-      await postJson("/api/rating", { path: entry.item.path, rating: entry.previousRating });
-      recordRating(entry.item.path, entry.previousRating, entry.item);
+    } else if (entry.action === "keep") {
+      if (state.features.has("dangerousKept")) {
+        await postJson("/api/dangerous-kept", { path: entry.item.path, kept: false });
+        dangerousKept.paths.delete(entry.item.path);
+      }
       dangerous.kept--;
     }
     dangerous.history.pop();
@@ -198,7 +259,6 @@ async function undoDangerous() {
     syncCountsFromLibrary();
     syncWorkspace();
     renderDangerous();
-    toast("Undone. File restored to its previous state.");
   } catch (error) { toast(error.message); }
   finally { dangerous.busy = false; syncDangerousActions(); }
 }
@@ -229,9 +289,10 @@ async function reviewTrash() {
       button.addEventListener("click", async () => {
         button.disabled = true;
         try {
-          await postJson("/api/restore", { token: entry.token, library });
+          const result = await postJson("/api/restore", { token: entry.token, library });
           dangerous.history = dangerous.history.filter(h => h.token !== entry.token);
-          await loadState();
+          if (result.item) restoreLibraryItem(result);
+          else await loadState();
           await reviewTrash();
           toast("Restored to the original folder.");
         } catch (error) { toast(error.message); button.disabled = false; }

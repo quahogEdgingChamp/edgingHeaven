@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import errno
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlparse
@@ -16,15 +20,21 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from .config import Config
+from .content import ContentIndex, complete_files
 from .hosts import MediaKind, MediaLink, blocked_extensions, link_to_dict, links_from_rows
-from .index import DownloadIndex
-from .net import MEDIA_ACCEPT, ThreadClients, retry_after_seconds
+from .index import DownloadIndex, index_path
+from .net import MEDIA_ACCEPT, ThreadClients, bounded_results, retry_after_seconds
+from .space import DriveFull, check_space
 from .util import ensure_dir, polite_sleep, sanitize_filename, thread_slug_from_url
 
 console = Console()
 
 _FILENAME_RE = re.compile(r'filename\*?=(?:UTF-8\'\')?"?([^\";]+)"?', re.I)
 _HTML_TYPES = {"text/html", "application/xhtml+xml"}
+
+
+class FileTooLarge(Exception):
+    """The actual decoded body exceeded the configured size limit."""
 
 
 def _filename_from_response(url: str, response: httpx.Response) -> str:
@@ -113,13 +123,17 @@ def direct_download_one(
     target = url or link.url
     record_as = list(dict.fromkeys([target, link.url, *aliases]))
     reuse = cfg.download.skip_existing
+    content = index.content if cfg.download.deduplicate and reuse else None
 
     if reuse:
         for u in record_as:
             have = index.done(u)
             if have:
-                index.record(have.name, *record_as)
-                return _report(label, link, "skip", have.name)
+                name = have.relative_to(index.folder).as_posix()
+                index.record(name, *record_as)
+                return _report(label, link, "skip", name)
+        if any(index.is_gone(u) for u in record_as):
+            return _report(label, link, "skip", "downloaded before, no longer here")
 
     blocked = blocked_extensions(cfg.download.exclude_extensions)
     last = ""
@@ -159,8 +173,12 @@ def direct_download_one(
                 # Compressed bodies don't match Content-Length once decoded.
                 encoded = r.headers.get("content-encoding", "identity") != "identity"
                 expected = int(cl) if cl.isdigit() and not encoded else None
+                limit = cfg.download.max_file_bytes
+                if limit and expected is not None and expected > limit:
+                    return _report(label, link, "skip", f"{name} (too large: {expected} B)")
+                check_space(cfg, dest_dir, expected or 0)
 
-                name, have = index.claim(target, name, expected, reuse=reuse)
+                name, have = index.claim(target, name, expected, reuse=reuse, verify_content=content is not None)
                 if have:
                     index.record(name, *record_as)
                     return _report(label, link, "skip", name)
@@ -168,19 +186,43 @@ def direct_download_one(
                 dest = dest_dir / name
                 tmp = dest_dir / (name + ".part")
                 try:
+                    digest = hashlib.sha256()
                     with tmp.open("wb") as fh:
+                        written = checked = 0
                         for chunk in r.iter_bytes(1024 * 256):
+                            if limit and written + len(chunk) > limit:
+                                raise FileTooLarge(f"{name} (too large: more than {limit} B)")
                             fh.write(chunk)
+                            if content is not None:
+                                digest.update(chunk)
+                            written += len(chunk)
+                            if written - checked >= 8 * 1024 * 1024:  # hosts that sent no size
+                                check_space(cfg, dest_dir)
+                                checked = written
                     size = tmp.stat().st_size
                     if expected is not None and size != expected:
                         raise OSError(f"incomplete: got {size} of {expected} B")
-                    tmp.replace(dest)
-                except BaseException:
+                    if content is not None:
+                        kept, duplicate = content.finish(tmp, dest, digest.hexdigest())
+                    else:
+                        tmp.replace(dest)
+                        kept, duplicate = dest, False
+                except BaseException as exc:
                     tmp.unlink(missing_ok=True)
                     index.release(name)
+                    if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+                        raise DriveFull(f"Drive full: no space left for {name}.") from exc
                     raise
+                index.release(name)
+                name = kept.relative_to(dest_dir).as_posix()
                 index.record(name, *record_as)
+                if duplicate:
+                    return _report(label, link, "skip", f"duplicate content → {name}")
                 return _report(label, link, "ok", f"{name} ({size} B)")
+        except DriveFull:
+            raise
+        except FileTooLarge as exc:
+            return _report(label, link, "skip", str(exc))
         except (httpx.TransportError, OSError) as exc:
             last = str(exc) or exc.__class__.__name__
             # Errno 11 / transient CDN blips — back off and retry.
@@ -195,6 +237,7 @@ class DirectResult:
     ok: int = 0
     skipped: int = 0
     failed: list[tuple[MediaLink, str]] = field(default_factory=list)
+    full: str = ""  # set when the drive reserve stopped the batch
 
 
 def download_direct_batch(
@@ -212,10 +255,14 @@ def download_direct_batch(
         return res
     workers = max(1, min(cfg.scrape.concurrency, 4))
     label = model or dest_dir.name
+    # The reserve was reached: files not started yet are left for the next run.
+    full = threading.Event()
 
     def tally(status: str, detail: str, group: list[MediaLink]) -> None:
         # A group is several page links that turned out to show one image:
         # the first carries the result, the rest are duplicates of it.
+        if status == "stopped":
+            return
         if status == "fail":
             res.failed.extend((link, detail) for link in group)
             return
@@ -237,34 +284,56 @@ def download_direct_batch(
         def job(
             link: MediaLink, url: str | None = None, aliases: list[str] | None = None
         ) -> tuple[str, str]:
+            if full.is_set():
+                return "stopped", ""
             polite_sleep(0.05, 0.25)
-            return direct_download_one(
-                clients.get(), link, dest_dir, cfg, index,
-                url=url, aliases=aliases or [], model=label,
-            )
+            try:
+                return direct_download_one(
+                    clients.get(), link, dest_dir, cfg, index,
+                    url=url, aliases=aliases or [], model=label,
+                )
+            except DriveFull as exc:
+                if not full.is_set():
+                    res.full = str(exc)
+                    full.set()
+                return "stopped", str(exc)
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             # Pass 1: every link. Viewer pages only report the image they show;
             # pass 2 fetches those after the direct images are on disk, so a page
             # and the thumbnail it duplicates can't race into two copies.
             pages: dict[str, list[MediaLink]] = {}
-            futures = {pool.submit(job, link): link for link in links}
-            for fut in as_completed(futures):
-                link = futures[fut]
-                status, detail = fut.result()
+
+            def remaining_links():
+                seen = set()
+                for link in links:
+                    if full.is_set():
+                        break
+                    if link.url in seen:
+                        res.skipped += 1
+                        progress.advance(task)
+                        continue
+                    seen.add(link.url)
+                    yield link
+
+            for link, (status, detail) in bounded_results(pool, job, remaining_links(), workers):
                 if status == "page":
                     pages.setdefault(detail, []).append(link)
                     continue
                 tally(status, detail, [link])
                 progress.advance(task)
 
-            groups = {
-                pool.submit(job, group[0], image, [l.url for l in group[1:]]): group
-                for image, group in pages.items()
-            }
-            for fut in as_completed(groups):
-                group = groups[fut]
-                status, detail = fut.result()
+            def page_groups():
+                for item in pages.items():
+                    if full.is_set():
+                        break
+                    yield item
+
+            def fetch_group(item):
+                image, group = item
+                return job(group[0], image, [l.url for l in group[1:]])
+
+            for (_, group), (status, detail) in bounded_results(pool, fetch_group, page_groups(), workers):
                 tally(status, detail, group)
                 progress.advance(task, len(group))
 
@@ -282,6 +351,8 @@ def cdl_paths(cfg: Config) -> dict[str, Path]:
     logs = ensure_dir(root / "logs")
     return {
         "root": root,
+        # cyberdrop-dl's own config.yaml and fallbacks (CDL_APPDATA_FOLDER)
+        "appdata": root / "appdata",
         "db": root / "cyberdrop.db",
         "cache": root / "cache.json",
         "logs": logs,
@@ -366,15 +437,31 @@ def run_cyberdrop_dl(cfg: Config, urls_file: Path, download_dir: Path) -> int:
         "INFO",
         "--logs.no-http-traffic",
     ]
+    # simp owns verification. CDL's deduper searches its global DB across
+    # models; also turn off its redundant hashes (URL history is independent).
+    cmd.extend(["--no-auto-dedupe", "--hashing", "off"])
     exclude = cdl_exclude_regex(cfg.download.exclude_extensions)
     if exclude:
         cmd.extend(["--filename-regex-exclude", exclude])
+    if cfg.download.min_free_bytes:
+        # cyberdrop-dl skips (not fails) files that would cross it.
+        cmd.extend(["--min-free-space", str(cfg.download.min_free_bytes)])
+    limit = cfg.download.max_file_bytes
+    if limit:
+        for kind in ("image", "video", "audio", "non_media"):
+            cmd.extend([f"--{kind}.size.max", str(limit)])
     cookies = cfg.resolve(cfg.auth.cookies_file)
     if cookies.is_file():
         cmd.extend(["--cookies", str(cookies)])
+    # Without this cyberdrop-dl also writes config.yaml, cache and logs under
+    # ~/.config, ~/.cache and ~/.local/state, which a sandboxed service (read-only
+    # home) cannot. Keep them with the rest of its state; an explicit
+    # CDL_APPDATA_FOLDER in the environment still wins.
+    env = dict(os.environ)
+    env.setdefault("CDL_APPDATA_FOLDER", str(paths["appdata"]))
     console.print(f"[bold]Running[/] {' '.join(cmd)}")
     try:
-        proc = subprocess.run(cmd, check=False)
+        proc = subprocess.run(cmd, check=False, env=env)
         return proc.returncode
     except FileNotFoundError:
         console.print(f"[red]Could not execute {resolved}[/]")
@@ -491,11 +578,42 @@ def _run_direct(
         f"  direct done: [green]{d.ok} ok[/] / {d.skipped} skipped / "
         f"[red]{len(d.failed)} fail[/]"
     )
+    if d.full:
+        raise DriveFull(d.full)
 
 
 def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult) -> None:
     console.print(f"  cyberdrop-dl → {dest}")
-    result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, dest)
+    if cfg.download.deduplicate and cfg.download.skip_existing:
+        models = cfg.models_root().resolve()
+        staging_root = (cfg.resolve(cfg.paths.cdl_staging_dir) if cfg.paths.cdl_staging_dir
+                        else models.parent / f".{models.name}.simp-incoming").resolve()
+        if staging_root == models or staging_root.is_relative_to(models):
+            raise RuntimeError("paths.cdl_staging_dir must be outside the media library")
+        ensure_dir(staging_root)
+        if staging_root.stat().st_dev != dest.stat().st_dev:
+            raise RuntimeError("paths.cdl_staging_dir must be on the download drive")
+        staging = staging_root / result.slug
+        if staging.is_symlink():
+            raise RuntimeError(f"Staging folder must not be a symlink: {staging}")
+        ensure_dir(staging)
+        index = ContentIndex(cfg.resolve(cfg.paths.state_dir) / "content" / f"{result.slug}.jsonl", dest)
+
+        def publish():
+            for incoming in complete_files(staging):
+                kept, duplicate = index.finish(incoming, dest / incoming.relative_to(staging))
+                if duplicate:
+                    result.skipped += 1
+                    console.print(f"  duplicate content → {kept.relative_to(dest)}")
+                else:
+                    result.ok += 1
+        publish()  # recover completed files from an interrupted run first
+        try:
+            result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, staging)
+        finally:
+            publish()
+    else:
+        result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, dest)
     if result.cdl_failed:
         console.print(
             f"  [yellow]cyberdrop-dl exited {result.cdl_exit}.[/] "
@@ -510,21 +628,96 @@ def download_model(
     links: list[MediaLink],
     cfg: Config,
 ) -> ModelResult:
-    """Direct downloads, then cyberdrop-dl, into the model's folder."""
+    """Direct downloads, then cyberdrop-dl, into the model's folder.
+
+    Raises DriveFull when the drive reaches the reserve; what was not fetched
+    is not recorded anywhere, so the next run for this thread fetches it."""
     slug = thread_slug_from_url(thread_url)
+    check_space(cfg, cfg.models_root())
     dest = model_folder(cfg, thread_url, title)
+    # Edging Heaven reads this line to add new files to its library as they land.
+    console.print(f"Model folder: {dest}")
+    adopt_existing(cfg, slug, dest, links)
     result = ModelResult(slug)
     cdl_links, direct_links = partition_links(links)
 
-    if cfg.download.use_direct and direct_links:
-        _run_direct(client, cfg, slug, dest, direct_links, result)
-    if cdl_links:
-        urls_file = _queue_cdl(cfg, slug, cdl_links)
-        if cfg.download.use_cyberdrop_dl:
-            _run_cdl(cfg, urls_file, dest, result)
-
+    try:
+        if cfg.download.use_direct and direct_links:
+            _run_direct(client, cfg, slug, dest, direct_links, result)
+        if cdl_links:
+            urls_file = _queue_cdl(cfg, slug, cdl_links)
+            if cfg.download.use_cyberdrop_dl:
+                check_space(cfg, dest)
+                _run_cdl(cfg, urls_file, dest, result)
+                check_space(cfg, dest)  # it skipped what did not fit: stop here too
+    except DriveFull:
+        # Files never tried are not failures; only record the real ones.
+        if result.failed or result.cdl_failed:
+            write_failures(cfg, thread_url, result)
+        raise
     write_failures(cfg, thread_url, result)
     return result
+
+
+_ATTACHMENT_NAME = re.compile(r"(.+)-(jpe?g|png|gif|webp|avif|mp4|m4v|mov|webm)\.\d+", re.I)
+
+
+def guess_filename(url: str) -> str | None:
+    """The file name a direct link most likely saved as, without asking the host."""
+    last = unquote(urlparse(url).path.rstrip("/").rsplit("/", 1)[-1])
+    m = _ATTACHMENT_NAME.fullmatch(last)  # XenForo: /attachments/photo-jpg.123/ → photo.jpg
+    if m:
+        last = f"{m.group(1)}.{m.group(2)}"
+    name = sanitize_filename(last)
+    return name if "." in name else None
+
+
+def adopt_existing(cfg: Config, slug: str, dest: Path, links: list[MediaLink]) -> None:
+    """First run for a model downloaded before simp kept state/done/<model>.jsonl.
+
+    Files already in the folder are recorded under their URLs (no request
+    needed). Direct links from thread pages that earlier run covered (the
+    highest page in its state/cdl_<model>.jsonl, or of a file found here) but
+    whose file is not in the folder count as deleted, so with
+    redownload_missing = false they are not fetched again. Newer pages
+    download as usual."""
+    if index_path(cfg, slug).exists():
+        return
+    try:
+        # name → path inside the model folder (cyberdrop-dl files sit in subfolders)
+        on_disk = {p.name.lower(): p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file()}
+    except OSError:
+        return
+    if not on_disk:
+        return
+    covered = 0
+    sidecar = cfg.resolve(cfg.paths.state_dir) / f"cdl_{slug}.jsonl"
+    if sidecar.is_file():
+        for line in sidecar.read_text(encoding="utf-8").splitlines():
+            try:
+                covered = max(covered, int(json.loads(line).get("thread_page") or 0))
+            except (ValueError, AttributeError):
+                continue
+    index = DownloadIndex.for_model(cfg, slug)
+    adopted, unmatched = 0, []
+    for link in links:
+        if link.prefer_cdl:
+            continue
+        name = guess_filename(link.url)
+        if name and name.lower() in on_disk:
+            if not cfg.download.deduplicate:
+                index.record(on_disk[name.lower()], link.url)
+            adopted += 1
+            covered = max(covered, link.thread_page or 0)
+        else:
+            unmatched.append(link)
+    gone = [link.url for link in unmatched if covered and link.thread_page and link.thread_page <= covered]
+    index.mark_gone(gone)
+    found_detail = "existing files to verify" if cfg.download.deduplicate else "files recorded"
+    console.print(
+        f"  earlier download found: {adopted} {found_detail}, {len(gone)} older links not in the folder "
+        f"treated as deleted (thread pages 1-{covered}), {len(unmatched) - len(gone)} newer to fetch"
+    )
 
 
 def retry_model(client: httpx.Client, cfg: Config, slug: str) -> ModelResult:
@@ -532,9 +725,18 @@ def retry_model(client: httpx.Client, cfg: Config, slug: str) -> ModelResult:
     path = failed_path(cfg, slug)
     rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
     thread_url = next((r["thread"] for r in rows if r.get("thread")), "")
+    check_space(cfg, cfg.models_root())
     dest = ensure_dir(cfg.models_root() / slug)
+    console.print(f"Model folder: {dest}")
     result = ModelResult(slug)
+    # Stopped for space: the list stays as it was, and the next retry reruns it.
+    _retry_rows(client, cfg, slug, dest, rows, result)
+    write_failures(cfg, thread_url, result)
+    return result
 
+
+def _retry_rows(client: httpx.Client, cfg: Config, slug: str, dest: Path, rows: list[dict], result: ModelResult) -> None:
+    """Rerun one model's failed direct files, then its failed cyberdrop-dl run."""
     direct = links_from_rows(
         [r for r in rows if r.get("via") == "direct"],
         exclude_extensions=cfg.download.exclude_extensions,
@@ -546,9 +748,8 @@ def retry_model(client: httpx.Client, cfg: Config, slug: str) -> ModelResult:
     if cdl_row:
         urls_file = cfg.resolve(cfg.paths.state_dir) / f"cdl_{slug}.txt"
         if cfg.download.use_cyberdrop_dl and urls_file.is_file():
+            check_space(cfg, dest)
             _run_cdl(cfg, urls_file, dest, result)
+            check_space(cfg, dest)
         else:
             result.cdl_exit = cdl_row.get("exit", 1)  # couldn't rerun — keep it listed
-
-    write_failures(cfg, thread_url, result)
-    return result

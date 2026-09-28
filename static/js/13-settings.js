@@ -183,7 +183,7 @@ function sanitizeModeSettings() {
   state.settings.duelRatingFilter = RATING_FILTERS.includes(state.settings.duelRatingFilter) ? state.settings.duelRatingFilter : "liked";
   state.settings.rediscoverKind = pick(state.settings.rediscoverKind, ["all", "photos", "videos"], "all");
   state.settings.rediscoverRatingFilter = sanitizeRatingFilter(state.settings.rediscoverRatingFilter, false);
-  state.settings.dangerousUnrated = !!state.settings.dangerousUnrated;
+  state.settings.dangerousHideKept = state.settings.dangerousHideKept !== false;
   state.settings.folderSets = sanitizeFolderSets(state.settings.folderSets);
   state.settings.feedVolume = clampNumber(Number(state.settings.feedVolume ?? 1), 0, 1);
   state.settings.feedAutoAdvance = !!state.settings.feedAutoAdvance;
@@ -237,7 +237,7 @@ function syncModeControls() {
   syncSegmented(document.getElementById("dangerousKind"), "dangerousKind", state.settings.dangerousKind || "all");
   syncSegmented(document.getElementById("duelKind"), "duelKind", state.settings.duelKind || "photos");
   syncSegmented(document.getElementById("rediscoverKind"), "rediscoverKind", state.settings.rediscoverKind || "all");
-  document.getElementById("dangerousUnrated").setAttribute("aria-checked", String(!!state.settings.dangerousUnrated));
+  document.getElementById("dangerousHideKept").setAttribute("aria-checked", String(!!state.settings.dangerousHideKept));
   PLAY_MODES.forEach((mode) => syncSettingControls(el(`${mode}Drawer`)));
   paintRanges();
 }
