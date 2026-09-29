@@ -57,6 +57,11 @@ function bindRatingFilter(mode) {
 function setRatingFilter(mode, value) {
   state.settings[`${mode}RatingFilter`] = sanitizeRatingFilter(value, false);
   syncRatingFilter(mode);
+  applyShowChange(mode);
+}
+
+// Show or "Only files I kept in Dangerous" changed: deal the mode again.
+function applyShowChange(mode) {
   invalidateMediaPools();
   if (isDeckMode(mode)) {
     state.history[mode] = [];

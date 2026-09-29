@@ -507,7 +507,7 @@ function modeSource(mode, key) {
   const selectedFolders = normalizedFolderSelection(`${mode}Folders`);
   const filter = ratingFilterValue(`${mode}RatingFilter`);
   return (state.library[key] || []).filter(
-    (item) => matchesFolderSelection(item, selectedFolders) && matchesRatingFilter(item, filter)
+    (item) => matchesFolderSelection(item, selectedFolders) && matchesRatingFilter(item, filter) && matchesDangerKept(mode, item)
   );
 }
 

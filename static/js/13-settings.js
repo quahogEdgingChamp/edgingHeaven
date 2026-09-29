@@ -184,6 +184,7 @@ function sanitizeModeSettings() {
   state.settings.rediscoverKind = pick(state.settings.rediscoverKind, ["all", "photos", "videos"], "all");
   state.settings.rediscoverRatingFilter = sanitizeRatingFilter(state.settings.rediscoverRatingFilter, false);
   state.settings.dangerousHideKept = state.settings.dangerousHideKept !== false;
+  DANGER_KEPT_MODES.forEach((mode) => { state.settings[`${mode}DangerKeptOnly`] = state.settings[`${mode}DangerKeptOnly`] === true; });
   state.settings.folderSets = sanitizeFolderSets(state.settings.folderSets);
   state.settings.feedVolume = clampNumber(Number(state.settings.feedVolume ?? 1), 0, 1);
   state.settings.feedAutoAdvance = !!state.settings.feedAutoAdvance;

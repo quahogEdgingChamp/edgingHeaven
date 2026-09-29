@@ -303,14 +303,16 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 ### Dangerous
 
 Its own section in the sidebar, red everywhere (sidebar, mode picker, overview,
-title), so a mode that deletes is never mistaken for one that only looks. Every
+title), so a mode that deletes is never mistaken for one that only looks. All
+five have **Focus** (`F`, real fullscreen where the browser allows it; a phone
+held sideways goes full screen by itself), and their tools never fade there. Every
 mode here moves the **original file** into `<media folder>/.heaven-trash/<token>/media`
 and has Undo; nothing is erased until you empty the trash.
 
 | Mode | What you decide | Keys |
 |---|---|---|
 | **Swipe** | One file at a time: left deletes, right keeps, up keeps and **Loves**, down skips | `← → ↑ ↓`, Space play, `B` Blitz, `U` |
-| **Grid** | A page of 9–20 files: tap the ones to delete, the rest are kept in one go | arrows, Space/`X` mark, Enter, `S`, `A`, `V`, `U` |
+| **Grid** | A page of files (on a computer 9–20; on a phone 2, 4 or 6 big tiles in two columns): tap the ones to delete, the rest are kept in one go. Clips play in their tiles, muted | arrows, Space/`X` mark, Enter, `S`, `A`, `V`, `U` |
 | **Junk** | Only suspects, most likely first, each tile saying why: photos under 30 KB (tiny) or 80 KB (small), under 480 px, clips under 1.5 / 4 MB, names like screenshot, avatar, preview or a promo handle. Nothing is marked for you | as Grid |
 | **Look-alikes** | Sets of near-identical shots in one model (resized, re-saved, bursts): the best copy (most pixels, then biggest) is kept, the rest marked | tap to switch, Enter, `K` keep all, `S`, `U` |
 | **Folders** | One subfolder at a time (a model's `Loose Files (Bunkr)` is its own): 12 samples, then Keep folder, Delete folder (asks first), or Sort in Grid | `K`, `S`, `M`, `G`, `U` |
@@ -325,6 +327,10 @@ and has Undo; nothing is erased until you empty the trash.
   junk first), Love on ↑, a **frame strip** under clips (six stills; tap one to
   jump there), **Blitz** (30 s / 1 / 2 min timed round, best score kept), and a
   speed button (1× / 1.5× / 2×) in the video bar
+- Clips in Grid, Junk, Look-alikes and Folders play in their tiles, muted and
+  looping, from a marked moment or a quarter in (at most 4 at once on a phone, 6 on
+  a computer; they pause while a file is open big). **Play clips in the tiles** in
+  Grid's or Junk's controls turns it off to save data
 - Every mode shows what this visit freed. **Goal** (in any Dangerous control
   center) turns that into a bar and says when you reach it. The space only comes
   back when the trash is emptied

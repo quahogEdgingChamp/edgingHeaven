@@ -267,6 +267,60 @@ with tempfile.TemporaryDirectory(prefix="heaven-cleanup-") as tmp:
 
         check("no page errors", not errors, errors)
 
+        # ---- on a phone: a few big tiles, and clips play in them
+        phone = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True, reduced_motion="reduce")
+        mobile = phone.new_page()
+        mobile.on("pageerror", lambda err: errors.append(str(err)))
+        mobile.goto(url)
+        mobile.wait_for_function("state.libraryReady && state.library.images.length > 0")
+        mobile.evaluate("() => { state.settings.dgridHideKept = false; state.settings.dgridKind = 'all'; state.settings.dgridOrder = 'name'; setMode('dgrid'); }")
+        mobile.wait_for_function("el('dgridGrid').children.length > 0")
+        size = mobile.evaluate("""() => { const tiles = [...el('dgridGrid').children];
+          const box = tiles[0].getBoundingClientRect();
+          return { count: tiles.length, width: box.width, height: box.height,
+                   columns: getComputedStyle(el('dgridGrid')).gridTemplateColumns.split(' ').length }; }""")
+        check("a phone page is 4 big tiles in 2 columns", size["count"] == 4 and size["columns"] == 2 and size["width"] > 160 and size["height"] > 250, size)
+        mobile.evaluate("() => { state.settings.dgridKind = 'videos'; refreshMode('dgrid'); }")
+        mobile.wait_for_function("el('dgridGrid').querySelectorAll('.sweep-tile.is-playing').length >= 2", timeout=30000)
+        clips = mobile.evaluate("""() => [...el('dgridGrid').querySelectorAll('.tile-clip')].map(v => ({ src: !!v.getAttribute('src'), muted: v.muted, paused: v.paused, t: v.currentTime }))""")
+        check("clips play in their tiles, muted, from past the start",
+              all(c["muted"] for c in clips) and sum(1 for c in clips if not c["paused"]) >= 2 and all(c["t"] > 0 for c in clips if c["src"]), clips)
+        check("at most 4 play at once on a phone", sum(1 for c in clips if c["src"]) <= 4, clips)
+        mobile.click("#dgridGrid .sweep-tile:nth-child(1) .sweep-open")
+        check("opening one pauses the tiles", mobile.evaluate("[...el('dgridGrid').querySelectorAll('.tile-clip')].every(v => v.paused)"))
+        mobile.click("#cleanupViewerClose")
+        mobile.wait_for_function("[...el('dgridGrid').querySelectorAll('.tile-clip[src]')].some(v => !v.paused)", timeout=10000)
+        check("and closing it plays them again", True)
+        mobile.evaluate("() => { state.settings.cleanupPhoneTiles = 2; renderSweep('dgrid'); }")
+        two = mobile.evaluate("({ n: el('dgridGrid').children.length, w: el('dgridGrid').children[0].getBoundingClientRect().width })")
+        check("2 per page gives full-width tiles", two["n"] == 2 and two["w"] > 330, two)
+        mobile.evaluate("() => { state.settings.cleanupClipPreviews = false; renderSweep('dgrid'); }")
+        check("with clip previews off nothing streams", mobile.evaluate("[...el('dgridGrid').querySelectorAll('.tile-clip')].every(v => !v.getAttribute('src'))"))
+        # Focus on every new mode: tiles fill the screen, the floating tools
+        # never cover a tile's open button, and they do not fade.
+        mobile.evaluate("() => { state.settings.cleanupClipPreviews = true; state.settings.cleanupPhoneTiles = 4; }")
+        for mode in ("dgrid", "djunk", "dsimilar", "dfolders"):
+            mobile.evaluate(f"() => setMode('{mode}')")
+            mobile.wait_for_timeout(600)
+            mobile.click(f"#{mode}FocusToggle")
+            layout = mobile.evaluate("""(mode) => {
+              const bar = document.querySelector('.topbar').getBoundingClientRect();
+              const opens = [...document.querySelectorAll(`#${mode}Grid .sweep-open`)].map(b => b.getBoundingClientRect());
+              const covered = opens.some(o => o.top < bar.bottom && o.bottom > bar.top && o.left < bar.right && o.right > bar.left);
+              return { immersive: document.body.classList.contains('immersive'),
+                       nav: getComputedStyle(document.querySelector('.workspace-nav')).display,
+                       covered, tiles: opens.length,
+                       overflow: document.documentElement.scrollWidth > innerWidth };
+            }""", mode)
+            check(f"{mode}: Focus goes full screen without covering a tile",
+                  layout["immersive"] and layout["nav"] == "none" and not layout["covered"] and not layout["overflow"], layout)
+            mobile.wait_for_timeout(3600)
+            check(f"{mode}: its tools do not fade", float(mobile.evaluate("getComputedStyle(document.querySelector('.topbar')).opacity")) == 1)
+            mobile.click(f"#{mode}FocusToggle")
+            check(f"{mode}: and Focus comes back out", not mobile.evaluate("document.body.classList.contains('immersive')"))
+        phone.close()
+        check("no page errors on the phone", not errors, errors)
+
         # ---- the same page against a server from before these modes
         server_module.FEATURES.remove("cleanup")
         try:

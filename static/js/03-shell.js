@@ -182,11 +182,12 @@ function syncImmersive() {
 function wakeIdle() {
   document.body.classList.remove("idle");
   window.clearTimeout(idleTimer);
-  // Dangerous deletes files, so its buttons stay put instead of fading.
-  if (document.body.classList.contains("immersive") && state.currentMode !== "dangerous") {
+  // The Dangerous modes delete files, so their buttons stay put instead of fading.
+  const deletes = ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders"].includes(state.currentMode);
+  if (document.body.classList.contains("immersive") && !deletes) {
     idleTimer = window.setTimeout(() => {
       // Never hide the controls from under an open panel or a dragging finger.
-      if (!state.activeDrawer && !state.drag.active && !state.launcherOpen && state.currentMode !== "dangerous") {
+      if (!state.activeDrawer && !state.drag.active && !state.launcherOpen && !deletes) {
         document.body.classList.add("idle");
       }
     }, 3200);

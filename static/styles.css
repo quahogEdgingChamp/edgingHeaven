@@ -1551,6 +1551,9 @@ body[data-theme="light"] .home-mode[data-tone="violet"] .mode-icon { color: #5a3
   background: var(--text); color: var(--bg); font-size: 0.8125rem; font-weight: 560;
   box-shadow: var(--shadow-2); animation: toast-in 220ms var(--ease);
 }
+.workspace-toast.has-action:not([hidden]) { display: flex; align-items: center; gap: 12px; width: max-content; }
+.toast-action { flex: none; padding: 4px 12px; border: 1px solid currentColor; border-radius: var(--r-full); background: transparent; color: inherit; font: inherit; font-weight: 700; cursor: pointer; }
+.toast-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 10px); } }
 
 .media-feedback {
@@ -1600,9 +1603,9 @@ body.immersive .topbar .mode-switch { display: inline-flex; padding: 2px 10px 2p
 body.immersive .tool-note { color: #ddd; }
 body.focus-mode .topbar .mode-switch,
 body.focus-mode #themeButton { display: none; }
-/* Dangerous deletes files, so its tools never fade. */
-body.immersive.idle:not([data-mode="dangerous"]) .topbar { opacity: 0; }
-body.immersive.idle:not([data-mode="dangerous"]) { cursor: none; }
+/* The Dangerous modes delete files, so their tools never fade. */
+body.immersive.idle:not([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) .topbar { opacity: 0; }
+body.immersive.idle:not([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) { cursor: none; }
 
 body.immersive .swipe-layout,
 body.immersive .stream-layout,
@@ -2123,12 +2126,50 @@ body.panic .shell, body.panic .drawer, body.panic .workspace-toast { visibility:
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--media-bg);
-  color: var(--on-media-muted);
-  font: 0.75rem/1.55 ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
-  white-space: pre-wrap;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8125rem;
+  line-height: 1.5;
   overflow-wrap: anywhere;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
 }
+.dl-log > * { margin: 0 0 4px calc(var(--indent, 0) * 14px); }
+.dl-log summary { cursor: pointer; }
+.dl-log summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.log-cmd { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font: 600 0.8125rem/1.5 var(--mono); }
+.log-head { margin-top: 10px; font-weight: 650; }
+.log-line.is-error { color: var(--danger); font-weight: 600; }
+.log-line.is-hint { color: var(--muted); }
+.log-summary { margin: 10px 0; padding: 8px 12px; border-radius: var(--r-sm); background: var(--accent-soft); font-weight: 600; }
+.log-meta { color: var(--muted); font-size: 0.75rem; }
+.log-rec { display: flex; gap: 8px; align-items: baseline; }
+.log-rec.is-noise { opacity: 0.6; }
+.log-level { flex: none; min-width: 3.5em; padding: 0 6px; border: 1px solid var(--line-2); border-radius: var(--r-full); color: var(--muted); font-size: 0.6875rem; font-weight: 650; text-align: center; text-transform: uppercase; }
+.log-rec.is-warning .log-level { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.log-rec.is-error .log-level { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, transparent); background: var(--danger-soft); }
+.log-rec.is-error .log-msg { color: var(--danger); }
+.log-run summary, .log-panel summary { color: var(--muted); }
+.log-run code, .log-panel pre { display: block; margin-top: 4px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--muted); font: 0.6875rem/1.5 var(--mono); white-space: pre-wrap; }
+.log-panel summary { color: var(--danger); font-weight: 600; }
+.log-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.log-bar { flex: 1 1 120px; max-width: 260px; height: 6px; border-radius: var(--r-full); background: linear-gradient(90deg, var(--accent) var(--done), var(--surface-3, var(--line)) var(--done)); }
+.log-group { margin: 6px 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.log-group.has-fail { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.log-group > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 10px; }
+.log-count { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.log-count.is-ok { color: var(--keep); }
+.log-count.is-fail { color: var(--danger); }
+.log-items { max-height: 320px; overflow: auto; margin: 0; padding: 0 10px 8px; list-style: none; border-top: 1px solid var(--line); }
+.log-item { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.log-item:last-child { border-bottom: 0; }
+.log-records .log-items { padding-top: 6px; }
+.log-records .log-rec { padding: 3px 0; }
+.log-kind { flex: none; width: 3.6em; color: var(--muted); font-size: 0.6875rem; text-transform: uppercase; }
+.log-item-body { min-width: 0; display: flex; flex-wrap: wrap; gap: 0 10px; align-items: baseline; }
+.log-name { font: 0.75rem/1.45 var(--mono); }
+.log-url { flex-basis: 100%; font-family: var(--mono); }
+.log-item.is-fail .log-name, .log-item.is-fail .log-kind { color: var(--danger); }
+.log-item.is-skip .log-name { color: var(--muted); }
 .dl-rows { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .dl-rows li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); font-size: 0.8125rem; }
 .dl-rows li.is-shown { border-color: var(--accent); }
@@ -2204,6 +2245,9 @@ body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data
 .sweep-hit { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
 .sweep-hit > img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity 140ms ease, filter 140ms ease; }
 .sweep-tile.has-thumb .gallery-thumb { opacity: 1; }
+.tile-clip { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 200ms ease; pointer-events: none; }
+.sweep-tile.is-playing .tile-clip { opacity: 1; }
+.sweep-tile.is-marked .tile-clip { opacity: 0.4; filter: grayscale(0.7); }
 .sweep-tile.is-marked { border-color: var(--pass); }
 .sweep-tile.is-marked .sweep-hit > img, .sweep-tile.is-marked .gallery-thumb { opacity: 0.4; filter: grayscale(0.7); }
 .sweep-stamp {
@@ -2215,7 +2259,7 @@ body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data
 .sweep-grid.show-cursor .sweep-tile.is-cursor { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sweep-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
 .sweep-badges { position: absolute; left: 6px; top: 6px; right: 44px; display: flex; flex-wrap: wrap; gap: 4px; pointer-events: none; }
-.sweep-badge { padding: 2px 7px; border-radius: var(--r-full); background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 0.625rem; font-weight: 650; white-space: nowrap; }
+.sweep-badge { padding: 2px 7px; border-radius: var(--r-full); background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 0.625rem; font-weight: 650; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .sweep-meta {
   position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 6px; pointer-events: none;
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.72)); color: var(--on-media-muted);
@@ -2296,8 +2340,10 @@ body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data
 #cleanupViewerMark.is-marked { background: var(--danger-soft); color: var(--pass); border-color: var(--pass); }
 
 @media (max-width: 767px) {
-  .sweep-grid { --cols: 3; gap: 6px; }
-  .sweep-grid[data-count="1"], .sweep-grid[data-count="2"] { --cols: 2; }
+  /* Two big columns: a phone page is 2, 4 or 6 files you can actually see. */
+  .sweep-grid, .sweep-grid[data-count] { --cols: 2; gap: 6px; }
+  .sweep-grid[data-count="1"], #dgridGrid[data-count="2"], #djunkGrid[data-count="2"] { --cols: 1; }
+  .sweep-grid { grid-template-rows: repeat(var(--rows, 2), minmax(150px, 1fr)); }
   .set-grid { --cols: 2; }
   .sweep-lead { display: none; }
   .sweep-actions .deck-button { min-height: 50px; padding: 8px 12px; font-size: 0.875rem; }
@@ -2315,3 +2361,14 @@ body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data
   .cleanup-viewer-bar #cleanupViewerMark { order: 3; flex: 1 1 100%; }
 }
 body.immersive .cleanup-meter, body.immersive .frame-strip { display: none; }
+/* Grid, Junk, Look-alikes, Folders full screen: the page is only tiles and the
+   decision; the floating tool bar gets a strip of its own so it never covers a
+   tile's open button. */
+body.immersive .sweep-layout {
+  gap: 8px;
+  padding: calc(58px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+}
+body.immersive .sweep-lead { display: none; }
+body.immersive .sweep-grid { gap: 6px; }
+body.immersive .sweep-actions .deck-button:not(.keep):not(.delete),
+body.immersive .sweep-actions .ghost-button { background: var(--glass); border-color: var(--glass-line); color: #fff; backdrop-filter: blur(10px); }

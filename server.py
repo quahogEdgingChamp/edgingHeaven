@@ -104,6 +104,12 @@ DEFAULT_SETTINGS = {
     "dangerousUnrated": False,
     # Dangerous skips files you already kept there (see dangerousKept below).
     "dangerousHideKept": True,
+    # Sort & rate (photo deck, video deck, Feed, Rediscover): Tune → "Only files
+    # I kept in Dangerous" limits the mode to dangerousKept.
+    "swipeDangerKeptOnly": False,
+    "toktinderDangerKeptOnly": False,
+    "feedDangerKeptOnly": False,
+    "rediscoverDangerKeptOnly": False,
     "dangerousFolders": [],
     # Swipe (Dangerous): deal order, ↑ = keep and Love, a frame strip under
     # clips, the free-space goal and Blitz rounds.
@@ -127,6 +133,9 @@ DEFAULT_SETTINGS = {
     "djunkHideKept": True,
     "dfoldersFolders": [],
     "dfoldersHideKept": True,
+    # Grid / Junk on a phone: tiles per page, and clips playing in their tiles.
+    "cleanupPhoneTiles": 4,
+    "cleanupClipPreviews": True,
     # "Show: All / Unrated / Liked" for the lean-back modes.
     "escalationRatingFilter": "all",
     "sessionRatingFilter": "all",

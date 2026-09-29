@@ -308,6 +308,12 @@
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
                     <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
+                  <button id="swipeDangerKeptOnly" class="switch-row" role="switch" aria-checked="false" hidden><span>Only files I kept in Dangerous</span><i aria-hidden="true"></i></button>
+                </section>
+                <section class="cc-section">
+                  <h3>This file</h3>
+                  <button id="swipeTrashButton" class="danger-button small-button"><svg aria-hidden="true"><use href="#i-trash" /></svg>Move to trash</button>
+                  <p class="subtle">The one on screen goes to local trash. Undo in the message that follows, or bring it back from Settings.</p>
                 </section>
                 <p class="cc-keys">← pass · → keep · ↑ love · ↓ skip · U undo · F focus</p>
                 <section class="cc-section cc-danger">
@@ -380,11 +386,17 @@
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
                     <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
+                  <button id="toktinderDangerKeptOnly" class="switch-row" role="switch" aria-checked="false" hidden><span>Only files I kept in Dangerous</span><i aria-hidden="true"></i></button>
                 </section>
                 <section class="cc-section">
                   <h3>Sound</h3>
                   <button id="toktinderAudioToggleButton" class="sound-toggle" aria-pressed="false">Sound off</button>
                   <p id="toktinderAudioHint" class="subtle"></p>
+                </section>
+                <section class="cc-section">
+                  <h3>This file</h3>
+                  <button id="toktinderTrashButton" class="danger-button small-button"><svg aria-hidden="true"><use href="#i-trash" /></svg>Move to trash</button>
+                  <p class="subtle">The one on screen goes to local trash. Undo in the message that follows, or bring it back from Settings.</p>
                 </section>
                 <p class="cc-keys">← pass · → keep · ↑ love · ↓ skip · Space play/pause · B mark a moment · U undo</p>
                 <section class="cc-section cc-danger">
@@ -737,7 +749,7 @@
                     <button id="dlCancel" class="danger-button small-button" hidden>Cancel</button>
                   </div>
                   <p id="dlNowMeta" class="subtle"></p>
-                  <pre id="dlLog" class="dl-log" tabindex="0" aria-label="Job output"></pre>
+                  <div id="dlLog" class="dl-log" role="log" tabindex="0" aria-label="Job output"></div>
                 </section>
                 <section id="dlArrivals" class="ranked-section" hidden>
                   <div class="ranked-section-head">
@@ -931,6 +943,7 @@
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
                     <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
+                  <button id="feedDangerKeptOnly" class="switch-row" role="switch" aria-checked="false" hidden><span>Only files I kept in Dangerous</span><i aria-hidden="true"></i></button>
                 </section>
                 <section class="cc-section">
                   <h3>When a clip ends</h3>
@@ -944,6 +957,11 @@
                   <button id="feedAudioToggleButton" class="sound-toggle" aria-pressed="false">Sound off</button>
                   <label class="range-row"><span>Volume</span><strong id="feedVolumeValue"></strong><input id="feedVolume" type="range" min="0" max="1" step="0.01" /></label>
                   <p id="feedAudioHint" class="subtle"></p>
+                </section>
+                <section class="cc-section">
+                  <h3>This file</h3>
+                  <button id="feedTrashButton" class="danger-button small-button"><svg aria-hidden="true"><use href="#i-trash" /></svg>Move to trash</button>
+                  <p class="subtle">The one on screen goes to local trash. Undo in the message that follows, or bring it back from Settings.</p>
                 </section>
                 <p class="cc-keys">Tap to pause · double-tap to keep · L love · B mark a moment · ↑ ↓ or swipe for the next clip</p>
               </div>
@@ -1087,11 +1105,17 @@
                     <button type="button" class="segment" data-rating-filter="liked">Liked</button>
                     <button type="button" class="segment" data-rating-filter="loved">Loved</button>
                   </div>
+                  <button id="rediscoverDangerKeptOnly" class="switch-row" role="switch" aria-checked="false" hidden><span>Only files I kept in Dangerous</span><i aria-hidden="true"></i></button>
                   <p class="subtle">Files never shown in any mode come first, then whatever has gone longest without a look. Everything you see anywhere in the app counts as seen.</p>
                 </section>
                 <section class="cc-section">
                   <h3>Sound</h3>
                   <button id="rediscoverSound" class="sound-toggle" aria-pressed="false">Sound off</button>
+                </section>
+                <section class="cc-section">
+                  <h3>This file</h3>
+                  <button id="rediscoverTrashButton" class="danger-button small-button"><svg aria-hidden="true"><use href="#i-trash" /></svg>Move to trash</button>
+                  <p class="subtle">The one on screen goes to local trash. Undo in the message that follows, or bring it back from Settings.</p>
                 </section>
                 <p class="cc-keys">← pass · → keep · ↑ love · ↓ skip · B mark · U undo</p>
               </div>
@@ -1202,6 +1226,7 @@
             <div class="stage-toolbar">
               <span id="dgridProgress" class="tool-note"></span>
               <button id="dgridUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="dgridFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
               <button id="dgridDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <p id="dgridReadOnly" class="readonly-note" hidden>This drive is read-only. Keeping works; deleting needs a writable media folder.</p>
@@ -1230,8 +1255,15 @@
                 <section class="cc-section">
                   <h3>Order</h3>
                   <div class="segmented" role="group" aria-label="Order" data-setting="dgridOrder"><button type="button" class="segment" data-value="random">Shuffled</button><button type="button" class="segment" data-value="biggest">Biggest</button><button type="button" class="segment" data-value="junk">Junk first</button><button type="button" class="segment" data-value="name">Name</button></div>
-                  <p class="subtle">Tiles per page:</p>
+                  <p class="subtle">On a computer, per page:</p>
                   <div class="segmented" role="group" aria-label="Tiles per page" data-setting="dgridTiles"><button type="button" class="segment" data-value="9">9</button><button type="button" class="segment" data-value="12">12</button><button type="button" class="segment" data-value="16">16</button><button type="button" class="segment" data-value="20">20</button></div>
+                </section>
+                <section class="cc-section">
+                  <h3>Tiles</h3>
+                  <p class="subtle">On a phone, per page (2 columns, big enough to judge):</p>
+                  <div class="segmented" role="group" aria-label="Tiles per page on a phone" data-setting="cleanupPhoneTiles"><button type="button" class="segment" data-value="2">2</button><button type="button" class="segment" data-value="4">4</button><button type="button" class="segment" data-value="6">6</button></div>
+                  <button class="switch-row" role="switch" aria-checked="true" data-setting="cleanupClipPreviews"><span>Play clips in the tiles (muted)</span><i aria-hidden="true"></i></button>
+                  <p class="subtle">Up to 4 play at once on a phone, 6 on a computer, from a marked moment or a quarter in. Off saves data: clips then show a still.</p>
                 </section>
                 <section class="cc-section">
                   <h3>Goal</h3>
@@ -1253,6 +1285,7 @@
             <div class="stage-toolbar">
               <span id="djunkProgress" class="tool-note"></span>
               <button id="djunkUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="djunkFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
               <button id="djunkDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <p id="djunkReadOnly" class="readonly-note" hidden>This drive is read-only. Keeping works; deleting needs a writable media folder.</p>
@@ -1280,6 +1313,13 @@
                   <p class="subtle">Suspects: photos under 80 KB, photos under 480 px (once Look-alikes has read them), clips under 4 MB, and names like screenshot, avatar, preview or a promo handle. Names only suggest: many real packs are named after a channel.</p>
                 </section>
                 <section class="cc-section">
+                  <h3>Tiles</h3>
+                  <p class="subtle">On a phone, per page (2 columns, big enough to judge):</p>
+                  <div class="segmented" role="group" aria-label="Tiles per page on a phone" data-setting="cleanupPhoneTiles"><button type="button" class="segment" data-value="2">2</button><button type="button" class="segment" data-value="4">4</button><button type="button" class="segment" data-value="6">6</button></div>
+                  <button class="switch-row" role="switch" aria-checked="true" data-setting="cleanupClipPreviews"><span>Play clips in the tiles (muted)</span><i aria-hidden="true"></i></button>
+                  <p class="subtle">Up to 4 play at once on a phone, 6 on a computer, from a marked moment or a quarter in. Off saves data: clips then show a still.</p>
+                </section>
+                <section class="cc-section">
                   <h3>Goal</h3>
                   <label class="range-row"><span>Free this much</span><strong data-value-for="cleanupGoalGb" data-format="gb"></strong><input type="range" min="0" max="20" step="0.5" data-setting="cleanupGoalGb" /></label>
                   <p class="subtle">Counts what every Dangerous mode moves to the trash this visit. Off at 0.</p>
@@ -1299,6 +1339,7 @@
             <div class="stage-toolbar">
               <span id="dsimilarProgress" class="tool-note"></span>
               <button id="dsimilarUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="dsimilarFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
               <button id="dsimilarDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <p id="dsimilarReadOnly" class="readonly-note" hidden>This drive is read-only. Keeping works; deleting needs a writable media folder.</p>
@@ -1358,6 +1399,7 @@
             <div class="stage-toolbar">
               <span id="dfoldersProgress" class="tool-note"></span>
               <button id="dfoldersUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="dfoldersFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
               <button id="dfoldersDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <p id="dfoldersReadOnly" class="readonly-note" hidden>This drive is read-only. Keeping works; deleting needs a writable media folder.</p>
@@ -2070,5 +2112,6 @@
     <script src="/js/33-downloads.js?v=9" defer></script>
     <script src="/js/34-bookmarks.js?v=9" defer></script>
     <script src="/js/35-cleanup.js?v=9" defer></script>
+    <script src="/js/36-sortrate.js?v=9" defer></script>
   </body>
 </html>

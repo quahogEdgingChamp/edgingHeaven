@@ -10,8 +10,8 @@
 // Only the keys a mode owns; a reset must not reach into another mode's
 // settings, its folders, or the library-wide ones.
 const MODE_SETTING_KEYS = {
-  swipe: ["swipeRatingFilter"],
-  toktinder: ["toktinderRatingFilter"],
+  swipe: ["swipeRatingFilter", "swipeDangerKeptOnly"],
+  toktinder: ["toktinderRatingFilter", "toktinderDangerKeptOnly"],
   escalation: [
     "escalationRatingFilter",
     "escalationBaseInterval",
@@ -32,10 +32,10 @@ const MODE_SETTING_KEYS = {
   ],
   gallery: ["galleryRatingFilter", "galleryKind", "gallerySort"],
   mosaic: ["mosaicRatingFilter", "mosaicTiles", "mosaicSwapSeconds", "mosaicIncludePhotos", "mosaicVolume"],
-  feed: ["feedRatingFilter", "feedVolume", "feedAutoAdvance"],
+  feed: ["feedRatingFilter", "feedDangerKeptOnly", "feedVolume", "feedAutoAdvance"],
   dangerous: ["dangerousKind", "dangerousHideKept"],
   duel: ["duelKind", "duelRatingFilter"],
-  rediscover: ["rediscoverKind", "rediscoverRatingFilter"],
+  rediscover: ["rediscoverKind", "rediscoverRatingFilter", "rediscoverDangerKeptOnly"],
 };
 
 const MODE_DEFAULTS = {
@@ -48,6 +48,10 @@ const MODE_DEFAULTS = {
   mosaicRatingFilter: "all",
   dangerousKind: "all",
   dangerousHideKept: true,
+  swipeDangerKeptOnly: false,
+  toktinderDangerKeptOnly: false,
+  feedDangerKeptOnly: false,
+  rediscoverDangerKeptOnly: false,
   swipeRatingFilter: "all",
   toktinderRatingFilter: "all",
   escalationRamp: true,
@@ -243,7 +247,8 @@ function syncDrawerSummaries() {
     const node = controls[`${mode}Summary`];
     if (node) {
       const extra = ["escalation", "session", "mosaic", "rediscover"].includes(mode) ? filterNote(mode) : "";
-      node.textContent = DRAWER_SUMMARIES[mode] ? DRAWER_SUMMARIES[mode]() + extra : "";
+      const kept = dangerKeptOnly(mode) ? " Only files you kept in Dangerous." : "";
+      node.textContent = DRAWER_SUMMARIES[mode] ? DRAWER_SUMMARIES[mode]() + extra + kept : "";
     }
     const presets = controls[`${mode}Preset`];
     if (presets) {

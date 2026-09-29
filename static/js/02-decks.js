@@ -55,7 +55,7 @@ function rebuildDeck(mode) {
     if (!matchesFolderSelection(item, selectedFolders)) {
       return false;
     }
-    return matchesRatingFilter(item, ratingFilterValue(config.filterKey));
+    return matchesRatingFilter(item, ratingFilterValue(config.filterKey)) && matchesDangerKept(mode, item);
   });
   shuffleBalanced(state[config.itemsKey]);
   state[config.indexKey] = 0;
@@ -70,7 +70,7 @@ function addToDeck(mode, items) {
   const filter = ratingFilterValue(config.filterKey);
   const deck = state[config.itemsKey];
   const wasEmpty = state[config.indexKey] >= deck.length;
-  items.filter((item) => matchesFolderSelection(item, selected) && matchesRatingFilter(item, filter)).forEach((item) => {
+  items.filter((item) => matchesFolderSelection(item, selected) && matchesRatingFilter(item, filter) && matchesDangerKept(mode, item)).forEach((item) => {
     const start = Math.min(deck.length, state[config.indexKey] + (wasEmpty ? 0 : 1));
     deck.splice(start + Math.floor(Math.random() * (deck.length - start + 1)), 0, item);
   });

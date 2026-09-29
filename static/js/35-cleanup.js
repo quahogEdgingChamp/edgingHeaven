@@ -41,10 +41,11 @@ Object.assign(PLAY_SETTING_CHOICES, {
   dgridOrder: ["random", "biggest", "junk", "name"],
   dgridTiles: [9, 12, 16, 20],
   djunkKind: ["all", "photos", "videos"],
+  cleanupPhoneTiles: [2, 4, 6],
   dsimilarKind: ["photos", "all"],
   dsimilarStrictness: ["tight", "close", "loose"],
 });
-PLAY_SETTING_SWITCHES.push("dangerousUpLoves", "dangerousFrames", "dgridHideKept", "djunkHideKept", "dfoldersHideKept");
+PLAY_SETTING_SWITCHES.push("dangerousUpLoves", "dangerousFrames", "dgridHideKept", "djunkHideKept", "dfoldersHideKept", "cleanupClipPreviews");
 SETTING_FORMATS.gb = (value) => (Number(value) ? `${value} GB` : "Off");
 
 const SWIPE_DEFAULTS = { dangerousOrder: "random", dangerousUpLoves: true, dangerousFrames: true, cleanupGoalGb: 0, blitzSeconds: 60 };
@@ -63,9 +64,9 @@ registerModeUI("dgrid", {
   summary: () => {
     const sweep = sweepState("dgrid");
     const left = Math.max(0, sweep.items.length - sweep.pos);
-    return `${plural(left, "file", "files")} to go, ${state.settings.dgridTiles} a page, ${ORDER_WORDS[state.settings.dgridOrder] || "shuffled"}.`;
+    return `${plural(left, "file", "files")} to go, ${sweepPageSize("dgrid")} a page, ${ORDER_WORDS[state.settings.dgridOrder] || "shuffled"}.`;
   },
-  defaults: { dgridKind: "all", dgridOrder: "random", dgridTiles: 12, dgridHideKept: true, cleanupGoalGb: 0 },
+  defaults: { dgridKind: "all", dgridOrder: "random", dgridTiles: 12, dgridHideKept: true, cleanupGoalGb: 0, cleanupPhoneTiles: 4, cleanupClipPreviews: true },
 });
 
 registerModeUI("djunk", {
@@ -80,7 +81,7 @@ registerModeUI("djunk", {
     const left = Math.max(0, sweep.items.length - sweep.pos);
     return `${plural(left, "suspect", "suspects")} left. Each tile says why it is here; nothing is marked for you.`;
   },
-  defaults: { djunkKind: "all", djunkHideKept: true, cleanupGoalGb: 0 },
+  defaults: { djunkKind: "all", djunkHideKept: true, cleanupGoalGb: 0, cleanupPhoneTiles: 4, cleanupClipPreviews: true },
 });
 
 registerModeUI("dsimilar", {
@@ -363,7 +364,20 @@ function cleanupTile(item, { marked, badges = [], note = "", onToggle, onOpen, o
     thumb.className = "gallery-thumb";
     thumb.alt = "";
     thumb.decoding = "async";
-    hit.append(preview, thumb);
+    // The clip itself plays over its still, muted (see playTileClips).
+    const clip = document.createElement("video");
+    clip.className = "tile-clip";
+    clip.muted = true;
+    clip.defaultMuted = true;
+    clip.loop = true;
+    clip.playsInline = true;
+    clip.preload = "none";
+    clip.addEventListener("playing", () => tile.classList.add("is-playing"));
+    // A clip still loading when the viewer opened must not start behind it.
+    clip.addEventListener("play", () => {
+      if (!el("cleanupViewer").hidden) clip.pause();
+    });
+    hit.append(preview, thumb, clip);
   } else {
     const image = document.createElement("img");
     image.loading = "lazy";
@@ -423,6 +437,8 @@ const viewer = { item: null, onToggle: null, isMarked: null };
 
 function openCleanupViewer(item, { isMarked, onToggle }) {
   Object.assign(viewer, { item, isMarked, onToggle });
+  // One clip at a time over the connection: the big one.
+  document.querySelectorAll(".mode-panel.active .tile-clip").forEach((clip) => clip.pause());
   const box = el("cleanupViewer");
   const image = el("cleanupViewerImage");
   const video = el("cleanupViewerVideo");
@@ -458,6 +474,28 @@ function closeCleanupViewer() {
   releaseVideo(el("cleanupViewerVideo"));
   el("cleanupViewerImage").removeAttribute("src");
   viewer.item = null;
+  document.querySelectorAll(".mode-panel.active .tile-clip[src]").forEach((clip) => clip.play().catch(() => {}));
+}
+
+/* ---- clips playing in their tiles ---- */
+
+// The clips on the page play muted and looping, from a marked moment or a
+// quarter of the way in, so you can judge them without opening each. A few
+// at a time; the rest keep their still. Off with "Play clips in the tiles".
+function playTileClips(grid, items) {
+  if (state.settings.cleanupClipPreviews === false) return;
+  const limit = PHONE.matches ? 4 : 6;
+  const byPath = new Map(items.map((item) => [item.path, item]));
+  [...grid.querySelectorAll(".sweep-tile.is-video .tile-clip")].slice(0, limit).forEach((clip) => {
+    const item = byPath.get(clip.closest(".sweep-tile").dataset.path);
+    if (!item) return;
+    const token = loadVideoSource(clip, item);
+    clip.muted = true;
+    clip.addEventListener("loadedmetadata", () => {
+      const duration = Number.isFinite(clip.duration) ? clip.duration : 0;
+      playWhenReady(clip, token, clipStart(item.path, duration, duration > 4 ? duration * 0.25 : 0));
+    }, { once: true });
+  });
 }
 
 /* ---- Grid and Junk: a page of files at a time ---- */
@@ -468,9 +506,25 @@ function sweepState(mode) {
   return (sweeps[mode] ||= { items: [], pos: 0, marked: new Set(), cursor: 0, built: false, library: "", observer: null });
 }
 
+// A phone gets a few big tiles instead of the desktop page: 2 columns
+// upright, one row when held sideways.
+const PHONE = window.matchMedia("(max-width: 767px), (max-height: 500px) and (orientation: landscape)");
+
 function sweepPageSize(mode) {
+  if (PHONE.matches) return Number(state.settings.cleanupPhoneTiles || 4);
   return mode === "djunk" ? 12 : Number(state.settings.dgridTiles || 12);
 }
+
+PHONE.addEventListener("change", () => {
+  const mode = state.currentMode;
+  if (mode === "dgrid" || mode === "djunk") {
+    sweepState(mode).marked.clear();
+    renderSweep(mode);
+  } else if (mode === "dfolders") {
+    pickFolderSamples();
+    renderFolders();
+  }
+});
 
 function buildSweep(mode) {
   const sweep = sweepState(mode);
@@ -533,6 +587,7 @@ function renderSweep(mode) {
     return tile;
   }));
   fitGridRows(grid);
+  playTileClips(grid, page);
   const total = sweep.items.length;
   el(`${mode}Empty`).hidden = page.length > 0;
   el(`${mode}Progress`).textContent = page.length
@@ -996,6 +1051,7 @@ function renderSimilar() {
       });
       return tile;
     }));
+    playTileClips(grid, set.items);
   }
   el("dsimilarProgress").textContent = similar.running ? "Fingerprinting…" : similar.built ? setProgressText() : "";
   syncSimilarActions();
@@ -1173,9 +1229,10 @@ function pickFolderSamples() {
   const videos = group.items.filter((item) => item.kind === "video");
   shuffleArray(photos);
   shuffleArray(videos);
-  // Mostly photos (they load fast), with a few stills if it has clips.
-  const clipShare = photos.length ? Math.min(videos.length, 3) : Math.min(videos.length, 12);
-  folderSweep.samples = [...photos.slice(0, 12 - clipShare), ...videos.slice(0, clipShare)];
+  // Mostly photos (they load fast), with a few clips if it has them.
+  const count = PHONE.matches ? 6 : 12;
+  const clipShare = photos.length ? Math.min(videos.length, PHONE.matches ? 2 : 3) : Math.min(videos.length, count);
+  folderSweep.samples = [...photos.slice(0, count - clipShare), ...videos.slice(0, clipShare)];
 }
 
 function renderFolders() {
@@ -1208,6 +1265,7 @@ function renderFolders() {
       onOpen: (it) => openCleanupViewer(it, { isMarked: () => false, onToggle: null }),
       observer: folderSweep.observer,
     })));
+    playTileClips(grid, folderSweep.samples);
     el("dfoldersDelete").querySelector("span").textContent = "Delete folder";
   } else {
     grid.replaceChildren();
@@ -1536,6 +1594,15 @@ function bindCleanup() {
 
   // Every Dangerous drawer is described in its markup (data-setting).
   const onChange = (mode) => (key) => {
+    if (key === "cleanupPhoneTiles" || key === "cleanupClipPreviews") {
+      // Same deal, shown differently: keep the place, drop the marks.
+      CLEANUP_DRAWERS.forEach((other) => syncSettingControls(el(`${other}Drawer`)));
+      if (state.currentMode === "dgrid" || state.currentMode === "djunk") {
+        sweepState(state.currentMode).marked.clear();
+        renderSweep(state.currentMode);
+      }
+      return;
+    }
     if (key === "cleanupGoalGb") {
       renderCleanupMeters();
       CLEANUP_DRAWERS.forEach((other) => syncSettingControls(el(`${other}Drawer`)));

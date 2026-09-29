@@ -11,7 +11,7 @@ function getFeedItems() {
   const selected = normalizedFolderSelection("feedFolders");
   const filter = ratingFilterValue("feedRatingFilter");
   return (state.library.videos || []).filter(
-    (item) => matchesFolderSelection(item, selected) && matchesRatingFilter(item, filter)
+    (item) => matchesFolderSelection(item, selected) && matchesRatingFilter(item, filter) && matchesDangerKept("feed", item)
   );
 }
 

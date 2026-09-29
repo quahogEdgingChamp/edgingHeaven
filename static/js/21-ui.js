@@ -1,9 +1,24 @@
 let toastTimer;
-function toast(message, duration = 5000) {
-  el("workspaceToast").textContent = message;
-  el("workspaceToast").hidden = false;
+// action: { label, run } adds one button (Undo) that closes the toast.
+function toast(message, duration = 5000, action = null) {
+  const box = el("workspaceToast");
+  box.textContent = message;
+  box.classList.toggle("has-action", !!action);
+  if (action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "toast-action";
+    button.textContent = action.label;
+    button.addEventListener("click", () => {
+      box.hidden = true;
+      clearTimeout(toastTimer);
+      action.run();
+    }, { once: true });
+    box.append(" ", button);
+  }
+  box.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el("workspaceToast").hidden = true; }, duration);
+  toastTimer = setTimeout(() => { box.hidden = true; }, duration);
 }
 
 function setupMediaFeedback() {

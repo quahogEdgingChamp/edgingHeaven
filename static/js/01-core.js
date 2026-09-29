@@ -111,7 +111,7 @@ const DRAWER_MODES = [
   "dsimilar",
   "dfolders",
 ];
-const FOCUS_MODES = ["swipe", "toktinder", "escalation", "session", "mosaic", "feed", "dangerous", "duel", "rediscover",
+const FOCUS_MODES = ["swipe", "toktinder", "escalation", "session", "mosaic", "feed", "dangerous", "dgrid", "djunk", "dsimilar", "dfolders", "duel", "rediscover",
   "beat", "redlight", "dice", "ladder", "spotlight", "highlights"];
 // Spotlight picks a model (a top-level folder) instead of folders.
 const FOLDER_MODES = DRAWER_MODES.filter((mode) => mode !== "spotlight");
@@ -559,6 +559,7 @@ function bindEvents() {
   controls.drawerBackdrop.addEventListener("click", closeDrawers);
 
   RATING_FILTER_MODES.forEach(bindRatingFilter);
+  bindSortRate();
   bindSegmented(controls.galleryQuickFilter, "ratingFilter", (value) => setRatingFilter("gallery", value));
   bindControlCenterChrome();
   bindSessionEvents();
@@ -1052,6 +1053,7 @@ async function loadState({ rebuild = false } = {}) {
   if (state.currentMode === "dangerous" && !restoreMode) startDangerous(libraryChanged);
   if (libraryChanged && MODE_HANDLERS[state.currentMode]) MODE_HANDLERS[state.currentMode].refresh();
   if (state.features.has("marks")) loadMarks();
+  loadDangerKeptForSortRate();
   if (state.settings.toyAuto && !state.toyAutoTried) {
     state.toyAutoTried = true;
     toyConnect();
@@ -1187,6 +1189,7 @@ function syncCounts() {
 function syncControls() {
   syncDrawerSummaries();
   RATING_FILTER_MODES.forEach(syncRatingFilter);
+  syncDangerKeptSwitches();
   syncBalancedFolders();
   syncModeControls();
   syncUndoButtons();
