@@ -36,7 +36,7 @@ function rebuildFeed() {
   if (!state.feed.items.length) {
     const empty = document.createElement("p");
     empty.className = "feed-empty subtle";
-    empty.textContent = "No videos match the feed filter.";
+    empty.textContent = dangerKeptEmptyReason("feed") || "No videos match the feed filter.";
     controls.feedScroller.appendChild(empty);
     return;
   }

@@ -33,9 +33,33 @@ function dangerousEligible(item, selected = normalizedFolderSelection("dangerous
   const kind = state.settings.dangerousKind || "all";
   if ((kind === "photo" && item.kind === "video") || (kind === "video" && item.kind !== "video")) return false;
   if (!matchesFolderSelection(item, selected)) return false;
-  // Before the server knows dangerousKept, "kept here" still means rated.
-  const kept = state.features.has("dangerousKept") ? dangerousKept.paths.has(item.path) : !!item.rating;
-  return !state.settings.dangerousHideKept || !kept;
+  return !state.settings.dangerousHideKept || !keptHere(item);
+}
+
+// Every file Swipe would deal right now, whatever this deal holds.
+function dangerousPool() {
+  const selected = normalizedFolderSelection("dangerousFolders");
+  return [
+    ...state.library.images.map(i => ({ ...i, kind: "photo" })),
+    ...state.library.videos.map(i => ({ ...i, kind: "video" })),
+  ].filter(item => dangerousEligible(item, selected));
+}
+
+// How far through the library Swipe is, for Tune: of the files its Media
+// and folder choices take in, how many are kept, and what they leave out.
+function dangerousCoverage() {
+  const selected = normalizedFolderSelection("dangerousFolders");
+  const kind = state.settings.dangerousKind || "all";
+  const tally = { total: 0, kept: 0, otherKind: 0, otherFolders: 0 };
+  [...state.library.images.map(i => ["photo", i]), ...state.library.videos.map(i => ["video", i])].forEach(([itemKind, item]) => {
+    if (kind !== "all" && kind !== itemKind) tally.otherKind++;
+    else if (!matchesFolderSelection(item, selected)) tally.otherFolders++;
+    else {
+      tally.total++;
+      if (keptHere(item)) tally.kept++;
+    }
+  });
+  return tally;
 }
 
 // Files from a download in progress join the deck after the one on screen.
@@ -75,13 +99,22 @@ function startDangerous(rebuild = false) {
     dangerous.kept = dangerous.deleted = 0;
     rebuild = true;
   }
+  if (!rebuild && dangerous.items.length) {
+    if (dangerous.index >= dangerous.items.length) {
+      // A finished deal deals again whatever is still unsorted (the files
+      // skipped), so every file comes back until it is kept or deleted.
+      rebuild = state.settings.dangerousHideKept && dangerousPool().length > 0;
+    } else {
+      // Kept in Grid, Junk or Folders since this deal: not asked again here.
+      const selected = normalizedFolderSelection("dangerousFolders");
+      dangerous.items = [
+        ...dangerous.items.slice(0, dangerous.index),
+        ...dangerous.items.slice(dangerous.index).filter(item => dangerousEligible(item, selected)),
+      ];
+    }
+  }
   if (rebuild || !dangerous.items.length) {
-    const selected = normalizedFolderSelection("dangerousFolders");
-    dangerous.items = [
-      ...state.library.images.map(i => ({ ...i, kind: "photo" })),
-      ...state.library.videos.map(i => ({ ...i, kind: "video" })),
-    ].filter(item => dangerousEligible(item, selected));
-    orderCleanupItems(dangerous.items, state.settings.dangerousOrder);
+    dangerous.items = orderCleanupItems(dangerousPool(), state.settings.dangerousOrder);
     dangerous.index = 0;
   }
   syncSegmented(el("dangerousKind"), "dangerousKind", state.settings.dangerousKind || "all");
@@ -100,6 +133,7 @@ function renderDangerous() {
   image.hidden = !item || isVideo;
   video.hidden = !item || !isVideo;
   el("dangerousEmpty").hidden = !!item;
+  if (!item) syncDangerousEmpty();
   el("dangerousCard").classList.toggle("is-video", !!isVideo);
   if (!isVideo) el("dangerousTransport").hidden = true;
   if (!isVideo) releaseVideo(video);
@@ -127,6 +161,16 @@ function renderDangerous() {
   // Tune's "… files left in this deck" follows every swipe, not just a new deal.
   if (controls.dangerousSummary) controls.dangerousSummary.textContent = DRAWER_SUMMARIES.dangerous();
   syncDangerousActions();
+}
+
+// The end of a deal is only "All sorted" when nothing is left unsorted;
+// skipped files are still there and the next deal brings them back.
+function syncDangerousEmpty() {
+  const left = state.settings.dangerousHideKept ? dangerousPool().length : 0;
+  el("dangerousEmpty").querySelector("h2").textContent = left ? "End of this deal." : "All sorted.";
+  el("dangerousEmpty").querySelector("p").textContent = left
+    ? `${plural(left, "file is", "files are")} still unsorted (skipped, not kept or deleted). Shuffle under Adjust deals ${left === 1 ? "it" : "them"} again; so does coming back to Swipe.`
+    : "Everything this deck takes in is kept or deleted. Change Media or folders under Adjust to go on.";
 }
 
 /* The video gets its own transport instead of native controls: the browser's

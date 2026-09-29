@@ -80,6 +80,7 @@ function renderRediscover() {
   const video = el("rediscoverVideo");
   const isVideo = item?.kind === "video";
   el("rediscoverEmpty").hidden = !!item;
+  if (!item) el("rediscoverEmpty").querySelector("p").textContent = dangerKeptEmptyReason("rediscover") || "Nothing matches the filter. Widen the folders or Show under Adjust.";
   image.hidden = !item || isVideo;
   video.hidden = !item || !isVideo;
   resetSwipeCard("rediscover");

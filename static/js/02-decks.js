@@ -99,7 +99,7 @@ function renderDeck(mode) {
     clearDeckMedia(mode);
     setLabel(controls[config.nameControl], config.emptyTitle);
     setLabel(controls[config.folderControl], "");
-    controls[config.statusControl].textContent = config.emptyStatus;
+    controls[config.statusControl].textContent = dangerKeptEmptyReason(mode) || config.emptyStatus;
     return;
   }
 

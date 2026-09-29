@@ -2375,3 +2375,18 @@ body.immersive .sweep-lead { display: none; }
 body.immersive .sweep-grid { gap: 6px; }
 body.immersive .sweep-actions .deck-button:not(.keep):not(.delete),
 body.immersive .sweep-actions .ghost-button { background: var(--glass); border-color: var(--glass-line); color: #fff; backdrop-filter: blur(10px); }
+
+/* Sort & rate → Move to trash on a read-only drive: looks off, but a tap
+   still answers with why (see 36-sortrate.js). */
+.danger-button.is-unavailable {
+  opacity: 0.45;
+}
+
+/* Sort & rate → "Only files I kept in Dangerous": what the kept list holds. */
+.switch-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 450;
+}

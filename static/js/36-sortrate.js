@@ -4,7 +4,10 @@
    Tune → "Only files I kept in Dangerous": the mode shows only what you
    looked at in a Dangerous mode and kept there (the server's dangerousKept,
    see 20-dangerous.js). It combines with Show, so Unrated + this switch is
-   "kept in Dangerous, not rated yet".
+   "kept in Dangerous, not rated yet". The photo deck only deals photos and
+   the video deck and Feed only videos, so the switch can empty a mode when
+   everything kept there is the other kind; the switch's note, the summary
+   and the empty deck say so.
 
    Tune → "Move to trash": the file on screen goes to local trash, like Delete
    in Dangerous. The toast's Undo (or Settings → trash) brings it back.
@@ -22,6 +25,37 @@ function matchesDangerKept(mode, item) {
   return !dangerKeptOnly(mode) || dangerousKept.paths.has(item.path);
 }
 
+// Kept in Dangerous, by kind. The photo deck only ever deals photos, so
+// with only videos kept there the switch leaves it empty (and the reverse).
+function dangerKeptCounts() {
+  const count = (list) => (list || []).reduce((sum, item) => sum + (dangerousKept.paths.has(item.path) ? 1 : 0), 0);
+  return { photos: count(state.library.images), videos: count(state.library.videos) };
+}
+
+function dangerKeptModeKind(mode) {
+  if (mode === "swipe") return "photos";
+  if (mode === "rediscover") return state.settings.rediscoverKind || "all";
+  return "videos";
+}
+
+// Why the switch leaves this mode with nothing, or "" when it does not.
+function dangerKeptEmptyReason(mode) {
+  if (!dangerKeptOnly(mode) || !dangerousKept.loaded) return "";
+  const { photos, videos } = dangerKeptCounts();
+  const kind = dangerKeptModeKind(mode);
+  if (!photos && !videos) return "Nothing is kept in Dangerous yet. Keep files there first, or turn off \"Only files I kept in Dangerous\".";
+  if (kind === "photos" && !photos) return `You kept ${plural(videos, "video", "videos")} and no photos in Dangerous, and this deck is photos only. Turn the switch on in the video deck or Feed instead.`;
+  if (kind === "videos" && !videos) return `You kept ${plural(photos, "photo", "photos")} and no videos in Dangerous, and this ${mode === "feed" ? "feed" : "deck"} is videos only. Turn the switch on in the photo deck instead.`;
+  return "";
+}
+
+// The Tune summary's ending while the switch is on.
+function dangerKeptSummary(mode) {
+  if (!dangerKeptOnly(mode)) return "";
+  const reason = dangerKeptEmptyReason(mode);
+  return ` Only files you kept in Dangerous.${reason ? ` ${reason}` : ""}`;
+}
+
 function bindSortRate() {
   DANGER_KEPT_MODES.forEach((mode) => {
     el(`${mode}DangerKeptOnly`).addEventListener("click", () => setDangerKeptOnly(mode, !state.settings[`${mode}DangerKeptOnly`]));
@@ -36,14 +70,27 @@ async function setDangerKeptOnly(mode, on) {
   // The kept list is otherwise only fetched when a Dangerous mode opens.
   if (on && !dangerousKept.loaded) await loadDangerousKept();
   applyShowChange(mode);
+  const reason = dangerKeptEmptyReason(mode);
+  if (on && reason) toast(reason, 8000);
 }
 
 function syncDangerKeptSwitches() {
+  const counts = dangerousKept.loaded ? dangerKeptCounts() : null;
   DANGER_KEPT_MODES.forEach((mode) => {
     const button = el(`${mode}DangerKeptOnly`);
     button.hidden = !state.features?.has("dangerousKept");
     button.setAttribute("aria-checked", String(!!state.settings[`${mode}DangerKeptOnly`]));
-    el(`${mode}TrashButton`).disabled = !state.canTrash;
+    // Under the label: what the list holds, so an empty deck is no surprise.
+    const label = button.querySelector("span");
+    let note = label.querySelector("small");
+    if (!note) {
+      note = document.createElement("small");
+      label.append(note);
+    }
+    note.hidden = !counts;
+    if (counts) note.textContent = `${plural(counts.photos, "photo", "photos")} and ${plural(counts.videos, "video", "videos")} kept there`;
+    // Left tappable on a read-only drive, so a tap says why nothing happens.
+    el(`${mode}TrashButton`).classList.toggle("is-unavailable", !state.canTrash);
   });
 }
 
@@ -54,6 +101,7 @@ function loadDangerKeptForSortRate() {
   if (!waiting.length || dangerousKept.loaded) return;
   loadDangerousKept().then(() => {
     if (dangerousKept.loaded) waiting.forEach(applyShowChange);
+    syncDangerKeptSwitches();
   });
 }
 
@@ -88,7 +136,7 @@ async function trashCurrentFile(mode) {
   } catch (error) {
     if (!error.locked) toast(error.message || "Could not move it to trash. The file is still here.");
   } finally {
-    button.disabled = !state.canTrash;
+    button.disabled = false;
   }
 }
 
@@ -124,7 +172,7 @@ function redrawFeedAt(index) {
   if (!state.feed.items.length) {
     const empty = document.createElement("p");
     empty.className = "feed-empty subtle";
-    empty.textContent = "No videos match the feed filter.";
+    empty.textContent = dangerKeptEmptyReason("feed") || "No videos match the feed filter.";
     controls.feedScroller.appendChild(empty);
     return;
   }

@@ -232,7 +232,15 @@ const DRAWER_SUMMARIES = {
     const kind = state.settings.dangerousKind === "photo" ? "photos" : state.settings.dangerousKind === "video" ? "videos" : "photos and videos";
     const which = state.settings.dangerousHideKept ? `${kind} you have not kept here yet` : kind;
     const left = Math.max(0, dangerous.items.length - dangerous.index);
-    return `Reviewing ${which} — ${plural(left, "file", "files")} left in this deck.${state.canTrash ? "" : " The drive is read-only, so Delete is off."}`;
+    // "Does it go through everything?" answered: kept so far of all it takes
+    // in, and what Media or folders leave out.
+    const cover = dangerousCoverage();
+    const parts = [`Reviewing ${which} — ${plural(left, "file", "files")} left in this deck.`];
+    parts.push(`${cover.kept.toLocaleString()} of ${plural(cover.total, "file", "files")} kept here so far.`);
+    if (cover.otherKind) parts.push(`${plural(cover.otherKind, state.settings.dangerousKind === "photo" ? "video is" : "photo is", state.settings.dangerousKind === "photo" ? "videos are" : "photos are")} left out by Media.`);
+    if (cover.otherFolders) parts.push(`${plural(cover.otherFolders, "file", "files")} in other folders ${cover.otherFolders === 1 ? "is" : "are"} left out by Folders.`);
+    if (!state.canTrash) parts.push("The drive is read-only, so Delete is off.");
+    return parts.join(" ");
   },
 };
 
@@ -247,7 +255,7 @@ function syncDrawerSummaries() {
     const node = controls[`${mode}Summary`];
     if (node) {
       const extra = ["escalation", "session", "mosaic", "rediscover"].includes(mode) ? filterNote(mode) : "";
-      const kept = dangerKeptOnly(mode) ? " Only files you kept in Dangerous." : "";
+      const kept = dangerKeptSummary(mode);
       node.textContent = DRAWER_SUMMARIES[mode] ? DRAWER_SUMMARIES[mode]() + extra + kept : "";
     }
     const presets = controls[`${mode}Preset`];
@@ -255,6 +263,8 @@ function syncDrawerSummaries() {
       syncSegmented(presets, "preset", currentPresetName(mode));
     }
   });
+  // The kept counts under Sort & rate's switch move with every keep.
+  syncDangerKeptSwitches();
 }
 
 function bindDrawerControls() {
