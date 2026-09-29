@@ -11,7 +11,8 @@ from rich.console import Console
 
 from .util import polite_sleep
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 T = TypeVar("T")
 R = TypeVar("R")
 

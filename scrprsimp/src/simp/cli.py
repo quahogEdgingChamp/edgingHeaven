@@ -25,7 +25,8 @@ from .space import DriveFull, check_space
 from .thread import CrawlLinks, crawl_thread
 from .util import ensure_dir, polite_sleep
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 
 
 def _add_bookmark_page_args(p: argparse.ArgumentParser) -> None:

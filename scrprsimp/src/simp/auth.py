@@ -10,7 +10,8 @@ from rich.console import Console
 
 from .config import Config
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 
 
 def _domain_matches(cookie_domain: str, host: str) -> bool:

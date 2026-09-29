@@ -207,3 +207,30 @@ def test_clear_history_removes_content_cache(tmp_path):
     cache.write_text("{}\n")
     clear_target(cfg, "history")
     assert not cache.exists()
+
+
+def test_cdl_files_move_in_while_it_runs(tmp_path, monkeypatch):
+    import time
+
+    cfg = Config(root=tmp_path)
+    folder = cfg.models_root() / "model"
+    folder.mkdir(parents=True)
+    monkeypatch.setattr(download, "CDL_PUBLISH_EVERY", 0.05)
+    monkeypatch.setattr(download, "CDL_SETTLED_SECONDS", 0.3)
+
+    def run(cfg, urls, out):
+        (out / "first.mp4").write_bytes(b"first video")
+        deadline = time.time() + 5
+        while not (folder / "first.mp4").exists() and time.time() < deadline:
+            time.sleep(0.02)
+        assert (folder / "first.mp4").read_bytes() == b"first video"  # before the run ends
+        (out / "last.mp4").write_bytes(b"last video")  # just written: waits to settle
+        time.sleep(0.1)
+        assert not (folder / "last.mp4").exists()
+        return 0
+
+    monkeypatch.setattr(download, "run_cyberdrop_dl", run)
+    result = ModelResult("model")
+    download._run_cdl(cfg, tmp_path / "urls", folder, result)
+    assert result.ok == 2 and result.cdl_exit == 0
+    assert (folder / "last.mp4").read_bytes() == b"last video"  # the final sweep takes it

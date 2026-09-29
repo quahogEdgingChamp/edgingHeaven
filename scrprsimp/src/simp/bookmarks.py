@@ -14,7 +14,8 @@ from .config import Config
 from .net import get_retry, wait_out_429
 from .util import ensure_dir, polite_sleep, thread_slug_from_url
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 
 _PAGE_RE = re.compile(r"[?&]page=(\d+)", re.I)
 _TITLE_RE = re.compile(

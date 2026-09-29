@@ -13,7 +13,8 @@ from .index import DownloadIndex
 from .net import MEDIA_ACCEPT, ThreadClients
 from .util import thread_slug_from_url
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 
 
 @dataclass

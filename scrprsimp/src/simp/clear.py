@@ -10,7 +10,8 @@ from .config import Config
 from .download import cdl_paths
 from .util import ensure_dir
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 
 # What `simp clear` can wipe. Keys are CLI choices.
 CLEAR_TARGETS = (

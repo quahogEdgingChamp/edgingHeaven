@@ -1,6 +1,7 @@
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import httpx
 import pytest
@@ -259,12 +260,31 @@ def test_cyberdrop_command(cfg, tmp_path, monkeypatch, deduplicate):
     assert run_cyberdrop_dl(cfg, urls, tmp_path / "out") == 0
     cmd, kw = calls[0]
     assert "--no-auto-dedupe" in cmd  # simp verifies within the model, not CDL's global DB
-    assert cmd[cmd.index("--hashing") + 1] == "off"
+    assert "--hashing" not in cmd  # crashes cyberdrop-dl 10.10's parser
+    config = Path(cmd[cmd.index("--config-file") + 1])
+    assert config.read_text() == 'hashing:\n  mode: "off"\n'
     for kind in ("image", "video", "audio", "non_media"):
         assert cmd[cmd.index(f"--{kind}.size.max") + 1] == "4294967295"
     assert cmd[cmd.index("--min-free-space") + 1] == "3221225472"
     # cyberdrop-dl's own app data stays with simp's state, not in ~/.config
     assert kw["env"]["CDL_APPDATA_FOLDER"] == str(tmp_path / "state" / "cdl" / "appdata")
+
+
+def test_real_cyberdrop_accepts_command(cfg, tmp_path, monkeypatch):
+    """The installed cyberdrop-dl must parse simp's options (a bad one exits 1 at once)."""
+    import shutil
+    import sys
+
+    exe = shutil.which("cyberdrop-dl") or str(Path(sys.executable).with_name("cyberdrop-dl"))
+    if not Path(exe).is_file():
+        pytest.skip("cyberdrop-dl not installed")
+    monkeypatch.setattr(download.shutil, "which", lambda name: exe)
+    monkeypatch.delenv("CDL_APPDATA_FOLDER", raising=False)
+    cfg.download.max_file_bytes = 4294967295
+    cfg.download.min_free_bytes = 1
+    urls = tmp_path / "urls.txt"
+    urls.write_text("https://example.invalid/unsupported\n")  # no crawler: no request
+    assert run_cyberdrop_dl(cfg, urls, tmp_path / "out") == 0
 
 
 @pytest.mark.parametrize("compressed", [False, True])

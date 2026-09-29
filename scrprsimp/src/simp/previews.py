@@ -22,7 +22,8 @@ from .config import Config
 from .net import MEDIA_ACCEPT, get_retry
 from .util import absolute_url, ensure_dir, polite_sleep, thread_slug_from_url
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 
 PREVIEW_MAX_BYTES = 1_500_000
 PREVIEW_TYPES = {

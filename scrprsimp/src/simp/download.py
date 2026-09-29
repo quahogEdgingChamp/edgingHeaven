@@ -27,7 +27,8 @@ from .net import MEDIA_ACCEPT, ThreadClients, bounded_results, retry_after_secon
 from .space import DriveFull, check_space
 from .util import ensure_dir, polite_sleep, sanitize_filename, thread_slug_from_url
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 
 _FILENAME_RE = re.compile(r'filename\*?=(?:UTF-8\'\')?"?([^\";]+)"?', re.I)
 _HTML_TYPES = {"text/html", "application/xhtml+xml"}
@@ -92,9 +93,10 @@ def _track_line(model: str, link: MediaLink, *, status: str, detail: str = "") -
 
 
 def _report(label: str, link: MediaLink, status: str, detail: str) -> tuple[str, str]:
-    console.print(_track_line(label, link, status=status, detail=detail))
+    # markup=False: rich would read "[ok]" (and brackets in file names) as tags
+    console.print(_track_line(label, link, status=status, detail=detail), markup=False, highlight=False)
     if status == "fail":
-        console.print(f"         {link.url}")
+        console.print(f"         {link.url}", markup=False, highlight=False)
     return status, detail
 
 
@@ -361,6 +363,8 @@ def cdl_paths(cfg: Config) -> dict[str, Path]:
         "log_scrape_errors": logs / "scrape_errors.csv",
         "log_unsupported": logs / "unsupported_urls.csv",
         "log_dedupe": logs / "dedupe.csv",
+        # Settings with no working command-line flag (see run_cyberdrop_dl)
+        "config": root / "simp-cdl.yaml",
     }
 
 
@@ -401,11 +405,17 @@ def run_cyberdrop_dl(cfg: Config, urls_file: Path, download_dir: Path) -> int:
             log_path.touch()
     if not paths["db"].is_file():
         paths["db"].touch()
+    # cyberdrop-dl 10.10's `--hashing off` crashes its argument parser (IndexError
+    # in cyclopts, exit 1 before any download), so hashing goes in a config file.
+    # Quoted: a bare YAML `off` is the boolean false.
+    paths["config"].write_text('hashing:\n  mode: "off"\n', encoding="utf-8")
 
     # Keep db/cache/logs inside the project instead of ~/.local/share/cyberdrop-dl
     cmd = [
         resolved,
         "download",
+        "--config-file",
+        str(paths["config"]),
         "-i",
         str(urls_file),
         "-o",
@@ -438,8 +448,9 @@ def run_cyberdrop_dl(cfg: Config, urls_file: Path, download_dir: Path) -> int:
         "--logs.no-http-traffic",
     ]
     # simp owns verification. CDL's deduper searches its global DB across
-    # models; also turn off its redundant hashes (URL history is independent).
-    cmd.extend(["--no-auto-dedupe", "--hashing", "off"])
+    # models; its redundant hashes are turned off in paths["config"] (URL
+    # history is independent).
+    cmd.append("--no-auto-dedupe")
     exclude = cdl_exclude_regex(cfg.download.exclude_extensions)
     if exclude:
         cmd.extend(["--filename-regex-exclude", exclude])
@@ -518,7 +529,7 @@ def _queue_cdl(cfg: Config, slug: str, cdl_links: list[MediaLink]) -> Path:
     )
     # One tracking line per host URL so you can grep thread pages.
     for link in cdl_links:
-        console.print(_track_line(slug, link, status="cdl", detail=link.url[:80]))
+        console.print(_track_line(slug, link, status="cdl", detail=link.url[:80]), markup=False, highlight=False)
     return per_thread
 
 
@@ -582,6 +593,12 @@ def _run_direct(
         raise DriveFull(d.full)
 
 
+# While cyberdrop-dl runs, finished files move into the model folder this often,
+# once nothing has touched them for CDL_SETTLED_SECONDS.
+CDL_PUBLISH_EVERY = 15.0
+CDL_SETTLED_SECONDS = 30.0
+
+
 def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult) -> None:
     console.print(f"  cyberdrop-dl → {dest}")
     if cfg.download.deduplicate and cfg.download.skip_existing:
@@ -599,18 +616,40 @@ def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult) -> N
         ensure_dir(staging)
         index = ContentIndex(cfg.resolve(cfg.paths.state_dir) / "content" / f"{result.slug}.jsonl", dest)
 
-        def publish():
+        def publish(settled: float = 0.0):
             for incoming in complete_files(staging):
-                kept, duplicate = index.finish(incoming, dest / incoming.relative_to(staging))
+                try:
+                    # cyberdrop-dl still sets the date just after renaming its .part
+                    if settled and time.time() - incoming.stat().st_ctime < settled:
+                        continue
+                    kept, duplicate = index.finish(incoming, dest / incoming.relative_to(staging))
+                except FileNotFoundError:
+                    continue
                 if duplicate:
                     result.skipped += 1
                     console.print(f"  duplicate content → {kept.relative_to(dest)}")
                 else:
                     result.ok += 1
+
+        # Move finished files in while it runs, so the library gets them as they
+        # land instead of after the last (often slow) video.
+        stop = threading.Event()
+
+        def publish_while_running():
+            while not stop.wait(CDL_PUBLISH_EVERY):
+                try:
+                    publish(settled=CDL_SETTLED_SECONDS)
+                except OSError as exc:
+                    console.print(f"  [yellow]could not move a finished file yet:[/] {exc}")
+
         publish()  # recover completed files from an interrupted run first
+        mover = threading.Thread(target=publish_while_running, name="cdl-publish", daemon=True)
+        mover.start()
         try:
             result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, staging)
         finally:
+            stop.set()
+            mover.join()
             publish()
     else:
         result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, dest)

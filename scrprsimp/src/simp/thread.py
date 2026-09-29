@@ -24,7 +24,8 @@ from .hosts import (
 from .net import bounded_results, get_retry
 from .util import absolute_url, ensure_dir, looks_like_login_page, polite_sleep, sanitize_filename
 
-console = Console()
+# soft_wrap: a long line stays one line in job logs (the page wraps it)
+console = Console(soft_wrap=True)
 
 _PAGE_RE = re.compile(r"/page-(\d+)", re.I)
 
