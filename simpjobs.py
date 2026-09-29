@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import threading
 import time
@@ -24,7 +25,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlsplit
 
 SIMP_BIN = Path(__file__).parent / "scrprsimp" / ".venv" / "bin" / "simp"
 
@@ -53,7 +54,13 @@ AUTH_BAD = ("Session looks logged-out", "Cookies file not found", "No cookies fo
 
 ACTIVE = {"queued", "running"}
 # Jobs that write to the drive: refused below the reserve, held when it is reached.
-DRIVE_ACTIONS = {"thread", "update", "bookmarks", "retry"}
+DRIVE_ACTIONS = {"thread", "update", "bookmarks", "retry", "later"}
+# Fast hosts first, Bunkr last: downloads run simp with --slow-later, which
+# saves each model's Bunkr links (one file at a time per Bunkr server, slow)
+# in state/later/. A "later" job (`simp later`) downloads them once nothing
+# else waits, and steps aside, to go on afterwards, when a new download is
+# queued. cyberdrop-dl skips what it finished and resumes its .part files.
+SLOW_LATER = "--slow-later"
 # simp's exit code when the drive reached download.min_free_bytes (see its space.py).
 EXIT_DRIVE_FULL = 3
 # Resume only with this much room beyond the reserve, or it would stop again at once.
@@ -63,6 +70,23 @@ WATCH_SECONDS = 10
 ARRIVALS_KEPT = 1000
 # simp prints this when it starts writing into a model's folder.
 MODEL_FOLDER = "Model folder: "
+
+# What cyberdrop-dl is doing, for the page: read from its own files while it
+# runs, never from its output (--ui disabled prints almost nothing).
+#   the log (--log-file, rewritten each run): which files started, finished, failed
+#   the database (--db): one row per file it queued, with the size once done
+#   the download folder (-o): the .part file of each download in progress
+# A line carries its time only when it changed since the line before.
+CDL_EVENT_RE = re.compile(
+    r"^(?:\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)[.\d]*\])?\s*[A-Z]+\s+(Download|Scrape) (starting|finished|skipped|failed|Failed):? (\S+)(.*)$")
+CDL_TIME_RE = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)")
+CDL_SCRAPING = "] Scraping "
+PROGRESS_SECONDS = 2
+# Speed is the growth over this many seconds; shorter jumps around.
+SPEED_WINDOW = 30
+# The estimate goes by how many files finished in the last hour.
+PACE_WINDOW = 3600
+PARTS_SHOWN = 8
 
 
 class SimpError(Exception):
@@ -105,6 +129,34 @@ def decode_tail(data: bytes) -> tuple[str, int]:
     return data.decode("utf-8", errors="replace"), len(data)
 
 
+def cdl_run_paths(argv: list) -> Optional[dict]:
+    """The folder, database and log of a `cyberdrop-dl download` command line
+    (as simp's run_cyberdrop_dl builds it), or None for any other process."""
+    if "download" not in argv[:3] or not any(Path(arg).name.startswith("cyberdrop") for arg in argv[:2]):
+        return None
+    options = {}
+    for flag, value in zip(argv, argv[1:]):
+        if flag in ("-o", "--db", "--log-file") and flag not in options:
+            options[flag] = value
+    if len(options) < 3:
+        return None
+    return {"out": Path(options["-o"]), "db": Path(options["--db"]), "log": Path(options["--log-file"])}
+
+
+def cdl_file_name(url: str) -> str:
+    """What cyberdrop-dl calls a download: Bunkr's ?n= name, else the last path part."""
+    name = re.search(r"[?&]n=([^&]+)", url)
+    if name:
+        return unquote(name.group(1).replace("+", " "))
+    return unquote(url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1])
+
+
+def url_key(url_or_path: str) -> str:
+    """The last part of a URL's path: what a log URL and a database row share
+    (the row keeps only the end of the path, /Name-abc.mp4 or /api/file/<id>)."""
+    return url_or_path.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+
+
 class SimpJobs:
     def __init__(self, root: Path, simp_bin: Path = SIMP_BIN, add_files: Optional[Callable[[list], list]] = None):
         self.root = root
@@ -121,6 +173,10 @@ class SimpJobs:
         self.proc: Optional[subprocess.Popen] = None
         self.worker: Optional[threading.Thread] = None
         self._threads_cache = {}
+        # The running cyberdrop-dl and what has been read of it (see progress).
+        self._cdl: Optional[dict] = None
+        self._progress = (0.0, None)
+        self._progress_lock = threading.Lock()
         self._load()
 
     # ---- persistence ----
@@ -240,6 +296,23 @@ class SimpJobs:
                 stamps.append(int(fields[4]))
         return datetime.fromtimestamp(max(stamps), timezone.utc).isoformat() if stamps else None
 
+    def later_models(self, state: Path) -> list:
+        """Models whose Bunkr links wait for the "later" job (state/later/<model>.txt)."""
+        rows = []
+        for path in sorted((state / "later").glob("*.txt")):
+            try:
+                links = sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+                changed = path.stat().st_mtime
+            except OSError:
+                continue
+            rows.append({"model": path.stem, "links": links, "savedAt": datetime.fromtimestamp(changed, timezone.utc).isoformat()})
+        return rows
+
+    @staticmethod
+    def _later_label(models: list) -> str:
+        shown = ", ".join(models[:4]) + (f" and {len(models) - 4} more" if len(models) > 4 else "")
+        return f"Bunkr files, last: {shown}" if shown else "Bunkr files, last"
+
     def bookmarks(self) -> dict:
         """What `simp bookmarks --save` last wrote, with each preview as a URL
         this server answers (the page never loads anything from SimpCity)."""
@@ -334,12 +407,14 @@ class SimpJobs:
             "auth": auth,
             "jobs": jobs[:25],
             "failed": self.failed_models(paths["state"]),
+            "later": self.later_models(paths["state"]),
             "threads": [{"model": model, **entry} for model, entry in sorted(threads.items())],
+            "progress": self.progress(),
         }
 
     @staticmethod
     def _public(job: dict) -> dict:
-        return {key: value for key, value in job.items() if key != "cancelRequested"}
+        return {key: value for key, value in job.items() if key not in ("cancelRequested", "yielding")}
 
     def _job(self, job_id) -> dict:
         with self.lock:
@@ -370,6 +445,188 @@ class SimpJobs:
         with self.lock:
             return {"text": text, "offset": start + used, "size": size, "job": self._public(job)}
 
+    # ---- what cyberdrop-dl is doing ----
+
+    def progress(self) -> Optional[dict]:
+        """The running job's cyberdrop-dl: files downloading now and their
+        speed, how many wait, how many finished or failed, and a rough time
+        left. None while no cyberdrop-dl runs (simp's own downloads show in
+        its output). Worked out at most every PROGRESS_SECONDS: every open
+        page asks with each poll."""
+        with self._progress_lock:
+            now = time.time()
+            if now - self._progress[0] < PROGRESS_SECONDS:
+                return self._progress[1]
+            try:
+                value = self._measure(now)
+            except (OSError, sqlite3.Error, ValueError):
+                value = None
+            self._progress = (now, value)
+            return value
+
+    def _find_cdl(self) -> Optional[dict]:
+        """cyberdrop-dl among the running job's processes: simp starts its own
+        session (see _run), so they all share simp's pid as their group."""
+        with self.lock:
+            proc = self.proc
+            job = next((job for job in self.jobs if job["status"] == "running"), None)
+        if proc is None or job is None:
+            self._cdl = None
+            return None
+        known = self._cdl
+        if known and known["group"] == proc.pid:
+            try:
+                if os.getpgid(known["pid"]) == proc.pid:
+                    return known
+            except (OSError, ProcessLookupError):
+                pass
+        self._cdl = None
+        for name in os.listdir("/proc"):
+            if not name.isdigit() or int(name) == proc.pid:
+                continue
+            try:
+                if os.getpgid(int(name)) != proc.pid:
+                    continue
+                argv = [arg.decode("utf-8", "replace") for arg in Path(f"/proc/{name}/cmdline").read_bytes().split(b"\0") if arg]
+                paths = cdl_run_paths(argv)
+                started = self._process_start(int(name)) if paths else None
+            except (OSError, ProcessLookupError, ValueError):
+                continue
+            if paths:
+                self._cdl = {**paths, "pid": int(name), "group": proc.pid, "job": job["id"], "started": started,
+                             "offset": 0, "time": None, "active": {}, "finishes": [], "failed": collections.Counter(),
+                             "failedUrls": set(), "skipped": 0, "scraped": 0, "scrapeFailed": 0, "downloading": False,
+                             "samples": collections.deque(), "parts": {}}
+                return self._cdl
+        return None
+
+    @staticmethod
+    def _process_start(pid: int) -> float:
+        """When a process started, from /proc: clock ticks after boot."""
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        boot = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime "))
+        return boot + int(fields[19]) / os.sysconf("SC_CLK_TCK")
+
+    def _read_cdl_log(self, run: dict) -> None:
+        """Follow cyberdrop-dl's log from where the last look stopped."""
+        with run["log"].open("rb") as handle:
+            handle.seek(run["offset"])
+            data = handle.read(4 * 1024 * 1024)
+        whole = data[: data.rfind(b"\n") + 1]
+        run["offset"] += len(whole)
+        for line in whole.decode("utf-8", errors="replace").splitlines():
+            stamp = CDL_TIME_RE.match(line)
+            if stamp:
+                run["time"] = datetime.strptime(stamp.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
+            # A log left over from an earlier run is not this one's.
+            if run["time"] is not None and run["time"] < run["started"] - 60:
+                continue
+            if CDL_SCRAPING in line:
+                run["scraped"] += 1
+                continue
+            event = CDL_EVENT_RE.match(line)
+            if not event:
+                continue
+            what, verb, url, rest = event.group(2), event.group(3), event.group(4), event.group(5)
+            when = run["time"] or time.time()
+            if what == "Scrape":
+                run["scrapeFailed"] += verb in ("failed", "Failed")
+            elif verb == "starting":
+                run["active"][url] = when
+                run["downloading"] = True
+            elif verb in ("finished", "skipped"):
+                run["active"].pop(url, None)
+                if verb == "finished":
+                    run["finishes"].append(when)
+                else:
+                    run["skipped"] += 1
+            elif verb == "Failed" or "retrying" not in rest:
+                # "Download failed: … retrying" is followed by another attempt.
+                run["active"].pop(url, None)
+                reason = rest.strip()
+                run["failed"][reason[1:-1] if reason.startswith("(") and reason.endswith(")") else reason or "failed"] += 1
+                run["failedUrls"].add(url)
+
+    @staticmethod
+    def _speed(samples, now: float, value: int) -> Optional[float]:
+        """Bytes per second over the last SPEED_WINDOW seconds of samples."""
+        samples.append((now, value))
+        while len(samples) > 2 and samples[1][0] <= now - SPEED_WINDOW:
+            samples.popleft()
+        then, before = samples[0]
+        return max(0.0, (value - before) / (now - then)) if now - then >= 4 else None
+
+    def _measure(self, now: float) -> Optional[dict]:
+        run = self._find_cdl()
+        if run is None:
+            return None
+        self._read_cdl_log(run)
+        out = str(run["out"]).rstrip("/")
+        like = out.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%"
+        db = sqlite3.connect(f"{run['db'].as_uri()}?mode=ro", uri=True, timeout=1)
+        try:
+            rows = db.execute("SELECT domain, url_path, completed, file_size, completed_at FROM media "
+                              "WHERE download_path = ? OR download_path LIKE ? ESCAPE '\\'", (out, like)).fetchall()
+        finally:
+            db.close()
+        since = datetime.fromtimestamp(run["started"], timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        done = [row for row in rows if row[2] and str(row[4] or "") >= since]
+        # A row is queued when cyberdrop-dl lines a file up; the ones not
+        # downloading now and not given up on are still waiting.
+        busy = {url_key(url) for url in run["active"]} | {url_key(url) for url in run["failedUrls"]}
+        waiting = [row for row in rows if not row[2] and url_key(str(row[1] or "")) not in busy]
+
+        parts = []
+        for folder, _, names in os.walk(run["out"]):
+            for name in names:
+                if name.endswith(".part"):
+                    try:
+                        info = os.stat(os.path.join(folder, name))
+                    except OSError:
+                        continue
+                    parts.append((os.path.join(folder, name), name[:-5], info.st_size, info.st_mtime))
+        total = sum(row[3] or 0 for row in rows if row[2]) + sum(part[2] for part in parts)
+        speed = self._speed(run["samples"], now, total)
+
+        names = {cdl_file_name(url): url for url in run["active"]}
+        seen = set()
+        active = []
+        # A .part left by an earlier, stopped run does not grow.
+        for path, name, size, mtime in sorted(parts, key=lambda part: -part[3]):
+            url = names.get(name)
+            if url is None and mtime < now - 120:
+                continue
+            seen.add(path)
+            samples = run["parts"].setdefault(path, collections.deque())
+            active.append({"name": name, "bytes": size, "speed": self._speed(samples, now, size),
+                           "host": urlsplit(url).hostname if url else None,
+                           "startedAt": datetime.fromtimestamp(run["active"][url], timezone.utc).isoformat() if url else None})
+        run["parts"] = {path: samples for path, samples in run["parts"].items() if path in seen}
+
+        recent = [when for when in run["finishes"] if when >= now - PACE_WINDOW]
+        span = now - max(run["started"], now - PACE_WINDOW)
+        pace = len(recent) / span if len(recent) >= 2 and span >= 300 else None
+        left = len(waiting) + len(run["active"])
+        return {
+            "jobId": run["job"],
+            "phase": "downloading" if run["downloading"] else "scanning",
+            "startedAt": datetime.fromtimestamp(run["started"], timezone.utc).isoformat(),
+            "linksChecked": run["scraped"],
+            "scrapeFailed": run["scrapeFailed"],
+            "done": len(done),
+            "doneBytes": sum(row[3] or 0 for row in done),
+            "downloading": len(run["active"]),
+            "active": active[:PARTS_SHOWN],
+            "waiting": len(waiting),
+            "waitingByHost": dict(collections.Counter(str(row[0]) for row in waiting).most_common()),
+            "skipped": run["skipped"],
+            "failed": sum(run["failed"].values()),
+            "failedReasons": run["failed"].most_common(3),
+            "speed": speed,
+            "filesPerHour": round(pace * 3600, 1) if pace else None,
+            "etaSeconds": round(left / pace) if pace and left else None,
+        }
+
     # ---- starting jobs ----
 
     def submit(self, payload: dict) -> dict:
@@ -399,13 +656,13 @@ class SimpJobs:
             if len(urls) > MAX_URLS:
                 raise SimpError(f"At most {MAX_URLS} threads per job.")
             models = [thread_slug(url) for url in urls]
-            args, label = ["thread", *urls], "Download " + ", ".join(models)
+            args, label = ["thread", SLOW_LATER, *urls], "Download " + ", ".join(models)
         elif action == "update":
             model = payload.get("model")
             entry = self.known_threads(paths["state"]).get(model) if isinstance(model, str) else None
             if entry is None:
                 raise SimpError("simp has no thread for this model yet. Download it once from its thread link.", 404)
-            args, label, models = ["thread", entry["url"]], f"New posts: {model}", [model]
+            args, label, models = ["thread", SLOW_LATER, entry["url"]], f"New posts: {model}", [model]
         elif action == "bookmarks":
             pages = str(payload.get("pages") or "").replace(" ", "")
             limit = payload.get("limit") or 0
@@ -413,7 +670,7 @@ class SimpJobs:
                 raise SimpError("Pages look like 1, 2-4, 1,3,8 or all.")
             if not isinstance(limit, int) or isinstance(limit, bool) or not 0 <= limit <= 1000:
                 raise SimpError("The model limit is a number from 0 (no limit) to 1000.")
-            args = ["download"] + ([] if pages == "all" else ["--pages", pages]) + (["--limit", str(limit)] if limit else [])
+            args = ["download", SLOW_LATER] + ([] if pages == "all" else ["--pages", pages]) + (["--limit", str(limit)] if limit else [])
             label = ("All bookmarks" if pages == "all" else f"Bookmarks page {pages}") + (f", first {limit}" if limit else "")
             models = []
         elif action == "retry":
@@ -425,6 +682,11 @@ class SimpJobs:
                 raise SimpError("Nothing has failed.", 409)
             models = wanted or failed
             args, label = ["retry", *wanted], "Retry " + (", ".join(wanted) if wanted else "everything that failed")
+        elif action == "later":
+            models = [row["model"] for row in self.later_models(paths["state"])]
+            if not models:
+                raise SimpError("No Bunkr files are waiting.", 409)
+            args, label = ["later"], self._later_label(models)
         else:
             raise SimpError("Unknown download action.")
 
@@ -445,6 +707,13 @@ class SimpJobs:
                    "exitCode": None, "summary": ""}
             self.jobs.append(job)
             self._save()
+            # A new download goes before the Bunkr files, even once they started.
+            running = next((other for other in self.jobs if other["status"] == "running"), None)
+            if action in DRIVE_ACTIONS and action != "later" and running and running["action"] == "later" \
+                    and not running.get("cancelRequested") and not running.get("yielding"):
+                running["yielding"] = True
+                if self.proc is not None:
+                    threading.Thread(target=self._stop, args=(self.proc,), daemon=True).start()
             if self.worker is None:
                 self.worker = threading.Thread(target=self._work, name="simp-jobs", daemon=True)
                 self.worker.start()
@@ -524,7 +793,9 @@ class SimpJobs:
     def _work(self) -> None:
         while True:
             with self.lock:
-                job = next((job for job in self.jobs if job["status"] == "queued"), None)
+                # The Bunkr files go last: after every other waiting job.
+                queued = [job for job in self.jobs if job["status"] == "queued"]
+                job = next((job for job in queued if job["action"] != "later"), queued[0] if queued else None)
                 if job is None:
                     self.worker = None
                     return
@@ -540,6 +811,13 @@ class SimpJobs:
             with self.lock:
                 job["exitCode"] = code
                 job["endedAt"] = utc_now_iso()
+                if job.pop("yielding", False) and not job.get("cancelRequested"):
+                    # Stepped aside for a newer download: waits again, and
+                    # goes on from where it stopped when its turn comes.
+                    job["status"] = "queued"
+                    job["summary"] = "Paused while newer downloads go first. Picks up where it stopped."
+                    self._save()
+                    continue
                 if job.pop("cancelRequested", False):
                     job["status"] = "cancelled"
                 else:
@@ -553,7 +831,29 @@ class SimpJobs:
                 self._note_auth(lines)
                 if job["status"] == "full":
                     self._hold_for_space(job)
+                elif job["action"] in DRIVE_ACTIONS:
+                    self._queue_later(job)
                 self._save()
+
+    def _queue_later(self, finished: dict) -> None:
+        """After a download, queue the "later" job for the Bunkr links it saved
+        (or add its models to the one already waiting). A later job that ends
+        with lists left over (they failed) does not queue itself again: only
+        lists saved while it ran do; the page offers the rest."""
+        pending = self.later_models(self._paths()["state"])
+        if finished["action"] == "later":
+            began = datetime.fromisoformat(finished["startedAt"]) if finished.get("startedAt") else None
+            pending = [row for row in pending if began and datetime.fromisoformat(row["savedAt"]) > began]
+        if not pending:
+            return
+        models = [row["model"] for row in self.later_models(self._paths()["state"])]
+        waiting = next((job for job in self.jobs if job["action"] == "later" and job["status"] in ("queued", "held")), None)
+        if waiting:
+            waiting["models"], waiting["label"] = models, self._later_label(models)
+            return
+        self.jobs.append({"id": uuid.uuid4().hex[:12], "action": "later", "label": self._later_label(models), "args": ["later"],
+                          "models": models, "status": "queued", "createdAt": utc_now_iso(), "startedAt": None,
+                          "endedAt": None, "exitCode": None, "summary": ""})
 
     def _hold_for_space(self, job: dict) -> None:
         """The drive reached its reserve: keep the stopped job, and every

@@ -125,7 +125,7 @@ function renderDownloads() {
   el("dlForms").hidden = !usable;
   el("dlStats").hidden = !usable;
   if (!status) {
-    ["dlNow", "dlFailedSection", "dlThreadsSection"].forEach((id) => { el(id).hidden = true; });
+    ["dlNow", "dlLaterSection", "dlFailedSection", "dlThreadsSection"].forEach((id) => { el(id).hidden = true; });
     el("dlJobs").replaceChildren();
     el("dlJobsEmpty").hidden = !state.features.has("simp");
     return;
@@ -149,14 +149,7 @@ function renderDownloads() {
       tone: status.reserveBytes && status.freeBytes != null && status.freeBytes < status.resumeBytes ? "pass" : "",
     },
   ];
-  el("dlStats").replaceChildren(...tiles.map((tile) => {
-    const box = document.createElement("div");
-    box.className = `ranked-stat${tile.tone ? ` is-${tile.tone}` : ""}`;
-    box.innerHTML = "<strong></strong><span></span>";
-    box.querySelector("strong").textContent = tile.value;
-    box.querySelector("span").textContent = tile.label;
-    return box;
-  }));
+  el("dlStats").replaceChildren(...downloadTiles(tiles));
 
   const cookies = status.cookies || {};
   const expires = Date.parse(cookies.loginExpiresAt);
@@ -173,9 +166,21 @@ function renderDownloads() {
 
   renderDownloadHeld(status, jobs.filter((job) => job.status === "held"));
   renderDownloadJobs(jobs);
+  renderDownloadLater(status.later || [], jobs);
   renderDownloadFailed(status.failed || []);
   renderDownloadThreads(status.threads || []);
   syncDownloadNow();
+}
+
+function downloadTiles(tiles) {
+  return tiles.map((tile) => {
+    const box = document.createElement("div");
+    box.className = `ranked-stat${tile.tone ? ` is-${tile.tone}` : ""}`;
+    box.innerHTML = "<strong></strong><span></span>";
+    box.querySelector("strong").textContent = tile.value;
+    box.querySelector("span").textContent = tile.label;
+    return box;
+  });
 }
 
 function downloadWhen(iso) {
@@ -250,6 +255,34 @@ function renderDownloadFailed(failed) {
     actions.className = "dl-row-actions";
     actions.append(downloadButton("Retry", () => submitDownload({ action: "retry", models: [row.model] })));
     item.append(text, actions);
+    return item;
+  }));
+}
+
+// Bunkr links simp saved with --slow-later (simpjobs.py SLOW_LATER): the
+// server downloads them after every other waiting job, on its own. Shown so
+// what is still to come is visible, and to start them again after a failure.
+function renderDownloadLater(later, jobs) {
+  el("dlLaterSection").hidden = !later.length;
+  if (!later.length) return;
+  const job = jobs.find((entry) => entry.action === "later" && ["queued", "running", "held"].includes(entry.status));
+  el("dlLaterRun").hidden = !!job;
+  el("dlLaterText").textContent = job?.status === "running"
+    ? "Downloading now. A new download you start goes first; these go on after it."
+    : job
+      ? "These download after everything else that is waiting. Bunkr hands out one file at a time per server, so they take long."
+      : "Nothing is downloading these. They stopped part way or failed: Download now picks up where they stopped.";
+  el("dlLater").replaceChildren(...later.map((row) => {
+    const item = document.createElement("li");
+    const text = document.createElement("div");
+    text.className = "dl-row-text";
+    const name = document.createElement("strong");
+    name.textContent = row.model;
+    const meta = document.createElement("span");
+    meta.className = "subtle";
+    meta.textContent = `${plural(row.links, "Bunkr link", "Bunkr links")} · saved ${downloadWhen(row.savedAt)}`;
+    text.append(name, meta);
+    item.append(text);
     return item;
   }));
 }
@@ -397,10 +430,81 @@ function syncDownloadNow() {
   el("dlNowTitle").textContent = job.status === "running" ? `Running: ${job.label}` : job.label;
   el("dlNowMeta").textContent = [DOWNLOAD_STATUS[job.status] || job.status, downloadWhen(job.startedAt || job.createdAt), downloadElapsed(job)]
     .filter(Boolean).join(" · ");
+  renderDownloadProgress(job);
   el("dlCancel").hidden = job.status !== "running";
   el("dlCancel").onclick = () => cancelDownload(job);
   el("dlJobs").querySelectorAll("li").forEach((row, index) => row.classList.toggle("is-shown", jobs[index]?.id === job.id));
   return job;
+}
+
+/* ---- cyberdrop-dl's part of the running job ----
+   The server reads cyberdrop-dl's log, database and .part files
+   (SimpJobs.progress in simpjobs.py): what downloads now and how fast, what
+   waits, what finished or failed, and a rough time left. A server from
+   before this sends no progress, and the block stays hidden. */
+
+function downloadRate(bytesPerSecond) {
+  if (bytesPerSecond == null) return "…";
+  return bytesPerSecond < 1000 * 1024 ? `${Math.round(bytesPerSecond / 1024)} KB/s` : `${formatBytes(bytesPerSecond)}/s`;
+}
+
+function downloadDuration(seconds) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+}
+
+function renderDownloadProgress(job) {
+  const progress = downloads.status?.progress;
+  const box = el("dlProgress");
+  box.hidden = !progress || progress.jobId !== job.id || job.status !== "running";
+  if (box.hidden) return;
+  const tiles = [];
+  if (progress.phase === "scanning") {
+    tiles.push({ value: progress.linksChecked.toLocaleString(), label: "links looked up so far", tone: "keep" });
+  } else {
+    tiles.push({ value: downloadRate(progress.speed), label: `${plural(progress.downloading, "file", "files")} downloading now`, tone: "keep" });
+    const hosts = Object.entries(progress.waitingByHost || {}).map(([host, count]) => `${count} ${host}`).join(", ");
+    tiles.push({ value: progress.waiting.toLocaleString(), label: progress.waiting ? `waiting · ${hosts}` : "nothing waiting" });
+    tiles.push({ value: progress.done.toLocaleString(), label: `done this run · ${formatBytes(progress.doneBytes)}` });
+    const eta = progress.etaSeconds;
+    tiles.push(eta
+      ? { value: `~${downloadDuration(eta)}`, label: `left · done around ${new Date(Date.now() + eta * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} at ${progress.filesPerHour} files/h` }
+      : { value: "--", label: progress.waiting ? "time left: too early to tell" : "time left" });
+  }
+  if (progress.failed) {
+    const [reason] = progress.failedReasons[0] || [""];
+    tiles.push({ value: progress.failed.toLocaleString(), label: `failed${reason ? ` · ${reason}` : ""}`, tone: "pass" });
+  }
+  el("dlProgressStats").replaceChildren(...downloadTiles(tiles));
+
+  el("dlProgressFiles").replaceChildren(...progress.active.map((file) => {
+    const row = document.createElement("li");
+    const text = document.createElement("div");
+    text.className = "dl-row-text";
+    const name = document.createElement("strong");
+    name.textContent = file.name;
+    const meta = document.createElement("span");
+    meta.className = "subtle";
+    meta.textContent = [`${formatBytes(file.bytes)} so far`, file.speed == null ? "" : downloadRate(file.speed),
+      file.host ? `from ${file.host}` : "", file.startedAt ? `started ${downloadWhen(file.startedAt)}` : ""].filter(Boolean).join(" · ");
+    text.append(name, meta);
+    row.append(text);
+    return row;
+  }));
+
+  const hints = [];
+  // cyberdrop-dl's Bunkr downloader takes one file at a time from each Bunkr
+  // server (it gets refused otherwise), so a big album there queues up.
+  if (progress.waitingByHost?.bunkr) {
+    hints.push("Bunkr files download one at a time per Bunkr server, so they wait in line; other hosts download alongside.");
+  }
+  if (progress.failed) {
+    hints.push("cyberdrop-dl does not try failed files again in this run. When the job ends, New posts on this model tries them again and skips what is already here.");
+  }
+  el("dlProgressHint").textContent = hints.join(" ");
+  el("dlProgressHint").hidden = !hints.length;
 }
 
 async function followDownloadLog() {
@@ -442,7 +546,7 @@ async function followDownloadLog() {
 const LOG_WIDTH = 120;
 const LOG_LEVEL_RE = /^(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s{2,}(.*)$/;
 // A line starting with one of these is new output, never the tail of a broken line.
-const LOG_START_RE = /^(\$ |Summary:|Running |Model folder:|thread \(|Estimate:|Signed in|Session OK|whereto|direct downloads|Retry with|(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s|[╭│╰]|\w+(Error|Exception)\b|Traceback)/;
+const LOG_START_RE = /^(\$ |Summary:|Running |Model folder:|thread \(|later \(|Estimate:|Signed in|Session OK|whereto|direct downloads|Retry with|(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s|[╭│╰]|\w+(Error|Exception)\b|Traceback)/;
 // "    [ok] model | thread p.3 | image | bbimage | host | name (123 B)". Logs
 // from before 2026-09-29 lost "[ok]" to rich markup: five spaces instead.
 const LOG_ITEM_RE = /^ {4}(?:\[(\w+)\] | )(\S.*?) \| thread (p\.\S+) \| (\w+) \| ([^|]+?) \| ([^|\s]+)(?: \| (.*))?$/;
@@ -638,11 +742,11 @@ function renderLogLine(line) {
     const bar = logText("span", "log-bar");
     bar.style.setProperty("--done", `${Math.round((Number(done) / Math.max(1, Number(total))) * 100)}%`);
     node.append(logText("span", "", label), bar, logText("span", "log-meta", `${done}/${total} ${time}`.trim()));
-  } else if (/^thread \(\d+\/\d+\)/.test(text) || text.startsWith("Model folder:")) {
+  } else if (/^(thread|later) \(\d+\/\d+\)/.test(text) || text.startsWith("Model folder:")) {
     node = logText("div", "log-head", text);
   } else {
     node = logText("div", "log-line", text);
-    if (/^(Retry with|album\/host totals|resolve cache|Wrote \d)/.test(text)) node.classList.add("is-hint");
+    if (/^(Retry with|album\/host totals|resolve cache|Wrote \d|later: \d)/.test(text)) node.classList.add("is-hint");
     else if (/\b(fail(ed)?|error|could not|exited [1-9]|no space)\b/i.test(text) && !/\b0 fail/.test(text)) node.classList.add("is-error");
   }
   if (indent) node.style.setProperty("--indent", indent);
@@ -800,6 +904,7 @@ function bindDownloads() {
     uploadCookies(file);
   });
   el("dlRetryAll").addEventListener("click", () => submitDownload({ action: "retry", models: [] }));
+  el("dlLaterRun").addEventListener("click", () => submitDownload({ action: "later" }));
   el("dlResume").addEventListener("click", resumeHeldDownloads);
   el("dlDropHeld").addEventListener("click", dropHeldDownloads);
   el("dlUpdateAll").addEventListener("click", async () => {

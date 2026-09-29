@@ -332,3 +332,15 @@ back; `max_file_bytes` skips files FAT32 cannot hold. Then upload a SimpCity
 `cookies.txt` on the Downloads page (or copy an existing `state/` and
 `cookies/simpcity.txt` into `$D`). Optional: `sudo apt install ffmpeg` for HLS
 videos. Full notes: `~/infomds/SIMP.md` on this server, `scrprsimp/README.md` here.
+
+While cyberdrop-dl runs, the page shows its speed, what downloads now, what
+waits and a rough time left. The server finds cyberdrop-dl in `/proc` (a
+process in simp's process group) and reads its own log, database (read-only)
+and `.part` files, paths taken from its command line. It is the service's own
+child (same user), so the unit needs no change; if it can't be found, the
+block just stays hidden.
+
+Downloads go **fast hosts first, Bunkr last**: jobs run `simp … --slow-later`,
+which saves each model's Bunkr links in `state/later/`, and the server queues a
+`simp later` job behind everything else, pausing it whenever a new download is
+queued. Details: `~/infomds/SIMP.md`.

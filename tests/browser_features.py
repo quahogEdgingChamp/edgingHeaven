@@ -296,7 +296,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
         page.wait_for_function("downloads.status?.jobs?.length === 1", timeout=5000)
         job = page.evaluate("downloads.status.jobs[0]")
         check("model page: New posts queues that model's thread",
-              job["args"] == ["thread", f"https://simpcity.cr/threads/{model}.1/"] and job["label"] == f"New posts: {model}", job)
+              job["args"] == ["thread", "--slow-later", f"https://simpcity.cr/threads/{model}.1/"] and job["label"] == f"New posts: {model}", job)
         page.click("#modelBack")
         check("model page back", page.evaluate("el('rankedModelPage').hidden"))
 

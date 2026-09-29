@@ -15,6 +15,8 @@ from simp.download import (
     download_model,
     failed_path,
     image_from_page,
+    later_model,
+    later_path,
     retry_model,
     run_cyberdrop_dl,
 )
@@ -348,3 +350,44 @@ def test_reuse_preserves_nested_paths(server, cfg, tmp_path):
             result = download_direct_batch(client, [link], dest, cfg, DownloadIndex.for_model(cfg, "model"))
         assert result.skipped == 1 and not server.hits
     assert DownloadIndex.for_model(cfg, "model").done(link.url) == dest / "album/IMG.jpg"
+
+
+def test_slow_later_leaves_bunkr_for_the_end(cfg, tmp_path, monkeypatch):
+    """--slow-later: Bunkr links wait in state/later/ for `simp later`; every
+    other host goes to cyberdrop-dl now."""
+    runs = []
+    exits = iter([0, 130, 0])
+
+    def fake_cdl(cfg, urls_file, dest):
+        runs.append(urls_file.read_text().split())
+        return next(exits)
+
+    monkeypatch.setattr(download, "run_cyberdrop_dl", fake_cdl)
+    thread = "https://simpcity.cr/threads/model.123/"
+    links = [MediaLink(url, MediaKind.VIDEO, "href", prefer_cdl=True) for url in (
+        "https://bunkr.cr/a/album", "https://pixeldrain.com/u/abc", "https://cdn9.bunkr.ru/x.mp4", "https://gofile.io/d/zz")]
+    with httpx.Client() as client:
+        result = download_model(client, thread, "", links, cfg, slow_later=True)
+    assert runs == [["https://pixeldrain.com/u/abc", "https://gofile.io/d/zz"]]
+    assert later_path(cfg, "model").read_text().split() == ["https://bunkr.cr/a/album", "https://cdn9.bunkr.ru/x.mp4"]
+    assert not result.cdl_failed
+
+    # Stopped part way (Ctrl-C when a newer download goes first): the list stays.
+    assert later_model(cfg, "model").cdl_exit == 130
+    assert later_path(cfg, "model").is_file()
+    assert later_model(cfg, "model").cdl_exit == 0
+    assert runs[1] == runs[2] == ["https://bunkr.cr/a/album", "https://cdn9.bunkr.ru/x.mp4"]
+    assert not later_path(cfg, "model").exists()
+
+
+def test_a_run_without_slow_later_covers_the_saved_list(cfg, tmp_path, monkeypatch):
+    runs = []
+    monkeypatch.setattr(download, "run_cyberdrop_dl", lambda cfg, urls_file, dest: runs.append(urls_file.read_text().split()) or 0)
+    later_path(cfg, "model").parent.mkdir(parents=True)
+    later_path(cfg, "model").write_text("https://bunkr.cr/a/album\n")
+    links = [MediaLink("https://bunkr.cr/a/album", MediaKind.VIDEO, "href", prefer_cdl=True)]
+    with httpx.Client() as client:
+        download_model(client, "https://simpcity.cr/threads/model.123/", "", links, cfg)
+    assert runs == [["https://bunkr.cr/a/album"]]
+    assert not later_path(cfg, "model").exists()
+

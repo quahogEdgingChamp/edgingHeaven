@@ -18,7 +18,7 @@ CLEAR_TARGETS = (
     "history",   # cyberdrop-dl download DB + direct download index (skip/resume memory)
     "cache",     # cyberdrop-dl cache.json
     "logs",      # state/cdl/logs/*
-    "crawl",     # URL exports, per-thread crawl cache, cdl_* lists, failed lists
+    "crawl",     # URL exports, per-thread crawl cache, cdl_* lists, failed and later lists
     "resolve",   # post→thread resolve cache
     "downloads", # downloads/ media (destructive)
     "state",     # entire state/ tree (keeps downloads/)
@@ -72,6 +72,7 @@ def describe_targets(cfg: Config) -> list[tuple[str, str, str]]:
         ("crawl", str(state / "media_urls.jsonl"), status_for(state / "media_urls.jsonl")),
         ("crawl", str(state / "crawl"), status_for(state / "crawl")),
         ("crawl", str(state / "failed"), status_for(state / "failed")),
+        ("crawl", str(state / "later"), status_for(state / "later")),
         ("resolve", str(state / "post_resolve_cache.json"), status_for(state / "post_resolve_cache.json")),
         ("downloads", str(downloads), status_for(downloads)),
         ("state", str(state), status_for(state)),
@@ -121,7 +122,7 @@ def clear_target(cfg: Config, name: str) -> list[str]:
             p = state / rel
             if _rm(p):
                 removed.append(str(p))
-        for sub in ("crawl", "failed"):
+        for sub in ("crawl", "failed", "later"):
             if _rm(state / sub):
                 removed.append(str(state / sub))
         for pattern in ("cdl_*.txt", "cdl_*.jsonl"):

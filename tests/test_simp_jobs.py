@@ -1,8 +1,10 @@
 """Downloads (simpjobs.py) over real HTTP: a stand-in simp binary, a throwaway
 data dir and library, and a server on a free port. Nothing is fetched from
 the internet and no real media is touched."""
+import collections
 import json
 import os
+import sqlite3
 import signal
 import sys
 import tempfile
@@ -11,13 +13,14 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from collections import namedtuple
 from unittest import mock
 
 import simpjobs
 from server import AppServer, LOCK_COOKIE, MediaLibrary, RequestHandler
-from simpjobs import SimpJobs, decode_tail, normalize_thread_url, thread_slug
+from simpjobs import SimpJobs, cdl_file_name, cdl_run_paths, decode_tail, normalize_thread_url, thread_slug
 
 # Behaves like simp for what the server looks at: its log lines, exit codes,
 # state/crawl and state/failed, and files in the model folder.
@@ -37,7 +40,7 @@ if cmd in ("check-auth", "thread", "download", "bookmarks"):
 if cmd == "check-auth":
     print("Session OK — logged into SimpCity.")
 elif cmd == "thread":
-    for url in args[1:]:
+    for url in [arg for arg in args[1:] if not arg.startswith("--")]:
         key = url.rstrip("/").rsplit("/", 1)[-1]
         slug = key.rsplit(".", 1)[0]
         if slug == "slow":
@@ -64,6 +67,12 @@ elif cmd == "thread":
                 if (root / "release").exists():
                     break
                 time.sleep(0.1)
+        if "--slow-later" in args and slug.startswith("bunkr"):  # its Bunkr links wait for `simp later`
+            (root / "state" / "later").mkdir(parents=True, exist_ok=True)
+            (root / "state" / "later" / f"{slug}.txt").write_text("https://bunkr.cr/a/one\nhttps://bunkr.cr/a/two\n")
+        if slug == "cdl":  # a stand-in cyberdrop-dl in simp's group, until let go
+            fake = root / "fake-cdl" / "cyberdrop-dl"
+            subprocess.run([str(fake), *json.loads((root / "cdl-args.json").read_text())])
         if slug == "full-model" and not (root / "was-full").exists():  # simp's space.py stopping at the reserve, once
             (root / "was-full").write_text("")
             (target / slug / "first.jpg").write_bytes(b"\xff\xd8\xff first")
@@ -73,6 +82,18 @@ elif cmd == "thread":
         (target / slug / "new.jpg").write_bytes(b"\xff\xd8\xff fetched")
         print("héllo " * 3)
     print("Summary: 1 model(s) · 1 downloaded · 0 already had · 0 failed (direct)")
+elif cmd == "later":
+    lists = sorted((root / "state" / "later").glob("*.txt"))
+    for path in lists:
+        (target / path.stem).mkdir(parents=True, exist_ok=True)
+        print(f"Model folder: {target / path.stem}", flush=True)
+    for _ in range(300):  # a slow Bunkr download, until let go
+        if (root / "release-later").exists():
+            break
+        time.sleep(0.05)
+    for path in lists:
+        path.unlink()
+    print(f"Summary: {len(lists)} model(s) · 0 downloaded · 0 skipped · 0 failed (direct)")
 elif cmd == "retry":
     for model in args[1:] or [p.stem for p in (root / "state" / "failed").glob("*.jsonl")]:
         (root / "state" / "failed" / f"{model}.jsonl").unlink()
@@ -177,6 +198,23 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(thread_slug(ok), "some-model")
         self.assertEqual(thread_slug("https://simpcity.su/threads/a%3Cb%3E.9/"), "a_b")
 
+    def test_cyberdrop_command_lines(self):
+        argv = ["/usr/bin/python3", "/x/.venv/bin/cyberdrop-dl", "download", "--config-file", "c.yaml", "-i", "l.txt",
+                "-o", "/srv/in/model", "--db", "/s/cyberdrop.db", "--cache-file", "c.json", "--log-file", "/s/logs/downloader.log"]
+        self.assertEqual(cdl_run_paths(argv), {"out": Path("/srv/in/model"), "db": Path("/s/cyberdrop.db"), "log": Path("/s/logs/downloader.log")})
+        self.assertIsNone(cdl_run_paths(["/x/bin/simp", "-c", "config.toml", "thread", "-o", "a", "--db", "b", "--log-file", "c"]))
+        self.assertIsNone(cdl_run_paths(argv[:8]))
+        self.assertEqual(cdl_file_name("https://c5.cdn.cr/storage/media/Tameeka-ppv--4--x.mp4?n=Tameeka+ppv+(4).mp4"), "Tameeka ppv (4).mp4")
+        self.assertEqual(cdl_file_name("https://pixeldrain.com/api/file/wvV1psZ7?download"), "wvV1psZ7")
+
+    def test_speed_is_growth_over_the_window(self):
+        samples = collections.deque()
+        self.assertIsNone(SimpJobs._speed(samples, 100.0, 0))
+        self.assertIsNone(SimpJobs._speed(samples, 102.0, 1000))  # too soon to say
+        self.assertEqual(SimpJobs._speed(samples, 110.0, 5000), 500.0)
+        self.assertEqual(SimpJobs._speed(samples, 200.0, 5000), 0.0)  # old samples age out
+        self.assertEqual(len(samples), 2)
+
     def test_decode_tail_never_splits_a_character(self):
         data = "héllo".encode()
         self.assertEqual(decode_tail(data[:2]), ("h", 1))
@@ -216,7 +254,7 @@ class JobTests(SimpCase):
         self.assertEqual(job["models"], ["new-model"])
         self.assertTrue(job["summary"].startswith("Summary: 1 model(s)"))
         # One URL (deduplicated, page and anchor dropped), after -c <config>.
-        self.assertEqual(self.calls(), [["-c", str(self.root / "config.toml"), "thread", "https://simpcity.cr/threads/new-model.123/"]])
+        self.assertEqual(self.calls(), [["-c", str(self.root / "config.toml"), "thread", "--slow-later", "https://simpcity.cr/threads/new-model.123/"]])
         # The rescan put the new file in the library.
         self.wait(lambda: any(item["path"] == "new-model/new.jpg" for item in self.call("/api/state")[1]["library"]["images"]))
         status = self.call("/api/simp/status")[1]
@@ -228,7 +266,7 @@ class JobTests(SimpCase):
         # Check for new posts: the same thread again, found from the crawl cache.
         status, body = self.call("/api/simp/jobs", {"action": "update", "model": "new-model"})
         self.assertEqual(status, 200, body)
-        self.assertEqual(body["job"]["args"], ["thread", "https://simpcity.cr/threads/new-model.123/"])
+        self.assertEqual(body["job"]["args"], ["thread", "--slow-later", "https://simpcity.cr/threads/new-model.123/"])
         self.assertEqual(self.finished(body["job"]["id"])["status"], "done")
         self.assertEqual(self.call("/api/simp/jobs", {"action": "update", "model": "old-model"})[0], 404)
 
@@ -238,7 +276,7 @@ class JobTests(SimpCase):
         self.finished(job_id)
         status, whole = self.call(f"/api/simp/jobs/{job_id}/log?offset=0")
         self.assertEqual(status, 200)
-        self.assertTrue(whole["text"].startswith("$ simp thread https://simpcity.cr/threads/m.1/\n"))
+        self.assertTrue(whole["text"].startswith("$ simp thread --slow-later https://simpcity.cr/threads/m.1/\n"))
         self.assertIn("héllo", whole["text"])
         self.assertEqual(whole["offset"], whole["size"])
         self.assertEqual(self.call(f"/api/simp/jobs/{job_id}/log?offset={whole['offset']}")[1]["text"], "")
@@ -272,10 +310,10 @@ class JobTests(SimpCase):
     def test_bookmarks_and_retry(self):
         self.cookies()
         job = self.call("/api/simp/jobs", {"action": "bookmarks", "pages": "2-3, 5", "limit": 4})[1]["job"]
-        self.assertEqual(job["args"], ["download", "--pages", "2-3,5", "--limit", "4"])
+        self.assertEqual(job["args"], ["download", "--slow-later", "--pages", "2-3,5", "--limit", "4"])
         self.assertEqual(self.finished(job["id"])["status"], "failed")  # exit 1: some files failed
         job = self.call("/api/simp/jobs", {"action": "bookmarks", "pages": "all"})[1]["job"]
-        self.assertEqual(job["args"], ["download"])
+        self.assertEqual(job["args"], ["download", "--slow-later"])
         self.finished(job["id"])
 
         self.assertEqual(self.call("/api/simp/jobs", {"action": "retry"})[0], 409)  # nothing failed yet
@@ -437,7 +475,7 @@ class DriveFullTests(SimpCase):
         self.assertEqual(self.call("/api/simp/resume", {})[1]["resumed"], 2)
         # The stopped job goes first, then the one that was waiting behind it.
         self.wait(lambda: all(self.job(j)["status"] not in ("held", "queued", "running") for j in (resume["id"], waiting["id"])), timeout=30)
-        order = [call[3] for call in self.calls() if call[2] == "thread"]
+        order = [call[-1] for call in self.calls() if call[2] == "thread"]
         self.assertEqual(order[-2:], ["https://simpcity.cr/threads/full-model.1/", "https://simpcity.cr/threads/other.2/"])
         self.assertEqual(self.call("/api/simp/resume", {})[0], 409)  # nothing left waiting
 
@@ -520,3 +558,132 @@ def process_alive(pid):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CyberdropProgressTests(SimpCase):
+    def test_what_cyberdrop_dl_is_doing_shows_while_it_runs(self):
+        """A stand-in cyberdrop-dl in the job's process group, with a log,
+        database and .part files like the real one's (cyberdrop-dl 10.10)."""
+        self.cookies()
+        cdl = self.root / "cdl-state"
+        (cdl / "logs").mkdir(parents=True)
+        out = self.root / "incoming" / "a_b"  # "_" must not match any character in SQL
+        (out / "Model (Bunkr)").mkdir(parents=True)
+        fake = self.root / "fake-cdl" / "cyberdrop-dl"
+        fake.parent.mkdir()
+        fake.write_text(f"#!{sys.executable}\nimport pathlib, time\nfor _ in range(300):\n"
+                        f"    if pathlib.Path({str(self.root / 'release')!r}).exists(): break\n    time.sleep(0.1)\n")
+        fake.chmod(0o755)
+        (self.root / "cdl-args.json").write_text(json.dumps(
+            ["download", "-i", "urls.txt", "-o", str(out), "--db", str(cdl / "cyberdrop.db"), "--log-file", str(cdl / "logs" / "downloader.log")]))
+
+        now = datetime.now()
+        stamp = f"[{now:%Y-%m-%d %H:%M:%S}.123]"
+        pad = " " * 26
+        big = "https://c5.cdn.cr/storage/media/Big-one-AAA.mp4?n=Big+one.mp4"
+        busy = "https://pbc.scdn.st/storage/media/uuid1.mp4?n=1+(2).mp4"
+        (cdl / "logs" / "downloader.log").write_text("\n".join([
+            f"[2020-01-01 00:00:00.000] INFO     Download starting: https://old.example/left-over.mp4",
+            f"{stamp} INFO     Running cyberdrop-dl v10.10.0",
+            f"{pad}INFO     [Bunkr] Scraping https://bunkr.cr/a/album",
+            f"{stamp} INFO     Download starting: {big}",
+            f"{pad}INFO     Download starting: https://pixeldrain.com/api/file/PIX1?download",
+            f"{stamp} INFO     Download starting: {busy}",
+            f"{stamp} ERROR    Download Failed: {busy} (503 Service Unavailable) ",
+            " -> Referer: https://bunkr.cr/f/abc",
+            f"{stamp} INFO     Download finished: https://pixeldrain.com/api/file/PIX1?download",
+            f"{stamp} ERROR    Download failed: {big} with error: 999 Timeout - Download timeout reached, retrying",
+            f"{pad}INFO     Retrying download: {big}, attempt: 2",
+            f"{stamp} INFO     Download skipped https://c2.cdn.cr/y.rar?n=y.rar due to filename regex exclude filter.",
+            f"{stamp} ERROR    Scrape Failed: https://gofile.io/d/zz (404 Not Found)",
+            f"{stamp} INFO     Download starting: https://c5.cdn.cr/storage/media/half-written",  # no newline yet
+        ]))
+        db = sqlite3.connect(cdl / "cyberdrop.db")
+        db.execute("CREATE TABLE media (domain TEXT, url_path TEXT, download_path TEXT, file_size INT, completed INTEGER, completed_at TIMESTAMP)")
+        utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        bunkr = str(out / "Model (Bunkr)")
+        db.executemany("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?)", [
+            ("bunkr", "/Big-one-AAA.mp4", bunkr, None, 0, None),              # downloading
+            ("pixeldrain", "/api/file/PIX1", str(out / "Loose"), 5000, 1, utc_now),
+            ("bunkr", "/uuid1.mp4", bunkr, None, 0, None),                    # failed
+            ("bunkr", "/Next-BBB.mp4", bunkr, None, 0, None),                 # waiting
+            ("bunkr", "/Next-CCC.mp4", bunkr, None, 0, None),                 # waiting
+            ("goonbox", "/old.jpg", str(out), 70, 1, "2020-01-01 00:00:00"),  # an earlier run
+            ("bunkr", "/Other.mp4", str(out.parent / "aXb"), None, 0, None),   # another model
+        ])
+        db.commit()
+        db.close()
+        (out / "Model (Bunkr)" / "Big one.mp4.part").write_bytes(b"x" * 1000)
+        stale = out / "old.mp4.part"
+        stale.write_bytes(b"x" * 10)
+        os.utime(stale, (time.time() - 3600, time.time() - 3600))
+
+        self.assertIsNone(self.call("/api/simp/status")[1]["progress"])
+        job_id = self.call("/api/simp/jobs", {"action": "thread", "urls": ["https://simpcity.cr/threads/cdl.1/"]})[1]["job"]["id"]
+        self.wait(lambda: (self.call("/api/simp/status")[1]["progress"] or {}).get("jobId") == job_id)
+        progress = self.call("/api/simp/status")[1]["progress"]
+        self.assertEqual(progress["phase"], "downloading")
+        self.assertEqual((progress["linksChecked"], progress["scrapeFailed"], progress["skipped"]), (1, 1, 1))
+        self.assertEqual((progress["done"], progress["doneBytes"]), (1, 5000))
+        self.assertEqual(progress["downloading"], 1)
+        self.assertEqual([(file["name"], file["bytes"], file["host"]) for file in progress["active"]], [("Big one.mp4", 1000, "c5.cdn.cr")])
+        self.assertEqual((progress["waiting"], progress["waitingByHost"]), (2, {"bunkr": 2}))
+        self.assertEqual((progress["failed"], progress["failedReasons"]), (1, [["503 Service Unavailable", 1]]))
+        self.assertIsNone(progress["etaSeconds"])  # one finish is too few to go by
+
+        (self.root / "release").write_text("")
+        self.assertEqual(self.finished(job_id)["status"], "done")
+        self.jobs._progress = (0.0, None)
+        self.assertIsNone(self.call("/api/simp/status")[1]["progress"])
+
+
+class SlowLaterTests(SimpCase):
+    def test_bunkr_files_go_last_and_step_aside_for_new_downloads(self):
+        self.cookies()
+        first = self.call("/api/simp/jobs", {"action": "thread", "urls": ["https://simpcity.cr/threads/bunkr-model.1/"]})[1]["job"]
+        self.assertEqual(self.finished(first["id"])["status"], "done")
+        # Its Bunkr links were saved; the "later" job for them runs next.
+        self.wait(lambda: any(job["action"] == "later" and job["status"] == "running" for job in self.call("/api/simp/status")[1]["jobs"]))
+        status = self.call("/api/simp/status")[1]
+        later = next(job for job in status["jobs"] if job["action"] == "later")
+        self.assertEqual((later["label"], later["models"]), ("Bunkr files, last: bunkr-model", ["bunkr-model"]))
+        self.assertEqual([(row["model"], row["links"]) for row in status["later"]], [("bunkr-model", 2)])
+        self.assertNotIn("yielding", later)
+
+        # A new download pauses it, runs, and the Bunkr files go on after.
+        other = self.call("/api/simp/jobs", {"action": "thread", "urls": ["https://simpcity.cr/threads/other.2/"]})[1]["job"]
+        self.wait(lambda: self.job(later["id"])["status"] == "queued")
+        self.assertIn("Paused", self.job(later["id"])["summary"])
+        self.assertEqual(self.finished(other["id"])["status"], "done")
+        self.wait(lambda: self.job(later["id"])["status"] == "running")
+        (self.root / "release-later").write_text("")
+        self.assertEqual(self.finished(later["id"])["status"], "done")
+        self.assertEqual([call[2:] for call in self.calls()], [
+            ["thread", "--slow-later", "https://simpcity.cr/threads/bunkr-model.1/"], ["later"],
+            ["thread", "--slow-later", "https://simpcity.cr/threads/other.2/"], ["later"]])
+        # Nothing new was saved meanwhile: no further later job.
+        status = self.call("/api/simp/status")[1]
+        self.assertEqual(status["later"], [])
+        self.assertEqual(sum(job["action"] == "later" for job in status["jobs"]), 1)
+        self.assertEqual(self.call("/api/simp/jobs", {"action": "later"})[0], 409)
+
+    def test_waiting_bunkr_files_run_after_everything_else(self):
+        self.cookies()
+        (self.root / "release-later").write_text("")
+        (self.root / "state" / "later").mkdir(parents=True)
+        (self.root / "state" / "later" / "kept.txt").write_text("https://bunkr.cr/a/x\n")
+        # Queued first by hand, yet the downloads queued after it run before it.
+        self.call("/api/simp/jobs", {"action": "thread", "urls": ["https://simpcity.cr/threads/slow.1/"]})
+        later = self.call("/api/simp/jobs", {"action": "later"})[1]["job"]
+        second = self.call("/api/simp/jobs", {"action": "thread", "urls": ["https://simpcity.cr/threads/next.3/"]})[1]["job"]
+        self.cancel_slow_when_running()
+        self.finished(second["id"])
+        self.assertEqual(self.finished(later["id"])["status"], "done")
+        self.assertEqual([call[2] if call[2] != "thread" else call[-1] for call in self.calls()],
+                         ["https://simpcity.cr/threads/slow.1/", "https://simpcity.cr/threads/next.3/", "later"])
+
+    def cancel_slow_when_running(self):
+        self.wait(lambda: (self.root / "child.pid").exists())  # simp itself is running, not just starting
+        slow = next(job for job in self.call("/api/simp/status")[1]["jobs"] if "slow" in job["label"])
+        self.call(f"/api/simp/jobs/{slow['id']}/cancel", {})
+

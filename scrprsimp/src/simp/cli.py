@@ -17,6 +17,8 @@ from .download import (
     download_model,
     export_url_list,
     failed_slugs,
+    later_model,
+    later_slugs,
     retry_model,
 )
 from .estimate import estimate_models
@@ -56,6 +58,15 @@ def _add_full_crawl_arg(p: argparse.ArgumentParser) -> None:
         "--full-crawl",
         action="store_true",
         help="Re-crawl threads from page 1 instead of resuming at the last page seen",
+    )
+
+
+def _add_slow_later_arg(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--slow-later",
+        action="store_true",
+        help="Save Bunkr links (one file at a time per server, slow) in state/later/ "
+        "for `simp later` instead of downloading them now",
     )
 
 
@@ -112,6 +123,7 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reuse state/media_urls.jsonl from a previous scrape",
     )
+    _add_slow_later_arg(dl)
     dl.set_defaults(func=cmd_download)
 
     one = sub.add_parser(
@@ -134,6 +146,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Skip size estimate (HEAD probes)",
     )
     _add_full_crawl_arg(one)
+    _add_slow_later_arg(one)
     one.set_defaults(func=cmd_thread)
 
     retry = sub.add_parser(
@@ -142,6 +155,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     retry.add_argument("models", nargs="*", help="Model slugs (folder names); default: all")
     retry.set_defaults(func=cmd_retry)
+
+    later = sub.add_parser(
+        "later",
+        help="Download the Bunkr links --slow-later saved in state/later/ (all models, or the ones named)",
+    )
+    later.add_argument("models", nargs="*", help="Model slugs (folder names); default: all")
+    later.set_defaults(func=cmd_later)
 
     from .clear import CLEAR_TARGETS
 
@@ -349,7 +369,7 @@ def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
                 if not links:
                     console.print("  (no media)")
                     continue
-                done.append(download_model(client, bm.url, bm.title, links, cfg))
+                done.append(download_model(client, bm.url, bm.title, links, cfg, slow_later=args.slow_later))
     except DriveFull as exc:
         return _stopped_for_space(done, exc)
 
@@ -380,7 +400,7 @@ def cmd_thread(args: argparse.Namespace, cfg: Config) -> int:
                 incomplete += bool(getattr(links, "failed_pages", ()))
                 if links and not args.no_estimate:
                     estimate_models(client, [(url, links)], cfg)
-                done.append(download_model(client, url, title, links, cfg))
+                done.append(download_model(client, url, title, links, cfg, slow_later=args.slow_later))
     except DriveFull as exc:
         return _stopped_for_space(done, exc)
     return _summarize(done, incomplete)
@@ -402,6 +422,26 @@ def cmd_retry(args: argparse.Namespace, cfg: Config) -> int:
             for i, slug in enumerate(slugs, 1):
                 console.print(f"[bold]retry ({i}/{len(slugs)})[/] {slug}")
                 done.append(retry_model(client, cfg, slug))
+    except DriveFull as exc:
+        return _stopped_for_space(done, exc)
+    return _summarize(done)
+
+
+def cmd_later(args: argparse.Namespace, cfg: Config) -> int:
+    available = later_slugs(cfg)
+    slugs = list(args.models) or available
+    unknown = [m for m in slugs if m not in available]
+    if unknown:
+        console.print(f"[yellow]nothing saved for later for:[/] {', '.join(unknown)}")
+    slugs = [m for m in slugs if m in available]
+    if not slugs:
+        console.print("[green]Nothing saved for later.[/]")
+        return 0
+    done: list[ModelResult] = []
+    try:
+        for i, slug in enumerate(slugs, 1):
+            console.print(f"[bold]later ({i}/{len(slugs)})[/] {slug}")
+            done.append(later_model(cfg, slug))
     except DriveFull as exc:
         return _stopped_for_space(done, exc)
     return _summarize(done)
@@ -444,7 +484,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(2)
     ensure_dir(cfg.resolve(cfg.paths.state_dir))
     # bookmarks --save checks which models are downloaded: it needs the drive too.
-    if args.cmd in {"download", "thread", "retry"} or (args.cmd == "bookmarks" and args.save):
+    if args.cmd in {"download", "thread", "retry", "later"} or (args.cmd == "bookmarks" and args.save):
         whereto = cfg.read_whereto()
         # Only create the whereto folder itself, never its parents: a missing
         # parent means the drive isn't mounted.

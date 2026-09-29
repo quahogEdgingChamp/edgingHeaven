@@ -1408,80 +1408,133 @@ registerMode("dfolders", {
 /* ---- Swipe: frame strip, speed, Blitz ---- */
 
 const frames = { token: 0, video: null };
+const FRAME_COUNT = 6;
+// Per step. Real clips are hundreds of MB and each still is its own range
+// request, over Tailscale and often on a phone: 10 s was too short.
+const FRAME_WAIT_MS = 20000;
+
+function stopFrameVideo() {
+  if (!frames.video) return;
+  frames.video.removeAttribute("src");
+  frames.video.load();
+  frames.video.remove();
+  frames.video = null;
+}
 
 // Six stills across a clip under the card: see what is in it without
-// watching, and jump to any of them.
+// watching, and jump to any of them. The times work as jump buttons at once;
+// each picture fills in when its frame arrives, and one that does not come
+// leaves just its time instead of taking the whole strip down.
 async function renderFrameStrip(item) {
   const strip = el("dangerousFrames");
   strip.classList.remove("is-failed");
   frames.token += 1;
   const token = frames.token;
-  if (frames.video) {
-    frames.video.removeAttribute("src");
-    frames.video.load();
-    frames.video = null;
-  }
+  stopFrameVideo();
   const show = item?.kind === "video" && state.settings.dangerousFrames !== false && state.currentMode === "dangerous";
   strip.hidden = !show;
   if (!show) {
     strip.replaceChildren();
     return;
   }
-  const buttons = Array.from({ length: 6 }, (_, index) => {
+  const cells = Array.from({ length: FRAME_COUNT }, (_, index) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "frame-cell";
+    button.className = "frame-cell is-waiting";
+    button.setAttribute("aria-label", `Jump to part ${index + 1} of ${FRAME_COUNT}`);
     button.disabled = true;
-    button.setAttribute("aria-label", `Jump to part ${index + 1} of 6`);
-    return button;
+    return { button, at: 0 };
   });
-  strip.replaceChildren(...buttons);
+  strip.replaceChildren(...cells.map((cell) => cell.button));
+  const current = () => token === frames.token && state.currentMode === "dangerous";
+
+  // The clip on the card comes first: start once it can play (or after a
+  // few seconds), so the stills never hold it up.
+  const main = el("dangerousVideo");
+  if (main.readyState < 3) {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 4000);
+      main.addEventListener("canplay", () => { clearTimeout(timer); resolve(); }, { once: true });
+    });
+    if (!current()) return;
+  }
+
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;
-  video.preload = "auto";
+  // Only what each seek needs, not the whole clip beside the one playing.
+  video.preload = "metadata";
+  // In the page, not detached: phone browsers may not decode a video that
+  // is not in the document. Invisible and out of the way.
+  video.className = "frame-source";
+  video.setAttribute("aria-hidden", "true");
+  document.body.append(video);
   frames.video = video;
   const once = (type, ms) => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("timeout")), ms);
     video.addEventListener(type, () => { clearTimeout(timer); resolve(); }, { once: true });
     video.addEventListener("error", () => { clearTimeout(timer); reject(new Error("error")); }, { once: true });
   });
+  // A seek can report done before its frame is on screen; wait for it where
+  // the browser can say so.
+  const painted = () => new Promise((resolve) => {
+    if (!video.requestVideoFrameCallback) return resolve();
+    const timer = setTimeout(resolve, 1000);
+    video.requestVideoFrameCallback(() => { clearTimeout(timer); resolve(); });
+  });
+
   try {
     video.src = mediaUrl(item.path);
-    await once("loadedmetadata", 15000);
+    await once("loadedmetadata", FRAME_WAIT_MS);
+    if (!current()) return;
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
     if (!duration) throw new Error("no duration");
-    for (const [index, button] of buttons.entries()) {
-      const at = (duration * (index + 0.5)) / 6;
-      video.currentTime = at;
-      await once("seeked", 10000);
-      if (token !== frames.token || state.currentMode !== "dangerous") return;
-      const canvas = document.createElement("canvas");
-      canvas.width = 160;
-      canvas.height = Math.max(1, Math.round((160 * (video.videoHeight || 9)) / (video.videoWidth || 16)));
-      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    cells.forEach((cell, index) => {
+      cell.at = (duration * (index + 0.5)) / FRAME_COUNT;
       const time = document.createElement("span");
-      time.textContent = formatClock(at);
-      button.replaceChildren(canvas, time);
-      button.disabled = false;
-      button.addEventListener("click", () => {
-        const main = el("dangerousVideo");
+      time.textContent = formatClock(cell.at);
+      cell.button.replaceChildren(time);
+      cell.button.disabled = false;
+      cell.button.addEventListener("click", () => {
         try {
-          main.currentTime = at;
+          main.currentTime = cell.at;
         } catch {
           return;
         }
         main.muted = !state.audioUnlocked;
         main.play().catch(() => {});
       });
+    });
+    let misses = 0;
+    for (const cell of cells) {
+      try {
+        const seeked = once("seeked", FRAME_WAIT_MS);
+        video.currentTime = cell.at;
+        await seeked;
+        await painted();
+      } catch (error) {
+        if (!current()) return;
+        cell.button.classList.remove("is-waiting");
+        // Two in a row: this clip will not give stills here; keep the times.
+        if (error.message === "error" || (misses += 1) >= 2) break;
+        continue;
+      }
+      if (!current()) return;
+      misses = 0;
+      const canvas = document.createElement("canvas");
+      canvas.width = 160;
+      canvas.height = Math.max(1, Math.round((160 * (video.videoHeight || 9)) / (video.videoWidth || 16)));
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      cell.button.prepend(canvas);
+      cell.button.classList.remove("is-waiting");
     }
   } catch {
+    // Not even the length: no times to offer either.
     if (token === frames.token) strip.classList.add("is-failed");
   } finally {
     if (token === frames.token) {
-      video.removeAttribute("src");
-      video.load();
-      frames.video = null;
+      cells.forEach((cell) => cell.button.classList.remove("is-waiting"));
+      stopFrameVideo();
     }
   }
 }

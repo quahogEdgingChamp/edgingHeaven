@@ -749,6 +749,11 @@
                     <button id="dlCancel" class="danger-button small-button" hidden>Cancel</button>
                   </div>
                   <p id="dlNowMeta" class="subtle"></p>
+                  <div id="dlProgress" class="dl-progress" hidden>
+                    <div id="dlProgressStats" class="ranked-stats"></div>
+                    <ul id="dlProgressFiles" class="dl-rows"></ul>
+                    <p id="dlProgressHint" class="subtle" hidden></p>
+                  </div>
                   <div id="dlLog" class="dl-log" role="log" tabindex="0" aria-label="Job output"></div>
                 </section>
                 <section id="dlArrivals" class="ranked-section" hidden>
@@ -792,6 +797,14 @@
                     <p class="subtle">Log in to SimpCity in a browser, export its cookies as a <b>cookies.txt</b> (Netscape format, e.g. the “Get cookies.txt LOCALLY” extension) and upload it here. It stays on the server, readable only by it. When the login stops working, upload a fresh one.</p>
                   </div>
                 </div>
+                <section id="dlLaterSection" class="ranked-section" hidden>
+                  <div class="ranked-section-head">
+                    <h2>Bunkr files, saved for last</h2>
+                    <button id="dlLaterRun" class="text-button">Download now</button>
+                  </div>
+                  <p id="dlLaterText" class="subtle"></p>
+                  <ol id="dlLater" class="dl-rows"></ol>
+                </section>
                 <section id="dlFailedSection" class="ranked-section" hidden>
                   <div class="ranked-section-head">
                     <h2>Failed downloads</h2>

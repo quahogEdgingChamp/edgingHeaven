@@ -2206,6 +2206,8 @@ body.panic .shell, body.panic .drawer, body.panic .workspace-toast { visibility:
 }
 .dl-held { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: var(--r-md); background: var(--surface-2); }
 .dl-held p { margin: 0; font-size: 0.875rem; }
+.dl-progress { display: grid; gap: 10px; margin-bottom: 12px; }
+.dl-progress p { margin: 0; font-size: 0.8125rem; }
 .dl-badge.is-full, .dl-badge.is-held { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 
 /* Dangerous deletes files: every way into it is red, never the calm accent
@@ -2308,7 +2310,8 @@ body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data
   position: relative; height: 64px; padding: 0; overflow: hidden; border: 1px solid var(--line);
   border-radius: var(--r-sm); background: var(--surface-2);
 }
-.frame-cell:disabled { animation: frame-wait 1.2s ease-in-out infinite alternate; }
+.frame-cell.is-waiting { animation: frame-wait 1.2s ease-in-out infinite alternate; }
+.frame-source { position: fixed; left: 0; bottom: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
 .frame-cell canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
 .frame-cell span {
   position: absolute; right: 3px; bottom: 2px; padding: 0 4px; border-radius: 4px; background: rgba(0, 0, 0, 0.6);

@@ -479,6 +479,38 @@ def run_cyberdrop_dl(cfg: Config, urls_file: Path, download_dir: Path) -> int:
         return 127
 
 
+# Hosts that download slowly through cyberdrop-dl: its Bunkr downloader takes
+# one file at a time from each Bunkr server (server_lock in its bunkr.py, as
+# Bunkr refuses more), often under 1 MB/s. With --slow-later a model's links to
+# them wait in state/later/<model>.txt for `simp later`, so every other host's
+# files (for this and the next models) land first.
+SLOW_HOSTS = ("bunkr",)
+
+
+def is_slow_host(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(name in host for name in SLOW_HOSTS)
+
+
+def later_path(cfg: Config, slug: str) -> Path:
+    return cfg.resolve(cfg.paths.state_dir) / "later" / f"{slug}.txt"
+
+
+def later_slugs(cfg: Config) -> list[str]:
+    folder = cfg.resolve(cfg.paths.state_dir) / "later"
+    return sorted(p.stem for p in folder.glob("*.txt")) if folder.is_dir() else []
+
+
+def _save_later(cfg: Config, slug: str, links: list[MediaLink]) -> None:
+    """Keep a model's slow-host links for `simp later` (none: forget the old list)."""
+    path = later_path(cfg, slug)
+    if not links:
+        path.unlink(missing_ok=True)
+        return
+    export_url_list(path, [link.url for link in links])
+    console.print(f"  later: {len(links)} Bunkr links saved for the end ({path.name}); `simp later` downloads them")
+
+
 def partition_links(links: list[MediaLink]) -> tuple[list[MediaLink], list[MediaLink]]:
     """Split into (cdl_links, direct_links)."""
     cdl: list[MediaLink] = []
@@ -599,7 +631,7 @@ CDL_PUBLISH_EVERY = 15.0
 CDL_SETTLED_SECONDS = 30.0
 
 
-def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult) -> None:
+def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult, rerun: str = "") -> None:
     console.print(f"  cyberdrop-dl → {dest}")
     if cfg.download.deduplicate and cfg.download.skip_existing:
         models = cfg.models_root().resolve()
@@ -656,7 +688,7 @@ def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult) -> N
     if result.cdl_failed:
         console.print(
             f"  [yellow]cyberdrop-dl exited {result.cdl_exit}.[/] "
-            f"URLs kept in {urls_file} — `simp retry {result.slug}` reruns it"
+            f"URLs kept in {urls_file} — `{rerun or f'simp retry {result.slug}'}` reruns it"
         )
 
 
@@ -666,8 +698,10 @@ def download_model(
     title: str,
     links: list[MediaLink],
     cfg: Config,
+    slow_later: bool = False,
 ) -> ModelResult:
-    """Direct downloads, then cyberdrop-dl, into the model's folder.
+    """Direct downloads, then cyberdrop-dl, into the model's folder. With
+    slow_later, links to SLOW_HOSTS are saved for `simp later` instead.
 
     Raises DriveFull when the drive reaches the reserve; what was not fetched
     is not recorded anywhere, so the next run for this thread fetches it."""
@@ -679,6 +713,12 @@ def download_model(
     adopt_existing(cfg, slug, dest, links)
     result = ModelResult(slug)
     cdl_links, direct_links = partition_links(links)
+    if slow_later:
+        _save_later(cfg, slug, [link for link in cdl_links if is_slow_host(link.url)])
+        cdl_links = [link for link in cdl_links if not is_slow_host(link.url)]
+    elif cdl_links and cfg.download.use_cyberdrop_dl:
+        # This run takes every host again, so an older saved list is covered.
+        later_path(cfg, slug).unlink(missing_ok=True)
 
     try:
         if cfg.download.use_direct and direct_links:
@@ -757,6 +797,28 @@ def adopt_existing(cfg: Config, slug: str, dest: Path, links: list[MediaLink]) -
         f"  earlier download found: {adopted} {found_detail}, {len(gone)} older links not in the folder "
         f"treated as deleted (thread pages 1-{covered}), {len(unmatched) - len(gone)} newer to fetch"
     )
+
+
+def later_model(cfg: Config, slug: str) -> ModelResult:
+    """Download the slow-host links saved by --slow-later. The list is dropped
+    once cyberdrop-dl gets through it, and kept when it stops early (Ctrl-C,
+    a crash, a full drive), so the next `simp later` goes on with it:
+    cyberdrop-dl skips what it finished and resumes its .part files."""
+    urls_file = later_path(cfg, slug)
+    check_space(cfg, cfg.models_root())
+    dest = ensure_dir(cfg.models_root() / slug)
+    console.print(f"Model folder: {dest}")
+    result = ModelResult(slug)
+    if not cfg.download.use_cyberdrop_dl:
+        console.print("  [yellow]download.use_cyberdrop_dl is off: nothing downloads these.[/]")
+        result.cdl_exit = 1
+        return result
+    check_space(cfg, dest)
+    _run_cdl(cfg, urls_file, dest, result, rerun=f"simp later {slug}")
+    check_space(cfg, dest)
+    if not result.cdl_failed:
+        urls_file.unlink(missing_ok=True)
+    return result
 
 
 def retry_model(client: httpx.Client, cfg: Config, slug: str) -> ModelResult:
