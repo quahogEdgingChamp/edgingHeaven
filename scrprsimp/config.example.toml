@@ -67,6 +67,10 @@ videos = true
 skip_existing = true
 # Never download these extensions (direct + cyberdrop-dl). [] = keep everything.
 exclude_extensions = [".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".cab", ".iso"]
+# Never download these links (an album too big to want). Matched on the page,
+# so bunkr.cr/a/X also covers bunkr.si/a/X and bunkrr.su/a/X. Also dropped from
+# lists already saved in state/later/ and from failed runs being retried.
+exclude_urls = []
 # Direct downloads the index remembers but whose file is gone: fetch again
 # (true) or leave them gone (false). On the server this is false, because
 # Edging Heaven deletes files by moving them to .heaven-trash.

@@ -76,3 +76,16 @@ def test_exclude_archives():
         "https://example.com/x.zip", exclude_extensions=[".zip"]
     ) is None
     assert not is_excluded_ext("https://cdn.example/a/file.mp4")
+
+
+def test_exclude_urls_match_any_mirror():
+    from simp.hosts import is_excluded_url
+
+    never = ["https://bunkr.cr/a/D1wKM7wy"]
+    assert is_excluded_url("https://bunkr.cr/a/D1wKM7wy", never)
+    assert is_excluded_url("https://bunkr.si/a/D1wKM7wy/", never)
+    assert is_excluded_url("https://bunkrr.su/a/D1wKM7wy", never)
+    assert is_excluded_url("https://pixeldrain.com/u/x", ["pixeldrain.com/u/x"])
+    assert not is_excluded_url("https://bunkr.cr/a/D1wKM7wz", never)
+    assert not is_excluded_url("https://cyberdrop.me/a/D1wKM7wy", never)
+    assert not is_excluded_url("https://bunkr.cr/a/D1wKM7wy", [])

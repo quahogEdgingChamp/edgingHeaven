@@ -21,7 +21,7 @@ from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from .config import Config
 from .content import ContentIndex, complete_files
-from .hosts import MediaKind, MediaLink, blocked_extensions, link_to_dict, links_from_rows
+from .hosts import MediaKind, MediaLink, blocked_extensions, is_excluded_url, link_to_dict, links_from_rows
 from .index import DownloadIndex, index_path
 from .net import MEDIA_ACCEPT, ThreadClients, bounded_results, retry_after_seconds
 from .space import DriveFull, check_space
@@ -511,6 +511,19 @@ def _save_later(cfg: Config, slug: str, links: list[MediaLink]) -> None:
     console.print(f"  later: {len(links)} Bunkr links saved for the end ({path.name}); `simp later` downloads them")
 
 
+def drop_excluded(cfg: Config, urls_file: Path) -> bool:
+    """Take config exclude_urls out of a saved URL list (one written before
+    the link was excluded). False when nothing is left: the list is removed."""
+    urls = urls_file.read_text(encoding="utf-8").split()
+    kept = [url for url in urls if not is_excluded_url(url, cfg.download.exclude_urls)]
+    if len(kept) < len(urls):
+        console.print(f"  excluded: {len(urls) - len(kept)} links in download.exclude_urls skipped")
+        export_url_list(urls_file, kept)
+    if not kept:
+        urls_file.unlink(missing_ok=True)
+    return bool(kept)
+
+
 def partition_links(links: list[MediaLink]) -> tuple[list[MediaLink], list[MediaLink]]:
     """Split into (cdl_links, direct_links)."""
     cdl: list[MediaLink] = []
@@ -710,6 +723,10 @@ def download_model(
     dest = model_folder(cfg, thread_url, title)
     # Edging Heaven reads this line to add new files to its library as they land.
     console.print(f"Model folder: {dest}")
+    excluded = [link for link in links if is_excluded_url(link.url, cfg.download.exclude_urls)]
+    if excluded:
+        console.print(f"  excluded: {len(excluded)} links in download.exclude_urls skipped")
+        links = [link for link in links if link not in excluded]
     adopt_existing(cfg, slug, dest, links)
     result = ModelResult(slug)
     cdl_links, direct_links = partition_links(links)
@@ -813,6 +830,8 @@ def later_model(cfg: Config, slug: str) -> ModelResult:
         console.print("  [yellow]download.use_cyberdrop_dl is off: nothing downloads these.[/]")
         result.cdl_exit = 1
         return result
+    if not drop_excluded(cfg, urls_file):
+        return result
     check_space(cfg, dest)
     _run_cdl(cfg, urls_file, dest, result, rerun=f"simp later {slug}")
     check_space(cfg, dest)
@@ -842,6 +861,7 @@ def _retry_rows(client: httpx.Client, cfg: Config, slug: str, dest: Path, rows: 
         [r for r in rows if r.get("via") == "direct"],
         exclude_extensions=cfg.download.exclude_extensions,
     )
+    direct = [link for link in direct if not is_excluded_url(link.url, cfg.download.exclude_urls)]
     if direct:
         _run_direct(client, cfg, slug, dest, direct, result)
 
@@ -849,8 +869,9 @@ def _retry_rows(client: httpx.Client, cfg: Config, slug: str, dest: Path, rows: 
     if cdl_row:
         urls_file = cfg.resolve(cfg.paths.state_dir) / f"cdl_{slug}.txt"
         if cfg.download.use_cyberdrop_dl and urls_file.is_file():
-            check_space(cfg, dest)
-            _run_cdl(cfg, urls_file, dest, result)
-            check_space(cfg, dest)
+            if drop_excluded(cfg, urls_file):  # all excluded now: nothing left to fail
+                check_space(cfg, dest)
+                _run_cdl(cfg, urls_file, dest, result)
+                check_space(cfg, dest)
         else:
             result.cdl_exit = cdl_row.get("exit", 1)  # couldn't rerun — keep it listed

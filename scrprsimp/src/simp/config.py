@@ -69,6 +69,9 @@ class DownloadConfig:
     exclude_extensions: list[str] = field(
         default_factory=lambda: sorted(DEFAULT_EXCLUDE_EXT)
     )
+    # Never download these links (an album too big to want). Matched on the
+    # page, so bunkr.cr/a/X also covers bunkr.si/a/X. Direct + cyberdrop-dl.
+    exclude_urls: list[str] = field(default_factory=list)
     # Direct downloads the index says are done, but whose file is gone: fetch
     # them again (true), or trust the index and leave them gone (false). Edging
     # Heaven's Dangerous mode deletes by moving files to .heaven-trash, so on

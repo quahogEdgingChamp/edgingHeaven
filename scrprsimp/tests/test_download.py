@@ -391,3 +391,27 @@ def test_a_run_without_slow_later_covers_the_saved_list(cfg, tmp_path, monkeypat
     assert runs == [["https://bunkr.cr/a/album"]]
     assert not later_path(cfg, "model").exists()
 
+
+
+def test_exclude_urls_are_never_downloaded(cfg, tmp_path, monkeypatch):
+    """download.exclude_urls: dropped from a new run, and from lists saved
+    before the link was excluded (state/later/, a failed run's list)."""
+    runs = []
+    monkeypatch.setattr(download, "run_cyberdrop_dl", lambda cfg, urls_file, dest: runs.append(urls_file.read_text().split()) or 0)
+    cfg.download.exclude_urls = ["https://bunkr.cr/a/huge"]
+    thread = "https://simpcity.cr/threads/model.123/"
+    links = [MediaLink(url, MediaKind.ALBUM, "href", prefer_cdl=True)
+             for url in ("https://bunkr.si/a/huge", "https://bunkr.cr/a/small", "https://gofile.io/d/zz")]
+    with httpx.Client() as client:
+        download_model(client, thread, "", links, cfg, slow_later=True)
+    assert runs == [["https://gofile.io/d/zz"]]
+    assert later_path(cfg, "model").read_text().split() == ["https://bunkr.cr/a/small"]
+
+    # Saved before it was excluded: `simp later` leaves it out.
+    later_path(cfg, "model").write_text("https://bunkr.cr/a/huge\nhttps://bunkr.cr/a/small\n")
+    later_model(cfg, "model")
+    assert runs[1] == ["https://bunkr.cr/a/small"]
+    # Nothing but excluded links: cyberdrop-dl does not run, the list goes.
+    later_path(cfg, "model").write_text("https://bunkr.cr/a/huge\n")
+    assert not later_model(cfg, "model").cdl_failed
+    assert len(runs) == 2 and not later_path(cfg, "model").exists()

@@ -123,6 +123,24 @@ def is_excluded_ext(url: str, exclude: list[str] | set[str] | None = None) -> bo
     return _ext(url) in blocked_extensions(exclude)
 
 
+# Hosts whose domain rotates (bunkr.cr, .si, .la, bunkrr.su): one name for all.
+MIRRORED_HOSTS = ("bunkr",)
+
+
+def _url_key(url: str) -> tuple[str, str]:
+    """(site, path) with the scheme, www. and a mirror's domain left out."""
+    parsed = urlparse(url if "://" in url else f"https://{url}")
+    host = (parsed.hostname or "").removeprefix("www.")
+    site = next((name for name in MIRRORED_HOSTS if name in host), host)
+    return site, parsed.path.rstrip("/")
+
+
+def is_excluded_url(url: str, exclude: list[str] | None = None) -> bool:
+    """True if the URL is one config exclude_urls never downloads (same page on
+    any mirror of its host, with or without https://)."""
+    return bool(exclude) and _url_key(url) in {_url_key(entry) for entry in exclude}
+
+
 def classify_url(
     url: str,
     source: str = "href",
