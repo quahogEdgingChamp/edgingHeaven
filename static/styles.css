@@ -628,6 +628,12 @@ body:not([data-mode="home"]) .pill-row { display: none; }
 .shortcut-list dt { justify-self: start; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); font-size: 0.75rem; white-space: nowrap; }
 .shortcut-list dd { margin: 0; color: var(--muted); }
 
+.model-reset { display: grid; gap: 10px; }
+.model-reset-facts { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--muted); overflow-wrap: anywhere; }
+.model-reset-facts strong { color: var(--text); font-weight: 600; }
+.model-reset-busy { margin: 0; padding: 10px 12px; border-radius: var(--r-sm); background: var(--danger-soft); color: var(--danger); font-size: 0.8125rem; }
+#modelResetName { color: var(--danger); text-transform: none; letter-spacing: 0; overflow-wrap: anywhere; }
+
 .trash-list { max-height: 280px; overflow: auto; font-size: 0.75rem; }
 .trash-list:empty { display: none; }
 .trash-list > div { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding: 8px 0; }
@@ -2201,6 +2207,7 @@ body.panic .shell, body.panic .drawer, body.panic .workspace-toast { visibility:
 .bm-body .subtle { overflow-wrap: anywhere; }
 .bm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .bm-link { margin-left: auto; text-decoration: none; }
+.bm-remove { color: var(--danger); }
 @media (max-width: 760px) {
   .bm-toolbar { grid-template-columns: minmax(0, 1fr); }
 }

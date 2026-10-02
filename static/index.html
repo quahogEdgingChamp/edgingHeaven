@@ -225,6 +225,32 @@
           </dl>
         </div>
 
+        <div id="modelResetCard" class="settings-card danger-zone" hidden>
+          <p class="panel-label">Remove a model</p>
+          <p class="subtle">Deletes one model for good, straight off the drive. It does not go through the trash and cannot be undone.</p>
+          <label class="setup-path">
+            <span>Model</span>
+            <select id="modelResetPick"><option value="">Choose a model…</option></select>
+          </label>
+          <p id="modelResetStatus" class="subtle" role="status" hidden></p>
+          <div id="modelResetDetails" class="model-reset" hidden>
+            <ul id="modelResetFacts" class="model-reset-facts"></ul>
+            <div id="modelResetScope" class="segmented" role="group" aria-label="How much to remove">
+              <button type="button" class="segment" data-reset-scope="drive">From the drive</button>
+              <button type="button" class="segment" data-reset-scope="full">Full reset</button>
+            </div>
+            <p id="modelResetScopeHint" class="subtle"></p>
+            <p id="modelResetBusy" class="model-reset-busy" role="alert" hidden></p>
+            <label class="setup-path">
+              <span>Type <b id="modelResetName"></b> to confirm</span>
+              <input id="modelResetConfirm" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
+            </label>
+            <div class="setup-actions">
+              <button id="modelResetGo" class="danger-button small-button" disabled>Delete for good</button>
+            </div>
+          </div>
+        </div>
+
         <div class="settings-card danger-zone">
           <p class="panel-label">Danger zone</p>
           <p class="subtle">Clears every like and dislike for all photos and videos. Your folder, theme, filters and settings stay.</p>
@@ -2126,5 +2152,6 @@
     <script src="/js/34-bookmarks.js?v=9" defer></script>
     <script src="/js/35-cleanup.js?v=9" defer></script>
     <script src="/js/36-sortrate.js?v=9" defer></script>
+    <script src="/js/37-removemodel.js?v=9" defer></script>
   </body>
 </html>

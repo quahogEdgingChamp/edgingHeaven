@@ -151,6 +151,27 @@ def cdl_file_name(url: str) -> str:
     return unquote(url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1])
 
 
+def valid_model(name) -> bool:
+    """A model is one top-level folder: a plain name, never a path or a hidden entry."""
+    return isinstance(name, str) and 0 < len(name) <= 255 and "/" not in name and "\x00" not in name \
+        and not name.startswith(".")
+
+
+def tree_bytes(folder: Path) -> tuple:
+    """(files, bytes) under a folder, not following links; (0, 0) for none."""
+    files = total = 0
+    if folder.is_symlink():
+        return files, total
+    for directory, _dirs, names in os.walk(folder):
+        for name in names:
+            try:
+                total += (Path(directory) / name).lstat().st_size
+                files += 1
+            except OSError:
+                continue
+    return files, total
+
+
 def url_key(url_or_path: str) -> str:
     """The last part of a URL's path: what a log URL and a database row share
     (the row keeps only the end of the path, /Name-abc.mp4 or /api/file/<id>)."""
@@ -344,9 +365,20 @@ class SimpJobs:
 
     def known_threads(self, state: Path) -> dict:
         """model -> {"url", "lastPage"} from simp's crawl cache
-        (state/crawl/<host>_<slug.id>.json). Those files hold every link
-        found and can be megabytes, so only their head is read, once per change."""
+        (state/crawl/<host>_<slug.id>.json). Two files for one model (a
+        mirror change): the newer wins."""
         threads, stamps = {}, {}
+        for _path, entry, stamp in self._crawl_files(state):
+            model = thread_slug(entry["url"])
+            if model not in threads or stamp > stamps[model]:
+                threads[model], stamps[model] = entry, stamp
+        return threads
+
+    def _crawl_files(self, state: Path) -> list:
+        """(file, {"url", "lastPage"}, mtime) of each crawl cache file. Those
+        files hold every link found and can be megabytes, so only their head
+        is read, once per change."""
+        rows = []
         with self.lock:
             files = sorted((state / "crawl").glob("*.json"))
         for path in files:
@@ -371,13 +403,152 @@ class SimpJobs:
                 cached = (key, entry)
                 with self.lock:
                     self._threads_cache[path.name] = cached
-            entry = cached[1]
-            if entry:
-                model = thread_slug(entry["url"])
-                # Two files for one model (a mirror change): the newer wins.
-                if model not in threads or info.st_mtime_ns > stamps[model]:
-                    threads[model], stamps[model] = entry, info.st_mtime_ns
-        return threads
+            if cached[1]:
+                rows.append((path, cached[1], info.st_mtime_ns))
+        return rows
+
+    # ---- forgetting a model (Settings → Remove a model) ----
+    # Per model, simp keeps (paths in its state/):
+    #   pending work:  later/<m>.txt, failed/<m>.jsonl, cdl_<m>.txt/.jsonl, and
+    #                  half-downloaded files in the staging folder <staging>/<m>/
+    #   its memory:    done/<m>.jsonl (direct links fetched), content/<m>.jsonl
+    #                  (hashes), crawl/<host>_<m>.<id>.json (thread, last page),
+    #                  and cyberdrop-dl's rows in cdl/cyberdrop.db
+    # Removing a model from the drive drops the pending work, so nothing brings
+    # its files back. A full reset also drops the memory: downloading the
+    # thread again then starts at page 1 and fetches everything.
+
+    def _staging(self) -> Path:
+        """Where cyberdrop-dl's downloads wait before they join the library
+        (simp's _run_cdl): paths.cdl_staging_dir, else .<library>.simp-incoming
+        next to the library."""
+        config = self._config()
+        paths = config.get("paths") if isinstance(config.get("paths"), dict) else {}
+        custom = str(paths.get("cdl_staging_dir") or "").strip()
+        if custom:
+            return (self.root / Path(custom).expanduser()).resolve()
+        target = self._paths()["target"]
+        return target.parent / f".{target.name}.simp-incoming"
+
+    def _cdl_db(self) -> Path:
+        paths = self._config().get("paths")
+        cdl_dir = paths.get("cdl_dir", "state/cdl") if isinstance(paths, dict) else "state/cdl"
+        return (self.root / Path(str(cdl_dir)).expanduser()).resolve() / "cyberdrop.db"
+
+    def _cdl_rows(self, model: str, delete: bool = False) -> int:
+        """cyberdrop-dl's history rows for this model's files: the ones it
+        saved into <anything>.simp-incoming/<model>/ (staging, wherever the
+        library was at the time) or straight into the model's folder."""
+        db = self._cdl_db()
+        if not db.is_file():
+            return 0
+        folder = str(self._paths()["target"] / model)
+
+        def hers(path) -> bool:
+            if not isinstance(path, str):
+                return False
+            if path == folder or path.startswith(folder + "/"):
+                return True
+            parts = path.split("/")
+            return any(a.endswith(".simp-incoming") and b == model for a, b in zip(parts, parts[1:]))
+
+        connection = sqlite3.connect(db.as_uri() + ("" if delete else "?mode=ro"), uri=True, timeout=15)
+        try:
+            with connection:  # one transaction: all of the model's rows or none
+                try:
+                    rows = [rowid for rowid, path in connection.execute("SELECT rowid, download_path FROM media") if hers(path)]
+                except sqlite3.OperationalError:  # no media table yet
+                    return 0
+                if delete and rows:
+                    connection.executemany("DELETE FROM media WHERE rowid = ?", [(rowid,) for rowid in rows])
+        finally:
+            connection.close()
+        return len(rows)
+
+    @staticmethod
+    def _lines(path: Path) -> int:
+        try:
+            with path.open("rb") as handle:
+                return sum(1 for line in handle if line.strip())
+        except OSError:
+            return 0
+
+    def model_records(self, model: str) -> dict:
+        """What simp keeps about one model, for the page to show before removing."""
+        state = self._paths()["state"]
+        files, size = tree_bytes(self._staging() / model)
+        thread = self.known_threads(state).get(model)
+        try:
+            cdl = self._cdl_rows(model)
+        except sqlite3.Error:
+            cdl = 0
+        records = {
+            "thread": thread["url"] if thread else None,
+            "lastPage": thread["lastPage"] if thread else None,
+            "links": self._lines(state / "done" / f"{model}.jsonl"),
+            "hashes": self._lines(state / "content" / f"{model}.jsonl"),
+            "cdlFiles": cdl,
+            "failed": self._lines(state / "failed" / f"{model}.jsonl"),
+            "later": self._lines(state / "later" / f"{model}.txt"),
+            "stagingFiles": files,
+            "stagingBytes": size,
+        }
+        records["known"] = any(value for value in records.values())
+        return records
+
+    def busy_for(self, model: str, full: bool) -> str:
+        """Why removing this model has to wait, or "" when it can go ahead.
+        Call with self.lock held through the removal, so no job starts meanwhile."""
+        with self.lock:
+            running = next((job for job in self.jobs if job["status"] == "running"), None)
+            # A full reset edits cyberdrop-dl's database, which any download may
+            # have open; a bookmarks download may reach any model.
+            if running and running["action"] in DRIVE_ACTIONS and (
+                    full or running["action"] == "bookmarks" or model in running.get("models", [])):
+                return (f"“{running['label']}” is running. Wait for it to end, or cancel it on the Downloads page "
+                        "(Bunkr files pick up where they stopped next time), then try again.")
+            for job in self.jobs:
+                if job["status"] not in ("queued", "held") or job["action"] not in ("thread", "update", "retry"):
+                    continue
+                named = job["args"][1:] if job["action"] == "retry" else job.get("models", [])
+                if model in named:
+                    return f"“{job['label']}” is waiting to download this model. Cancel it on the Downloads page first."
+        return ""
+
+    def forget_model(self, model: str, full: bool) -> dict:
+        """Drop simp's pending work for a model, and with full its memory too.
+        The caller holds self.lock and has checked busy_for."""
+        state = self._paths()["state"]
+        removed = []
+        for path in (state / "later" / f"{model}.txt", state / "failed" / f"{model}.jsonl",
+                     state / f"cdl_{model}.txt", state / f"cdl_{model}.jsonl"):
+            if path.is_file():
+                path.unlink()
+                removed.append(path.name)
+        staging = self._staging() / model
+        staged = tree_bytes(staging)[1]
+        if staging.is_dir() and not staging.is_symlink():
+            shutil.rmtree(staging)
+        cdl = 0
+        if full:
+            for path in (state / "done" / f"{model}.jsonl", state / "content" / f"{model}.jsonl"):
+                if path.is_file():
+                    path.unlink()
+                    removed.append(path.name)
+            for path, entry, _stamp in self._crawl_files(state):
+                if thread_slug(entry["url"]) == model:
+                    path.unlink(missing_ok=True)
+                    removed.append(path.name)
+            cdl = self._cdl_rows(model, delete=True)
+        # A waiting Bunkr job reads the lists when it starts; it just no longer names the model.
+        for job in self.jobs:
+            if job["action"] == "later" and job["status"] in ("queued", "held") and model in job.get("models", []):
+                job["models"] = [other for other in job["models"] if other != model]
+                job["label"] = self._later_label(job["models"])
+                if not job["models"]:
+                    job["status"], job["endedAt"], job["summary"] = "cancelled", utc_now_iso(), "Nothing left to download."
+        self._save()
+        return {"removed": removed, "stagingBytes": staged, "cdlFiles": cdl}
 
     # ---- what the page shows ----
 

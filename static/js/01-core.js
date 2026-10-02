@@ -572,6 +572,7 @@ function bindEvents() {
   bindPrivacyCards();
   bindDownloads();
   bindBookmarks();
+  bindModelReset();
   bindMarking();
   controls.swipeUndoButton.addEventListener("click", () => undoLastAction("swipe"));
   controls.toktinderUndoButton.addEventListener("click", () => undoLastAction("toktinder"));

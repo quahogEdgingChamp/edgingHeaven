@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import stat
 import threading
 import time
@@ -21,7 +22,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
 from faststart import layout as faststart_layout, read_chunks
-from simpjobs import SimpError, SimpJobs
+from simpjobs import SimpError, SimpJobs, tree_bytes, valid_model
 
 
 IMAGE_EXTENSIONS = {
@@ -239,7 +240,7 @@ LOCK_FREE_ATTEMPTS = 5
 # Reachable without unlocking: the page itself, so it can show the PIN pad.
 PUBLIC_PATHS = {"/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/api/lock", "/api/unlock"}
 STATIC_JS_RE = re.compile(r"/js/[0-9a-z-]+\.js")
-FEATURES = ["love", "marks", "sessions", "lock", "simp", "bookmarks", "additions", "dangerousKept", "cleanup"]
+FEATURES = ["love", "marks", "sessions", "lock", "simp", "bookmarks", "additions", "dangerousKept", "cleanup", "modelReset"]
 # Downloads (simpjobs.py): /api/simp/jobs/<id>/log and /api/simp/jobs/<id>/cancel.
 SIMP_JOB_RE = re.compile(r"/api/simp/jobs/([a-f0-9]{12})/(log|cancel|arrivals)")
 # Bookmark previews: /api/simp/previews/<model, URL-encoded>/<n>.<ext>
@@ -1175,14 +1176,11 @@ class MediaLibrary:
         return candidate
 
     def thumb_path(self, relative_path: str) -> Optional[Path]:
-        """Where the still for this video lives. The key includes size and
-        mtime, so a replaced file gets a fresh thumbnail."""
+        """Where the still for this video lives (see _still_for)."""
         file_path = self.resolve_media_path(relative_path)
         if file_path is None or file_path.suffix.lower() not in VIDEO_EXTENSIONS:
             return None
-        info = file_path.stat()
-        key = hashlib.sha1(f"{relative_path}\0{info.st_size}\0{info.st_mtime_ns}".encode("utf-8")).hexdigest()
-        return self.state_path.parent / "thumbs" / key[:2] / f"{key}.jpg"
+        return self._still_for(relative_path, file_path.stat())
 
     def save_thumb(self, relative_path: str, body: bytes) -> bool:
         target = self.thumb_path(relative_path)
@@ -1370,8 +1368,7 @@ class MediaLibrary:
                     info = media.stat()
                     if isinstance(path, str):
                         # Same key as thumb_path: a rename keeps size and mtime.
-                        key = hashlib.sha1(f"{path}\0{info.st_size}\0{info.st_mtime_ns}".encode("utf-8")).hexdigest()
-                        (self.state_path.parent / "thumbs" / key[:2] / f"{key}.jpg").unlink(missing_ok=True)
+                        self._still_for(path, info).unlink(missing_ok=True)
                     media.unlink()
                     removed += 1
                     freed += info.st_size
@@ -1404,6 +1401,171 @@ class MediaLibrary:
                 result["freedBytes"] += leftovers
                 result["freeBytes"] = self._free_bytes()
             return result
+
+    # ---- removing a whole model (Settings → Remove a model) ----
+    # A model is a top-level folder. Removing it erases the folder, its files
+    # in the trash, and everything the app remembers about them. Nothing goes
+    # through the trash: there is no undo, which the page says before asking.
+
+    @staticmethod
+    def _model_keys(table, model) -> list:
+        return [path for path in table if isinstance(path, str) and path.startswith(model + "/")]
+
+    def _model_folder(self, model) -> Optional[Path]:
+        """The model's folder as it is named on disk, or None if there is none."""
+        if self.media_dir is None:
+            raise ValueError("The library is offline.")
+        try:
+            names = os.listdir(self.media_dir)
+        except OSError:
+            return None
+        for name in names:
+            if client_path(name) == model and name != ".heaven-trash":
+                folder = self.media_dir / name
+                if folder.is_symlink():
+                    raise ValueError("That model folder is a link to somewhere else. Remove it by hand.")
+                if folder.is_dir():
+                    return folder
+        return None
+
+    def _model_trash(self, model) -> list:
+        """(entry folder, size) of each of the model's files in the trash."""
+        root = self._trash_root()
+        found = []
+        if not root.is_dir():
+            return found
+        for entry in root.iterdir():
+            if entry.is_symlink() or not re.fullmatch(r"[a-f0-9]{32}", entry.name):
+                continue
+            try:
+                record = json.loads((entry / "record.json").read_text(encoding="utf-8"))
+                if client_path(record["path"]).startswith(model + "/"):
+                    media = entry / "media"
+                    found.append((entry, media.lstat().st_size if media.is_file() else 0))
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                continue
+        return found
+
+    def model_summary(self, model) -> Optional[dict]:
+        """What removing a model would erase; None when nothing is kept for it."""
+        with self.lock:
+            folder = self._model_folder(model)
+            items = [item for key in ("images", "videos") for item in self.catalog[key] if item["path"].startswith(model + "/")]
+            trash = self._model_trash(model)
+            ratings = {path: self.state["ratings"][path] for path in self._model_keys(self.state["ratings"], model)}
+            remembered = {
+                "kept": sum(1 for rating in ratings.values() if rating in KEPT),
+                "loved": sum(1 for rating in ratings.values() if rating == "love"),
+                "passed": sum(1 for rating in ratings.values() if rating == "dislike"),
+                "marked": len(self._model_keys(self.state.get("marks", {}), model)),
+                "dueled": len(self._model_keys(self.state.get("duel", {}), model)),
+                "keptInDangerous": len(self._model_keys(self.state.get("dangerousKept", {}), model)),
+            }
+        # Outside the lock: walking a big folder takes a moment.
+        files, size = tree_bytes(folder) if folder else (0, 0)
+        if folder is None and not trash and not any(remembered.values()):
+            return None
+        return {
+            "onDrive": folder is not None,
+            "media": len(items),
+            "photos": sum(1 for item in items if Path(item["path"]).suffix.lower() in IMAGE_EXTENSIONS),
+            "files": files,
+            "bytes": size,
+            "trashFiles": len(trash),
+            "trashBytes": sum(entry_size for _entry, entry_size in trash),
+            "remembered": remembered,
+        }
+
+    def detach_model(self, model, expected_library) -> tuple:
+        """Take a model out of the library in one quick step: its folder and
+        trash entries are renamed into .heaven-trash/.removing-<token>/ (the
+        scanner and the trash list skip it), and every rating, mark, duel
+        score, seen time, fingerprint and video still of its files is
+        forgotten. erase_detached deletes the folder afterwards, outside the
+        lock. Returns (that folder or None, counts for the page)."""
+        with self.lock:
+            if expected_library != str(self.media_dir):
+                raise ValueError("The library changed. Reload before removing a model.")
+            folder = self._model_folder(model)
+            trash = self._model_trash(model)
+            items = [item for key in ("images", "videos") for item in self.catalog[key] if item["path"].startswith(model + "/")]
+            # Stills are keyed by size and date, so look them up before the files go.
+            for item in items:
+                if Path(item["path"]).suffix.lower() in VIDEO_EXTENSIONS:
+                    still = self.thumb_path(item["path"])
+                    if still is not None:
+                        still.unlink(missing_ok=True)
+            for entry, _size in trash:
+                media = entry / "media"
+                try:
+                    record = json.loads((entry / "record.json").read_text(encoding="utf-8"))
+                    if media.is_file() and Path(record["path"]).suffix.lower() in VIDEO_EXTENSIONS:
+                        self._still_for(client_path(record["path"]), media.stat()).unlink(missing_ok=True)
+                except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                    pass
+
+            pending = None
+            if folder is not None or trash:
+                pending = self._trash_root() / f".removing-{uuid.uuid4().hex}"
+                pending.mkdir(parents=True)
+                try:
+                    if folder is not None:
+                        # Same drive, so this is a rename, however big the folder.
+                        folder.rename(pending / "folder")
+                except OSError:
+                    pending.rmdir()
+                    raise
+                for entry, _size in trash:
+                    try:
+                        (pending / "trash").mkdir(exist_ok=True)
+                        entry.rename(pending / "trash" / entry.name)
+                    except OSError:
+                        continue  # stays in the trash, where Empty trash still erases it
+
+            for key in ("ratings", "ratingTimes", "duel", "marks", "dangerousKept"):
+                table = self.state.get(key, {})
+                for path in self._model_keys(table, model):
+                    table.pop(path, None)
+            self.state["brokenPaths"] = {path for path in self.state.get("brokenPaths", set()) if not path.startswith(model + "/")}
+            for path in self._model_keys(self.fs_paths, model):
+                self.fs_paths.pop(path)
+            gone = {item["path"] for item in items}
+            if gone:
+                for key in ("images", "videos"):
+                    self.catalog[key] = [item for item in self.catalog[key] if item["path"] not in gone]
+            # A new updatedAt makes every open page reload the library.
+            self.catalog["updatedAt"] = utc_now_iso()
+            self._save_state()
+            seen = self._model_keys(self.seen, model)
+            for path in seen:
+                self.seen.pop(path)
+            if seen:
+                self._save_seen()
+            prints = self._model_keys(self.fingerprints, model)
+            for path in prints:
+                self.fingerprints.pop(path)
+            if prints:
+                temporary = self.fingerprints_path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(self.fingerprints, separators=(",", ":")), encoding="utf-8")
+                temporary.replace(self.fingerprints_path)
+            return pending, {"media": len(items), "trashFiles": len(trash), "wasOnDrive": folder is not None}
+
+    def erase_detached(self, pending: Optional[Path]) -> dict:
+        """Delete what detach_model set aside. If this stops halfway (drive
+        unplugged), the rest stays in .heaven-trash, and Settings → Delete
+        trash folder removes it."""
+        freed = 0
+        if pending is not None and pending.is_dir() and not pending.is_symlink():
+            freed = tree_bytes(pending)[1]
+            # rmtree removes links inside without following them.
+            shutil.rmtree(pending)
+        return {"freedBytes": freed, "freeBytes": self._free_bytes()}
+
+    def _still_for(self, relative_path: str, info) -> Path:
+        """Where a video's still is stored. The key includes size and mtime
+        (which a move to the trash keeps), so a replaced file gets a fresh one."""
+        key = hashlib.sha1(f"{relative_path}\0{info.st_size}\0{info.st_mtime_ns}".encode("utf-8")).hexdigest()
+        return self.state_path.parent / "thumbs" / key[:2] / f"{key}.jpg"
 
     def _free_bytes(self):
         """Space left on the drive that holds the library, or None if unknown."""
@@ -1601,6 +1763,43 @@ class RequestHandler(BaseHTTPRequestHandler):
         except OSError as error:
             self._send_json({"error": f"Could not reach simp's files: {error}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
+    def _handle_model_reset(self, parsed, payload):
+        """Settings → Remove a model. GET ?model= says what would go; POST
+        {model, confirm (the name again), library, full} removes it from the
+        drive, and with full also makes simp forget it. payload is None for a GET."""
+        library, simp = self.server.library, self.server.simp
+        model = parse_qs(parsed.query).get("model", [""])[0] if payload is None else payload.get("model")
+        if not valid_model(model):
+            self._send_json({"error": "Pick a model."}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            if payload is None:
+                drive = library.model_summary(model)
+                records = simp.model_records(model)
+                if drive is None and not records["known"]:
+                    self._send_json({"error": "Nothing is stored for this model."}, HTTPStatus.NOT_FOUND)
+                    return
+                self._send_json({"model": model, "drive": drive, "records": records,
+                                 "busy": {"drive": simp.busy_for(model, False), "full": simp.busy_for(model, True)}})
+                return
+            if payload.get("confirm") != model:
+                raise ValueError("Type the model's name to confirm.")
+            full = payload.get("full") is True
+            # Held throughout, so no download starts while the model goes.
+            with simp.lock:
+                busy = simp.busy_for(model, full)
+                if busy:
+                    raise ValueError(busy)
+                pending, result = library.detach_model(model, payload.get("library"))
+                result["records"] = simp.forget_model(model, full)
+            result.update(library.erase_detached(pending))
+            result["freedBytes"] += result["records"]["stagingBytes"]
+            self._send_json({"ok": True, "model": model, "full": full, **result})
+        except (OSError, ValueError, sqlite3.Error) as error:
+            message = ("The drive is read-only, so nothing can be deleted from it."
+                       if isinstance(error, OSError) and error.errno in {13, 30} else str(error))
+            self._send_json({"error": message}, HTTPStatus.CONFLICT)
+
     def do_GET(self):
         parsed = urlparse(self.path)
 
@@ -1618,6 +1817,10 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path.startswith("/api/simp/"):
             self._handle_simp(parsed, None)
+            return
+
+        if parsed.path == "/api/model-reset":
+            self._handle_model_reset(parsed, None)
             return
 
         if parsed.path == "/api/sessions":
@@ -1770,6 +1973,10 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path.startswith("/api/simp/"):
             self._handle_simp(parsed, payload)
+            return
+
+        if parsed.path == "/api/model-reset":
+            self._handle_model_reset(parsed, payload)
             return
 
         if parsed.path == "/api/marks":

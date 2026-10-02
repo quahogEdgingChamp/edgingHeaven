@@ -222,6 +222,10 @@ function bookmarkCard(row, info) {
       openModelPage(row.model);
     }));
   }
+  // Remove… for a model there is something of: files, or the downloader's records.
+  if (modelResetSupported() && (info || (downloads.status?.threads || []).some((thread) => thread.model === row.model))) {
+    actions.append(downloadButton("Remove…", () => openModelReset(row.model), "text-button bm-remove"));
+  }
   if (row.url) {
     const link = document.createElement("a");
     link.className = "text-button bm-link";

@@ -687,3 +687,194 @@ class SlowLaterTests(SimpCase):
         slow = next(job for job in self.call("/api/simp/status")[1]["jobs"] if "slow" in job["label"])
         self.call(f"/api/simp/jobs/{slow['id']}/cancel", {})
 
+
+
+class ModelResetTests(SimpCase):
+    """Settings → Remove a model: the folder, its trash, what the app and
+    simp remember. Everything here lives in the test's temporary folder."""
+
+    def setUp(self):
+        super().setUp()
+        self.state_dir = self.root / "state"
+        self.staging = self.media.parent / f".{self.media.name}.simp-incoming"
+        for model in ("gone", "stays"):
+            folder = self.media / model / "Loose Files (Bunkr)"
+            folder.mkdir(parents=True)
+            (self.media / model / "a.jpg").write_bytes(b"\xff\xd8\xff photo " + model.encode())
+            (self.media / model / "b.jpg").write_bytes(b"\xff\xd8\xff second " + model.encode())
+            (folder / "c.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42 clip")
+            (self.media / model / "notes.txt").write_text("not media")
+            for sub, name in (("done", f"{model}.jsonl"), ("content", f"{model}.jsonl"), ("failed", f"{model}.jsonl")):
+                (self.state_dir / sub).mkdir(parents=True, exist_ok=True)
+                (self.state_dir / sub / name).write_text('{"url": "u1"}\n{"url": "u2"}\n')
+            (self.state_dir / "later").mkdir(exist_ok=True)
+            (self.state_dir / "later" / f"{model}.txt").write_text("https://bunkr.cr/a/1\n")
+            (self.state_dir / f"cdl_{model}.txt").write_text("https://bunkr.cr/a/1\n")
+            (self.state_dir / "crawl").mkdir(exist_ok=True)
+            (self.state_dir / "crawl" / f"simpcity.cr_{model}.9.json").write_text(
+                json.dumps({"thread": f"https://simpcity.cr/threads/{model}.9/", "last_page": 4, "links": []}))
+            (self.staging / model).mkdir(parents=True)
+            (self.staging / model / "half.mp4.part").write_bytes(b"x" * 1000)
+        (self.state_dir / "cdl").mkdir()
+        with sqlite3.connect(self.state_dir / "cdl" / "cyberdrop.db") as db:
+            db.execute("CREATE TABLE media (domain TEXT, url_path TEXT, download_path TEXT, completed INTEGER)")
+            db.executemany("INSERT INTO media VALUES (?, ?, ?, 1)", [
+                ("bunkr", "/1", f"{self.staging}/gone/Loose Files (Bunkr)"),
+                ("bunkr", "/2", "/old/drive/.baza.simp-incoming/gone"),  # from before the library moved
+                ("bunkr", "/3", f"{self.media}/gone"),
+                ("bunkr", "/4", f"{self.staging}/stays"),
+                ("bunkr", "/5", f"{self.staging}/gone-too"),  # a different model whose name starts the same
+            ])
+        db.close()
+        self.library.scan()
+        # What the app remembers about each model's files.
+        for model in ("gone", "stays"):
+            self.call("/api/rating", {"path": f"{model}/a.jpg", "rating": "love"})
+            self.call("/api/rating", {"path": f"{model}/b.jpg", "rating": "dislike"})
+            self.call("/api/marks", {"path": f"{model}/Loose Files (Bunkr)/c.mp4", "marks": [[1, 5]]})
+            self.call("/api/duel", {"winner": f"{model}/a.jpg", "loser": f"{model}/b.jpg"})
+            self.call("/api/seen", {"paths": [f"{model}/a.jpg"]})
+            self.call("/api/fingerprints", {"items": {f"{model}/a.jpg": ["0123456789abcdef", 10, 10]}})
+            self.assertTrue(self.library.save_thumb(f"{model}/Loose Files (Bunkr)/c.mp4", b"\xff\xd8\xff still"))
+        self.call("/api/dangerous-kept", {"path": "gone/a.jpg", "kept": True})
+        self.still = self.library.thumb_path("gone/Loose Files (Bunkr)/c.mp4")
+        # One of its files is already in the trash, with its own still.
+        (self.media / "gone" / "d.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42 trashed")
+        self.library.scan()
+        self.assertTrue(self.library.save_thumb("gone/d.mp4", b"\xff\xd8\xff still"))
+        trashed_still = self.library.thumb_path("gone/d.mp4")
+        self.assertEqual(self.call("/api/trash", {"path": "gone/d.mp4", "library": str(self.media)})[0], 200)
+        self.stills = [self.still, trashed_still]
+        self.assertTrue(all(still.is_file() for still in self.stills))
+
+    def remove(self, model="gone", full=False, confirm=None):
+        return self.call("/api/model-reset", {"model": model, "confirm": model if confirm is None else confirm,
+                                              "library": str(self.media), "full": full})
+
+    def cdl_paths(self):
+        with sqlite3.connect(self.state_dir / "cdl" / "cyberdrop.db") as db:
+            paths = sorted(row[0] for row in db.execute("SELECT download_path FROM media"))
+        db.close()
+        return paths
+
+    def test_preview_says_what_would_go(self):
+        code, body = self.call("/api/model-reset?model=gone")
+        self.assertEqual(code, 200)
+        drive = body["drive"]
+        self.assertEqual((drive["onDrive"], drive["media"], drive["photos"], drive["files"]), (True, 3, 2, 4))
+        self.assertEqual(drive["trashFiles"], 1)
+        self.assertEqual(drive["remembered"], {"kept": 1, "loved": 1, "passed": 1, "marked": 1, "dueled": 2, "keptInDangerous": 1})
+        records = body["records"]
+        self.assertEqual(records["thread"], "https://simpcity.cr/threads/gone.9/")
+        self.assertEqual((records["links"], records["hashes"], records["failed"], records["later"]), (2, 2, 2, 1))
+        self.assertEqual((records["cdlFiles"], records["stagingFiles"], records["stagingBytes"]), (3, 1, 1000))
+        self.assertEqual(body["busy"], {"drive": "", "full": ""})
+        # Bad names never reach the drive.
+        for bad in ("", "../media", ".heaven-trash", "a/b"):
+            self.assertEqual(self.call(f"/api/model-reset?model={bad}")[0], 400, bad)
+        self.assertEqual(self.call("/api/model-reset?model=nobody")[0], 404)
+
+    def test_remove_from_drive_keeps_what_simp_downloaded(self):
+        self.assertEqual(self.remove(confirm="Gone")[0], 409)  # the name must be typed exactly
+        self.assertTrue((self.media / "gone").is_dir())
+        code, body = self.remove()
+        self.assertEqual(code, 200, body)
+        self.assertEqual((body["media"], body["trashFiles"], body["full"]), (3, 1, False))
+        self.assertGreater(body["freedBytes"], 1000)
+        # The folder, its trash and its half-downloaded files are gone; nothing is left aside.
+        self.assertFalse((self.media / "gone").exists())
+        self.assertEqual(self.call("/api/trash")[1]["entries"], [])
+        self.assertEqual(list((self.media / ".heaven-trash").iterdir()), [])
+        self.assertFalse((self.staging / "gone").exists())
+        self.assertFalse(any(still.exists() for still in self.stills))
+        # The library and every per-file record forget it; the other model is untouched.
+        state = self.call("/api/state")[1]
+        paths = [item["path"] for kind in ("images", "videos") for item in state["library"][kind]]
+        self.assertEqual(sorted(paths), ["old-model/one.jpg", "stays/Loose Files (Bunkr)/c.mp4", "stays/a.jpg", "stays/b.jpg"])
+        self.assertFalse(any(model in path for model in ("gone",)
+                             for table in (self.library.state["ratings"], self.library.state["ratingTimes"],
+                                           self.library.state["duel"], self.library.state["marks"],
+                                           self.library.state["dangerousKept"], self.library.seen,
+                                           self.library.fingerprints) for path in table))
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(sorted(saved["ratings"]), ["stays/a.jpg", "stays/b.jpg"])
+        self.assertEqual(list(json.loads((self.state.parent / "seen.json").read_text())), ["stays/a.jpg"])
+        self.assertEqual(list(json.loads((self.state.parent / "fingerprints.json").read_text())), ["stays/a.jpg"])
+        self.assertIsNotNone(self.library.thumb_path("stays/Loose Files (Bunkr)/c.mp4"))
+        self.assertTrue(self.library.thumb_path("stays/Loose Files (Bunkr)/c.mp4").is_file())
+        # Pending work is dropped, so nothing brings the files back...
+        for path in ("failed/gone.jsonl", "later/gone.txt", "cdl_gone.txt"):
+            self.assertFalse((self.state_dir / path).exists(), path)
+        # ...but simp still remembers what it fetched: downloading again brings only new posts.
+        for path in ("done/gone.jsonl", "content/gone.jsonl", "crawl/simpcity.cr_gone.9.json"):
+            self.assertTrue((self.state_dir / path).exists(), path)
+        self.assertEqual(len(self.cdl_paths()), 5)
+        self.assertEqual(self.call("/api/model-reset?model=gone")[1]["records"]["thread"], "https://simpcity.cr/threads/gone.9/")
+        # The other model's simp files are all still there.
+        for path in ("done/stays.jsonl", "failed/stays.jsonl", "later/stays.txt", "cdl_stays.txt"):
+            self.assertTrue((self.state_dir / path).exists(), path)
+
+    def test_full_reset_also_forgets_the_download_history(self):
+        code, body = self.remove(full=True)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["records"]["cdlFiles"], 3)
+        self.assertFalse((self.media / "gone").exists())
+        for path in ("done/gone.jsonl", "content/gone.jsonl", "crawl/simpcity.cr_gone.9.json", "failed/gone.jsonl",
+                     "later/gone.txt", "cdl_gone.txt"):
+            self.assertFalse((self.state_dir / path).exists(), path)
+        self.assertEqual(self.cdl_paths(), [f"{self.staging}/gone-too", f"{self.staging}/stays"])
+        self.assertNotIn("gone", [row["model"] for row in self.call("/api/simp/status")[1]["threads"]])
+        # Nothing at all is left of it now.
+        self.assertEqual(self.call("/api/model-reset?model=gone")[0], 404)
+        self.assertTrue((self.state_dir / "crawl" / "simpcity.cr_stays.9.json").exists())
+
+    def test_reset_a_model_that_is_only_in_simps_records(self):
+        self.remove()
+        code, body = self.call("/api/model-reset?model=gone")
+        self.assertIsNone(body["drive"])
+        self.assertEqual(self.remove(full=True)[0], 200)
+        self.assertFalse((self.state_dir / "done" / "gone.jsonl").exists())
+
+    def test_waits_for_downloads_of_the_model(self):
+        self.cookies()
+        with self.jobs.lock:  # stand-ins for jobs, never started
+            self.jobs.jobs.append({"id": "a" * 12, "action": "thread", "label": "Download gone", "status": "queued",
+                                   "args": ["thread", "https://simpcity.cr/threads/gone.9/"], "models": ["gone"]})
+        body = self.call("/api/model-reset?model=gone")[1]
+        self.assertIn("waiting to download", body["busy"]["drive"])
+        code, body = self.remove()
+        self.assertEqual(code, 409)
+        self.assertIn("Cancel it", body["error"])
+        self.assertTrue((self.media / "gone" / "a.jpg").exists())
+        # A running download of another model only stops a full reset (it may have cyberdrop-dl's database open).
+        with self.jobs.lock:
+            self.jobs.jobs[-1].update(status="running", models=["stays"], label="Download stays")
+        busy = self.call("/api/model-reset?model=gone")[1]["busy"]
+        self.assertEqual(busy["drive"], "")
+        self.assertIn("is running", busy["full"])
+        self.assertEqual(self.remove(full=True)[0], 409)
+        self.assertEqual(self.remove()[0], 200)
+        # A waiting Bunkr job that named it carries on without it.
+        with self.jobs.lock:
+            self.jobs.jobs[-1]["status"] = "done"
+            self.jobs.jobs.append({"id": "b" * 12, "action": "later", "label": "Bunkr files, last: stays, gone", "status": "queued",
+                                   "args": ["later"], "models": ["stays", "gone"]})
+        self.assertEqual(self.remove(full=True)[0], 200)
+        self.assertEqual(self.jobs.jobs[-1]["models"], ["stays"])
+        self.assertEqual(self.jobs.jobs[-1]["status"], "queued")
+        with self.jobs.lock:
+            self.jobs.jobs[-1]["status"] = "cancelled"
+
+    def test_read_only_drive_changes_nothing(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores permissions")
+        self.media.chmod(0o555)
+        try:
+            code, body = self.remove()
+        finally:
+            self.media.chmod(0o755)
+        self.assertEqual(code, 409)
+        self.assertIn("read-only", body["error"])
+        self.assertTrue((self.media / "gone" / "a.jpg").exists())
+        self.assertEqual(self.library.state["ratings"]["gone/a.jpg"], "love")
+        self.assertTrue((self.state_dir / "failed" / "gone.jsonl").exists())

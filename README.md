@@ -100,7 +100,7 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 - `Overview`: the wordmark, `Overview` in the sidebar, or the mode picker on phones
 - `Settings` (gear): library path and stats, theme, shuffle style, skipped
   files, `Change folder`, `Rescan library`, trash review, keyboard reference,
-  and `Clear all likes + dislikes` (also clears duel rankings)
+  **Remove a model** (see below) and `Clear all likes + dislikes` (also clears duel rankings)
 - `Focus`: every stage mode; full screen with floating tools
 - Keyboard:
   - `M` mode picker · `A` open/close controls · `F` focus · `Esc` close / leave focus
@@ -279,6 +279,28 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   free space on the drive before using that one
 - Pictures are stored in `<data dir>/scrprsimp/state/previews/` and served by this
   server; the page never loads anything from SimpCity itself
+- **Remove…** on a card (a model you have, or one simp knows the thread of) opens
+  Settings → Remove a model with it picked
+
+### Remove a model (Settings)
+
+Pick a model (a top-level folder, or one only simp still has records of), see what
+would go, type its name, **Delete for good**. Nothing goes through the trash; there
+is no undo. Two scopes:
+
+| | From the drive | Full reset |
+|---|---|---|
+| The model's folder, its files in `.heaven-trash`, half-downloaded files in simp's staging folder | erased | erased |
+| Ratings, Love, marks, duel scores, seen times, fingerprints, video stills, kept-in-Dangerous of those files | forgotten | forgotten |
+| Downloads waiting for it: `failed/<m>.jsonl`, `later/<m>.txt`, `cdl_<m>.txt` | dropped | dropped |
+| simp's memory: `done/<m>.jsonl`, `content/<m>.jsonl`, `crawl/<host>_<m>.<id>.json`, the model's rows in `cdl/cyberdrop.db` | **kept**: downloading the thread again brings only new posts | **forgotten**: downloading again starts at page 1 and fetches everything |
+
+It waits while a download of that model runs or is queued (cancel it on Downloads
+first). A full reset also waits for any running download, because cyberdrop-dl may
+have its database open. Bookmarks (`bookmarks.json`) and their preview pictures stay.
+`GET /api/model-reset?model=<m>` returns the preview; `POST /api/model-reset`
+`{model, confirm, library, full}` removes. Server code: `MediaLibrary.detach_model` /
+`erase_detached` in `server.py`, `SimpJobs.forget_model` in `simpjobs.py`.
 
 ### Privacy (Settings)
 

@@ -190,6 +190,7 @@ function syncLibraryChrome() {
     // Once per opening: it asks the server whether a PIN is set.
     state.privacySynced = true;
     syncPrivacyCards();
+    syncModelResetCard();
   } else if (!themeOpen) {
     state.privacySynced = false;
   }
