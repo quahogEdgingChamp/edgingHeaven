@@ -14,7 +14,7 @@ page starts them (see `../README.md` → Downloads) and shows their output.
 |---|---|
 | Code and venv | `~/git/edgingHeaven/scrprsimp/`, `scrprsimp/.venv/` (simp + cyberdrop-dl-patched) |
 | `config.toml`, `whereto.txt`, `cookies/`, `state/` | `~/.local/share/edging-heaven/scrprsimp/` (the service may only write there) |
-| Media | `/mnt/edging-heaven/baza/<model>/` |
+| Media | `/srv/edging-heaven/media/<model>/` |
 | Job output from the page | `~/.local/share/edging-heaven/scrprsimp/jobs/<id>.log` |
 
 Only one simp or cyberdrop-dl run may use `state/cdl/cyberdrop.db` at a time:
@@ -36,13 +36,13 @@ cd ~/.local/share/edging-heaven/scrprsimp && source ~/git/edgingHeaven/scrprsimp
 Put **one** path in `whereto.txt`:
 
 ```text
-/mnt/edging-heaven/baza
+/srv/edging-heaven/media
 ```
 
 Media lands in:
 
 ```text
-/mnt/edging-heaven/baza/<model-name>/
+/srv/edging-heaven/media/<model-name>/
 ```
 
 Leave `whereto.txt` blank (only `#` comments) → default `./downloads/<model-name>/`.  
@@ -68,7 +68,7 @@ simp bookmarks --save --previews 5       # (Edging Heaven's Bookmarks page runs 
 ```bash
 simp scrape --page 1                     # crawl + size estimate
 simp scrape --pages 3-5 --no-estimate    # crawl only
-df -h /mnt/edging-heaven            # free space on Lexar
+df -h /srv/edging-heaven            # free space in the library
 ```
 
 ### Download
@@ -135,7 +135,7 @@ duplicates are not deleted by this feature.
   after its process ends, verified files move into the model folder. Its files
   therefore appear in the app after that stage finishes. Direct files still arrive live.
 - The default staging location is `<library-parent>/.<library-name>.simp-incoming/<model>/`
-  (on this server, `/mnt/edging-heaven/.baza.simp-incoming/<model>/`). The parent must
+  (on this server, `/srv/edging-heaven/.media.simp-incoming/<model>/`). The parent must
   be writable. Set `paths.cdl_staging_dir` to another location outside the library
   on the same filesystem if necessary. No extra media copy is made when publishing.
   Staged files count toward the drive's free-space reserve.
@@ -203,7 +203,7 @@ simp clear history cache logs crawl
 ```bash
 cyberdrop-dl download \
   -i state/cdl_sofia-gomez.txt \
-  -o /mnt/edging-heaven/baza/sofia-gomez \
+  -o /srv/edging-heaven/media/sofia-gomez \
   --db state/cdl/cyberdrop.db \
   --cache-file state/cdl/cache.json \
   --logs.folder state/cdl/logs \
@@ -213,7 +213,7 @@ cyberdrop-dl download \
 # force re-download even if history says done
 cyberdrop-dl download \
   -i state/cdl_sofia-gomez.txt \
-  -o /mnt/edging-heaven/baza/sofia-gomez \
+  -o /srv/edging-heaven/media/sofia-gomez \
   --db state/cdl/cyberdrop.db \
   --cache-file state/cdl/cache.json \
   --logs.folder state/cdl/logs \
@@ -225,10 +225,10 @@ cyberdrop-dl download \
 ### Watch progress
 
 ```bash
-watch -n 2 'du -sh /mnt/edging-heaven/baza/* 2>/dev/null | sort -h | tail -15; echo; find /mnt/edging-heaven/baza -name "*.part" 2>/dev/null | wc -l'
+watch -n 2 'du -sh /srv/edging-heaven/media/* 2>/dev/null | sort -h | tail -15; echo; find /srv/edging-heaven/media -name "*.part" 2>/dev/null | wc -l'
 
-find /mnt/edging-heaven/baza/sofia-gomez -iname '*.mp4' | wc -l
-find /mnt/edging-heaven/baza/sofia-gomez \( -iname '*.jpg' -o -iname '*.png' \) | wc -l
+find /srv/edging-heaven/media/sofia-gomez -iname '*.mp4' | wc -l
+find /srv/edging-heaven/media/sofia-gomez \( -iname '*.jpg' -o -iname '*.png' \) | wc -l
 
 tail -f state/cdl/logs/downloader.log
 ```
@@ -257,7 +257,7 @@ sed -e 's/^redownload_missing = true/redownload_missing = false/' \
     -e 's/^max_file_bytes = 0/max_file_bytes = 4294967295/' \
     -e 's/^min_free_bytes = 0/min_free_bytes = 3221225472/' \
     scrprsimp/config.example.toml > "$D/config.toml"   # tweak base_url if needed
-printf '/mnt/edging-heaven/baza\n' > "$D/whereto.txt"
+printf '/srv/edging-heaven/media\n' > "$D/whereto.txt"
 ```
 
 Anywhere else, the old way still works: a venv in this folder, `pip install -e '.[cdl]'`

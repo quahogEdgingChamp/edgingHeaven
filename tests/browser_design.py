@@ -4,7 +4,7 @@ No source media is changed: ratings, duels, seen times and thumbnails go to a
 temporary data directory, and trash/restore requests are blocked.
 Requires an existing Playwright install.
 
-Run: python3 tests/browser_design.py --media-dir /mnt/edging-heaven/testing
+Run: python3 tests/browser_design.py [--media-dir DIR]
 BROWSER_EXECUTABLE optionally selects an installed Chromium executable.
 AXE_SCRIPT optionally points to a local axe.min.js for WCAG checks.
 """
@@ -17,16 +17,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright  # noqa: E402
+import synthetic_library  # noqa: E402
 from server import AppServer, MediaLibrary, RequestHandler  # noqa: E402
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--media-dir", type=Path, required=True)
+parser.add_argument("--media-dir", type=Path, default=None, help="a test library; default: build one (tests/synthetic_library.py)")
 parser.add_argument("--shots", type=Path, default=None, help="save screenshots (media hidden) here")
 args = parser.parse_args()
-if args.media_dir.resolve() != Path("/mnt/edging-heaven/testing"):
-    parser.error("This check is restricted to /mnt/edging-heaven/testing")
-if not args.media_dir.is_dir():
-    parser.error("The test library is unavailable")
+# Only a marked test library is accepted, never the real one.
+args.media_dir = synthetic_library.ensure(args.media_dir)
 
 MODES = ["home", "swipe", "toktinder", "feed", "rediscover", "duel", "escalation", "mosaic", "session", "gallery", "ranked", "dangerous",
          "beat", "redlight", "dice", "ladder", "spotlight", "highlights", "downloads", "bookmarks",

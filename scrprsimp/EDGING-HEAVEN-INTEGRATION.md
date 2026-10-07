@@ -1,5 +1,7 @@
 # simp → Edging Heaven: run the downloader on the server, control it from the website
 
+> **Moved since this was written:** the Lexar died on 2026-09-29. The library is now `/srv/edging-heaven/media` (a 200 GiB ext4 file on the SSD, always writable), and the paths and `ro`/`rw` steps below are history. Current setup: `~/infomds/EDGING-HEAVEN.md` and `~/infomds/SIMP.md`.
+
 > **Done 2026-09-27 on qwertyserver** (uncommitted). What is left is the user's:
 > `sudo systemctl restart edging-heaven.service`, a SimpCity login (upload
 > `cookies.txt` on the Downloads page, or copy the desktop's `state/` and cookies),

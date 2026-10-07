@@ -5,7 +5,7 @@ test-library folders (the test library itself is never written to). A resized
 look-alike and a tiny "screenshot" are made in the browser from test pictures.
 Last, the same Grid page against a server from before these modes.
 
-Run: python3 tests/browser_cleanup.py --media-dir /mnt/edging-heaven/testing
+Run: python3 tests/browser_cleanup.py [--media-dir DIR]
 Needs Playwright. BROWSER_EXECUTABLE optionally selects a Chromium binary.
 """
 import argparse
@@ -21,15 +21,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright  # noqa: E402
 import server as server_module  # noqa: E402
+import synthetic_library  # noqa: E402
 from server import AppServer, MediaLibrary, RequestHandler  # noqa: E402
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--media-dir", type=Path, required=True)
+parser.add_argument("--media-dir", type=Path, default=None, help="a test library; default: build one (tests/synthetic_library.py)")
 args = parser.parse_args()
-if args.media_dir.resolve() != Path("/mnt/edging-heaven/testing"):
-    parser.error("This check is restricted to /mnt/edging-heaven/testing")
-if not args.media_dir.is_dir():
-    parser.error("The test library is unavailable")
+# Only a marked test library is accepted, never the real one.
+args.media_dir = synthetic_library.ensure(args.media_dir)
 
 passed = []
 
@@ -94,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-cleanup-") as tmp:
         nav = page.evaluate("""() => [...document.querySelectorAll('#workspaceLinks > *')]
           .map(n => n.classList.contains('nav-label') ? '#' + n.textContent : n.dataset.mode)""")
         at = nav.index("#Dangerous")
-        check("the sidebar has a Dangerous section with five modes", nav[at + 1:at + 6] == ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders"], nav)
+        check("the sidebar has a Dangerous section with six modes", nav[at + 1:at + 7] == ["dangerous", "survivor", "dgrid", "djunk", "dsimilar", "dfolders"], nav)
         check("Sort & rate no longer holds a deleting mode", "dangerous" not in nav[nav.index("#Sort & rate"):at], nav)
         red = page.evaluate("""() => {
           const probe = document.createElement('i'); probe.style.color = 'var(--danger)'; document.body.append(probe);

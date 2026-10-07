@@ -7,7 +7,7 @@ the toy is a mock Intiface server on a free local port. Downloads run the
 stand-in simp from test_simp_jobs.py, which writes only into the temporary
 directory; nothing reaches SimpCity or the test library.
 
-Run: python3 tests/browser_features.py --media-dir /mnt/edging-heaven/testing
+Run: python3 tests/browser_features.py [--media-dir DIR]
 Needs Playwright and, for the toy check, the `websockets` package.
 BROWSER_EXECUTABLE optionally selects an installed Chromium executable.
 """
@@ -22,18 +22,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright  # noqa: E402
+import synthetic_library  # noqa: E402
 from server import AppServer, MediaLibrary, RequestHandler  # noqa: E402
 import simpjobs  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_simp_jobs import FAKE_SIMP, GOOD_COOKIES  # noqa: E402
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--media-dir", type=Path, required=True)
+parser.add_argument("--media-dir", type=Path, default=None, help="a test library; default: build one (tests/synthetic_library.py)")
 args = parser.parse_args()
-if args.media_dir.resolve() != Path("/mnt/edging-heaven/testing"):
-    parser.error("This check is restricted to /mnt/edging-heaven/testing")
-if not args.media_dir.is_dir():
-    parser.error("The test library is unavailable")
+# Only a marked test library is accepted, never the real one.
+args.media_dir = synthetic_library.ensure(args.media_dir)
 
 
 class MockIntiface:
@@ -159,8 +158,8 @@ with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
         page.goto(url)
         page.wait_for_function("state.libraryReady && state.library.images.length > 0")
 
-        # ---- Love
-        page.evaluate("""() => { state.settings.swipeRatingFilter = 'all'; setMode('swipe'); }""")
+        # ---- Love (an unrated file, so it is a second loved one, not the seeded one again)
+        page.evaluate("""() => { state.settings.swipeRatingFilter = 'unrated'; setMode('swipe'); }""")
         page.wait_for_timeout(300)
         loved_path = page.evaluate("currentDeckItem('swipe').path")
         page.keyboard.press("ArrowUp")
@@ -275,7 +274,12 @@ with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
         page.wait_for_timeout(1500)
         page.evaluate("() => refreshEscalationMedia(true)")
         ghosts = page.evaluate("controls.escalationStage.querySelectorAll('.xfade-ghost').length")
-        page.wait_for_timeout(2000)
+        # Gone by 1.4 s (the fallback when the new media never reports ready)
+        # plus the fade; wait for it rather than sampling at one moment.
+        try:
+            page.wait_for_function("controls.escalationStage.querySelectorAll('.xfade-ghost').length === 0", timeout=4000)
+        except Exception:
+            pass
         left = page.evaluate("controls.escalationStage.querySelectorAll('.xfade-ghost').length")
         check("crossfade ghost appears and clears", ghosts <= 1 and left == 0, (ghosts, left))
 
@@ -316,7 +320,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
         page.click("#dlThreadGo")
         page.wait_for_function("downloads.status.jobs[0].label === 'Download brand-new' && downloads.status.jobs[0].status === 'done'", timeout=10000)
         page.wait_for_function("el('dlLog').textContent.includes('Summary:')", timeout=10000)
-        check("a thread downloads and its output shows", "$ simp thread https://simpcity.cr/threads/brand-new.77/" in page.inner_text("#dlLog"))
+        check("a thread downloads and its output shows", "$ simp thread --slow-later https://simpcity.cr/threads/brand-new.77/" in page.inner_text("#dlLog"))
         check("the finished job is listed as done", page.inner_text("#dlJobs li:first-child .dl-badge") == "Done")
         check("the new thread joins the known ones",
               "brand-new" in page.inner_text("#dlThreads") and (Path(tmp) / "downloads" / "brand-new" / "new.jpg").is_file())
@@ -343,7 +347,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
             sources: [...card.querySelectorAll('img')].map(i => new URL(i.src).pathname),
             buttons: [...card.querySelectorAll('button, a')].map(b => b.textContent)}))""")
         check("a model you have shows three of its own photos and what you kept",
-              cards[0]["sources"] == ["/media"] * 3 and cards[0]["meta"].startswith("In library") and cards[0]["buttons"] == ["New posts", "Open", "SimpCity"], cards[0])
+              cards[0]["sources"] == ["/media"] * 3 and cards[0]["meta"].startswith("In library") and cards[0]["buttons"] == ["New posts", "Open", "Remove…", "SimpCity"], cards[0])
         check("a model you don't have shows its saved previews",
               cards[1]["sources"] == ["/api/simp/previews/new-model/0.jpg", "/api/simp/previews/new-model/1.png"] and cards[1]["buttons"] == ["Download", "SimpCity"], cards[1])
         check("a non-thread link gets no Download button", cards[2]["buttons"] == [] and cards[2]["meta"].endswith("Not downloaded yet"), cards[2])

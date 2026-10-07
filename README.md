@@ -407,13 +407,7 @@ and has Undo; nothing is erased until you empty the trash.
 
 ## Activate on qwertyserver
 
-The current service must restart to load Python changes. The original Lexar installation used a read-only mount. To enable deletion, run:
-
-```bash
-sudo python3 /home/qwerty/git/edgingHeaven/deploy/enable-dangerous.py
-```
-
-This checks the expected UUID/mount, backs up `/etc/fstab` to `/etc/fstab.before-dangerous`, changes only that entry to `rw`, remounts the drive, restarts the existing service, verifies the new API, and updates the system documentation. It does not delete media or install packages. Reproduction, rollback, and the verified deployment state are in `~/infomds/EDGING-HEAVEN.md` and `~/infomds/MANIFEST.md`.
+The service must restart to load Python changes (`sudo systemctl restart edging-heaven`); `static/` changes need only a reload. The library lives on `/srv/edging-heaven` (a 200 GiB ext4 file on the SSD, always writable; `deploy/move-library-to-ssd.sh` sets it up). Reproduction, rollback, and the verified deployment state are in `~/infomds/EDGING-HEAVEN.md` and `~/infomds/MANIFEST.md`.
 
 ## Checks
 
@@ -427,11 +421,19 @@ The tests cover drive reconnection, trash/restart/restore, overwrite and travers
 against a stand-in simp (validation, one job at a time, cancelling the whole process group, log offsets,
 cookies, the PIN). Actual phone hardware and remote-network speed still need device testing.
 
+The browser checks below run on a **synthetic test library** that
+`tests/synthetic_library.py` builds on first use (in the temp folder, about 5 MB,
+5 seconds): four model folders of distinct JPEG/PNG pictures in several shapes,
+a subfolder, and 6-second VP8 clips. Pictures are drawn by headless Chromium and
+clips encoded by the ffmpeg Playwright installs. It carries a marker file, and
+`--media-dir` accepts only a folder with that marker, so the checks can never be
+pointed at the real library. They need Playwright and `websockets`.
+
 `tests/browser_cleanup.py` deletes and restores for real on a temporary copy of
 three test-library folders: Grid, Junk, Look-alikes (with a resized copy it makes
 in the browser), Folders, Swipe's order, Love, frame strip, speed, goal and Blitz,
 and the same Grid page against a server without the batch endpoints:
-`python3 tests/browser_cleanup.py --media-dir /mnt/edging-heaven/testing`.
+`python3 tests/browser_cleanup.py`.
 
 `tests/browser_thrill.py` checks Survivor (pairing, picks, both stay / both go,
 undo, the end, keep and Love, cut again), rewards, the streak, burn and shred,
@@ -442,7 +444,7 @@ test itself: `python3 tests/browser_thrill.py` (needs Playwright and `websockets
 `tests/browser_live.py` checks using a download while it runs (files arriving
 without reshuffling, Arriving, Sort in Dangerous, Keep without rating, Drive full
 and Resume) on a temporary copy of two test-library folders:
-`python3 tests/browser_live.py --media-dir /mnt/edging-heaven/testing`.
+`python3 tests/browser_live.py`.
 
 `tests/browser_features.py` drives Love, marking, Highlights, Session clip
 playback, Beat, Red light, Dice, Ladder, Spotlight, crossfades, session history,
@@ -451,7 +453,7 @@ the Downloads page (stand-in simp writing only to a temporary folder) in Chromiu
 only, temporary data, trash blocked). It needs Playwright and `websockets`.
 
 ```bash
-python3 tests/browser_features.py --media-dir /mnt/edging-heaven/testing
+python3 tests/browser_features.py
 ```
 
 ## Notes
@@ -468,8 +470,8 @@ python3 tests/browser_features.py --media-dir /mnt/edging-heaven/testing
 
 ## Design regression checks
 
-`tests/browser_design.py` drives the real app in Chromium using **only**
-`/mnt/edging-heaven/testing`, with a temporary data directory and trash/restore
+`tests/browser_design.py` drives the real app in Chromium using **only** the
+synthetic test library, with a temporary data directory and trash/restore
 blocked. It checks every mode at eight viewport sizes (normal and focus) for
 clipped or overflowing controls, buttons covering video controls, and media
 left in hidden modes; then the keyboard map, the docked control center, the
@@ -479,7 +481,7 @@ Rediscover + seen tracking, gallery thumbnails, themes, touch swipes,
 drag-to-close sheets, preview swipes and the landscape-phone layout.
 
 ```bash
-python3 tests/browser_design.py --media-dir /mnt/edging-heaven/testing
+python3 tests/browser_design.py
 ```
 
 `BROWSER_EXECUTABLE` can point to an existing Chromium binary. Optional

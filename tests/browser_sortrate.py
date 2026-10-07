@@ -4,7 +4,7 @@ in the photo deck, video deck, Feed and Rediscover, in headless Chromium.
 Trash runs against a temporary copy of two test-library folders, never the
 test library itself.
 
-Run: python3 tests/browser_sortrate.py --media-dir /mnt/edging-heaven/testing
+Run: python3 tests/browser_sortrate.py [--media-dir DIR]
 """
 import argparse
 import os
@@ -17,14 +17,15 @@ from pathlib import Path
 APP = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP))
 from playwright.sync_api import sync_playwright  # noqa: E402
+import synthetic_library  # noqa: E402
 from server import AppServer, MediaLibrary, RequestHandler  # noqa: E402
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--media-dir", type=Path, required=True)
+parser.add_argument("--media-dir", type=Path, default=None, help="a test library; default: build one (tests/synthetic_library.py)")
 parser.add_argument("--shots", type=Path, default=None, help="Folder for screenshots")
 args = parser.parse_args()
-if args.media_dir.resolve() != Path("/mnt/edging-heaven/testing"):
-    parser.error("This check is restricted to /mnt/edging-heaven/testing")
+# Only a marked test library is accepted, never the real one.
+args.media_dir = synthetic_library.ensure(args.media_dir)
 SRC = args.media_dir
 OUT = args.shots
 fails = []

@@ -7,7 +7,7 @@ The library is a temporary copy of two folders of the test library (the test
 library itself is never written to). The stand-in simp from test_simp_jobs.py
 "downloads" more copies of test pictures into it. Free space is simulated.
 
-Run: python3 tests/browser_live.py --media-dir /mnt/edging-heaven/testing
+Run: python3 tests/browser_live.py [--media-dir DIR]
 Needs Playwright. BROWSER_EXECUTABLE optionally selects a Chromium binary;
 AXE_SCRIPT optionally points to axe.min.js for WCAG checks of the Downloads page.
 """
@@ -25,16 +25,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from playwright.sync_api import sync_playwright  # noqa: E402
 import simpjobs  # noqa: E402
+import synthetic_library  # noqa: E402
 from server import AppServer, MediaLibrary, RequestHandler  # noqa: E402
 from test_simp_jobs import FAKE_SIMP, GOOD_COOKIES  # noqa: E402
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--media-dir", type=Path, required=True)
+parser.add_argument("--media-dir", type=Path, default=None, help="a test library; default: build one (tests/synthetic_library.py)")
 args = parser.parse_args()
-if args.media_dir.resolve() != Path("/mnt/edging-heaven/testing"):
-    parser.error("This check is restricted to /mnt/edging-heaven/testing")
-if not args.media_dir.is_dir():
-    parser.error("The test library is unavailable")
+# Only a marked test library is accepted, never the real one.
+args.media_dir = synthetic_library.ensure(args.media_dir)
 
 GB = 1024**3
 Usage = namedtuple("Usage", "total used free")
