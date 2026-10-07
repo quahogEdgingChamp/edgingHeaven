@@ -365,7 +365,7 @@ and has Undo; nothing is erased until you empty the trash.
   wins, from two up, no tie) gets a crown. Its run lives in the page: leaving and
   coming back resumes it, and changing folder, Media or the target starts over
 - **The payoff** (the same three sections in every Dangerous control center,
-  shared by all six modes; `static/js/38-thrill.js`):
+  shared by all six modes; `static/js/38-thrill.js`, looks and sounds in `40-thrill-fx.js`):
   - **Rewards**: every 250 MB / 500 MB (default) / 1 GB / 2 GB freed this visit
     earns a 15 s / 30 s / 1 min clip of your Loved files: marked moments first,
     then Loved clips from a random point, then Loved photos (liked ones if
@@ -375,10 +375,14 @@ and has Undo; nothing is erased until you empty the trash.
     twice; changing the rate counts from that moment. With **Play a reward as
     soon as it is earned** off, or when several are earned at once, a **Reward**
     button waits in the tool bar (`R`). During Blitz it waits for the end
-  - **Feedback**: a deleted file **burns** (or **shreds**, or goes plain) where it
-    was, deletes close together build a **purge streak** (×N on screen, bigger at
-    5, 10, 25, …; a keep keeps it alive, Undo takes it down), with sounds and a
-    buzz on phones. The best streak is saved. Reduced motion skips the effects
+  - **Feedback**: a deleted file **burns** (a ragged burn line with flames,
+    char and embers) or **shreds** (torn strips that fall away), or goes plain,
+    where it was. Deletes close together build a **purge streak** (×N on screen,
+    bigger at 5, 10, 25, …; a keep keeps it alive, Undo takes it down). Sound:
+    **Moan** (a synthesized voice over the effect, more worked up the longer the
+    streak), **Effects only** (whoosh and crackle, or a shredder) or **Silent**;
+    picking one plays a sample. Phones also buzz. The best streak is saved.
+    Reduced motion skips the effects
   - **Toy** (Intiface, see Settings): `Deletes` pushes the toy up one step per file
     and each keep brings it down; `Keeps` the other way round; `Off` leaves it.
     Step 5–25%. **Toy stops if you wait more than 3 s** makes it stop between

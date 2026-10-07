@@ -384,7 +384,7 @@ async function keepSurvivors(love) {
     cleanup.history.push({ mode: "survivor", trashed: [], kept: list, pair: [], winsBefore: {}, loved, settle: true, library: state.currentMediaDirectory });
     survivor.settled = true;
     const context = thrillAudio();
-    if (context) arpeggio([523, 659, 784, 1047, 1319], context.currentTime, 0.08, 0.14);
+    if (context) chime(context, [523.25, 659.25, 783.99, 1046.5, 1318.5], context.currentTime, 0.08, 0.14);
     buzz([40, 30, 40, 30, 90]);
     if (loved.length) toast(`Kept ${plural(list.length, "survivor", "survivors")} and Loved the top ${loved.length}.`);
   } catch (error) {

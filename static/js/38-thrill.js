@@ -4,8 +4,9 @@
    Cleaning is a hundred small decisions with nothing back but a byte count.
    This is what comes back, the same in every Dangerous mode:
 
-   - Feedback: a deleted file burns (or shreds) where it was, with a sound and
-     a buzz, and deletes in quick succession build a purge streak.
+   - Feedback: a deleted file burns (or shreds) where it was, with a sound (a
+     moan, if you want one) and a buzz, and deletes in quick succession build a
+     purge streak. How it looks and sounds is in 40-thrill-fx.js.
    - Rewards: every so much freed earns a short clip of what you Loved (your
      marked moments first). It plays over the mode, then you go on cleaning.
    - Toy: each delete pushes the toy up a step and each keep brings it down
@@ -18,7 +19,7 @@
 const DANGEROUS_MODES = ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders", "survivor"];
 const THRILL_DEFAULTS = {
   thrillEffect: "burn",
-  thrillSound: true,
+  thrillSound: "moan",
   rewardEveryMb: 500,
   rewardSeconds: 30,
   rewardAuto: true,
@@ -31,11 +32,12 @@ Object.assign(MODE_DEFAULTS, THRILL_DEFAULTS, { thrillBestStreak: 0 });
 Object.assign(PLAY_SETTING_RANGES, { toyCleanupStep: [0.05, 0.25] });
 Object.assign(PLAY_SETTING_CHOICES, {
   thrillEffect: ["burn", "shred", "off"],
+  thrillSound: ["moan", "effects", "off"],
   rewardEveryMb: [0, 250, 500, 1000, 2000],
   rewardSeconds: [15, 30, 60],
   toyCleanup: ["off", "delete", "keep"],
 });
-PLAY_SETTING_SWITCHES.push("thrillSound", "rewardAuto", "toyCleanupHurry");
+PLAY_SETTING_SWITCHES.push("rewardAuto", "toyCleanupHurry");
 // Survivor registers itself after this file and adds the keys there.
 ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders"].forEach((mode) => MODE_SETTING_KEYS[mode].push(...THRILL_KEYS));
 
@@ -66,7 +68,7 @@ const THRILL_SECTION = `
   <section class="cc-section">
     <h3>Feedback</h3>
     <div class="segmented" role="group" aria-label="What a delete looks like" data-setting="thrillEffect"><button type="button" class="segment" data-value="burn">Burn</button><button type="button" class="segment" data-value="shred">Shred</button><button type="button" class="segment" data-value="off">Plain</button></div>
-    <button class="switch-row" role="switch" aria-checked="true" data-setting="thrillSound"><span>Sounds for deletes, keeps and streaks</span><i aria-hidden="true"></i></button>
+    <div class="segmented" role="group" aria-label="What a delete sounds like" data-setting="thrillSound"><button type="button" class="segment" data-value="moan">Moan</button><button type="button" class="segment" data-value="effects">Effects only</button><button type="button" class="segment" data-value="off">Silent</button></div>
     <p class="subtle" data-thrill-streak></p>
   </section>
   <section class="cc-section">
@@ -101,6 +103,11 @@ function thrillSettingChanged(key) {
     }
     armHurry();
     applyThrillToy();
+  }
+  // Hear (and see nothing of) what was just picked.
+  if (key === "thrillSound" || key === "thrillEffect") {
+    const context = thrillAudio();
+    if (context) playDeleteSound(context, { effect: state.settings.thrillEffect, weight: 0.3, streak: thrill.streak, milestone: false });
   }
   syncThrillNotes();
   renderCleanupMeters();
@@ -198,27 +205,33 @@ function visibleMedia(node) {
   return [...node.querySelectorAll("img")].find((img) => shown(img) && img.complete && img.naturalWidth && getComputedStyle(img).opacity !== "0") || null;
 }
 
-// The picture as it sits on screen (contain or cover), on a canvas.
-function snapshotMedia(media, width, height) {
-  const canvas = document.createElement("canvas");
-  const scale = Math.min(1, 720 / Math.max(width, height)) * Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.max(1, Math.round(width * scale));
-  canvas.height = Math.max(1, Math.round(height * scale));
+// The picture as it sits on screen, on a canvas, and where on screen it is:
+// a contained picture leaves bars around it, and those should not burn.
+function snapshotMedia(media, rect) {
   const sourceW = media.videoWidth || media.naturalWidth;
   const sourceH = media.videoHeight || media.naturalHeight;
   const cover = getComputedStyle(media).objectFit === "cover";
-  const fit = cover ? Math.max(canvas.width / sourceW, canvas.height / sourceH) : Math.min(canvas.width / sourceW, canvas.height / sourceH);
-  const w = sourceW * fit, h = sourceH * fit;
+  const fit = (cover ? Math.max : Math.min)(rect.width / sourceW, rect.height / sourceH);
+  const width = Math.min(rect.width, sourceW * fit), height = Math.min(rect.height, sourceH * fit);
+  const shown = { left: rect.left + (rect.width - width) / 2, top: rect.top + (rect.height - height) / 2, width, height };
+  shown.right = shown.left + width;
+  shown.bottom = shown.top + height;
+  const scale = Math.min(1, 720 / Math.max(width, height)) * Math.min(2, window.devicePixelRatio || 1);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const drawW = sourceW * fit * scale, drawH = sourceH * fit * scale;
   try {
-    canvas.getContext("2d").drawImage(media, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+    canvas.getContext("2d").drawImage(media, (canvas.width - drawW) / 2, (canvas.height - drawH) / 2, drawW, drawH);
   } catch {
     return null;
   }
-  return canvas;
+  return { canvas, rect: shown };
 }
 
 // Lays a copy of each element's picture over it and burns or shreds the
-// copy away. The real element is left alone: its mode re-renders it.
+// copy away (40-thrill-fx.js). The real element is left alone: its mode
+// re-renders it.
 function thrillBurn(nodes) {
   const effect = state.settings.thrillEffect || "burn";
   // Reduced motion: the file just goes, as it always did.
@@ -227,47 +240,10 @@ function thrillBurn(nodes) {
     const media = visibleMedia(node);
     const rect = (media || node).getBoundingClientRect();
     if (!media || rect.width < 8 || rect.height < 8 || rect.bottom < 0 || rect.top > window.innerHeight) return;
-    const canvas = snapshotMedia(media, rect.width, rect.height);
-    if (!canvas) return;
-    const ghost = document.createElement("div");
-    ghost.className = `burn-ghost is-${effect}`;
-    ghost.setAttribute("aria-hidden", "true");
-    Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
-    if (effect === "shred") {
-      const strips = rect.width < 200 ? 5 : 9;
-      for (let index = 0; index < strips; index += 1) {
-        const strip = document.createElement("canvas");
-        const sliceW = canvas.width / strips;
-        strip.width = Math.max(1, Math.ceil(sliceW));
-        strip.height = canvas.height;
-        strip.getContext("2d").drawImage(canvas, index * sliceW, 0, sliceW, canvas.height, 0, 0, strip.width, strip.height);
-        strip.className = "shred-strip";
-        strip.style.left = `${(index / strips) * 100}%`;
-        strip.style.width = `${100 / strips + 0.2}%`;
-        strip.style.setProperty("--fall", `${110 + Math.random() * 60}%`);
-        strip.style.setProperty("--spin", `${(index % 2 ? 1 : -1) * (6 + Math.random() * 14)}deg`);
-        strip.style.setProperty("--drift", `${(Math.random() - 0.5) * 30}px`);
-        strip.style.setProperty("--delay", `${Math.random() * 120}ms`);
-        ghost.append(strip);
-      }
-    } else {
-      canvas.className = "burn-picture";
-      const flame = document.createElement("i");
-      flame.className = "burn-flame";
-      ghost.append(canvas, flame);
-      const embers = rect.width < 200 ? 5 : 12;
-      for (let index = 0; index < embers; index += 1) {
-        const ember = document.createElement("b");
-        ember.className = "burn-ember";
-        ember.style.left = `${5 + Math.random() * 90}%`;
-        ember.style.setProperty("--rise", `${-120 - Math.random() * 160}px`);
-        ember.style.setProperty("--drift", `${(Math.random() - 0.5) * 60}px`);
-        ember.style.setProperty("--delay", `${150 + Math.random() * 350}ms`);
-        ghost.append(ember);
-      }
-    }
-    document.body.append(ghost);
-    window.setTimeout(() => ghost.remove(), 1200);
+    const shot = snapshotMedia(media, rect);
+    if (!shot || shot.rect.width < 8 || shot.rect.height < 8) return;
+    const small = shot.rect.width < 200;
+    runFx(effect === "shred" ? shredEffect(shot.canvas, shot.rect, small) : burnEffect(shot.canvas, shot.rect, small));
   });
 }
 
@@ -282,68 +258,19 @@ function buzz(pattern) {
 }
 
 function thrillAudio() {
-  return state.settings.thrillSound === false || state.panic ? null : audioContext();
+  return state.settings.thrillSound === "off" || state.panic ? null : audioContext();
 }
 
-let noiseBuffer = null;
-
-// A burst of noise swept through a band-pass filter: a rip, or a whoosh.
-function noiseSweep(context, start, duration, from, to, volume) {
-  if (!noiseBuffer) {
-    noiseBuffer = context.createBuffer(1, Math.round(context.sampleRate * 0.6), context.sampleRate);
-    const data = noiseBuffer.getChannelData(0);
-    for (let index = 0; index < data.length; index += 1) data[index] = Math.random() * 2 - 1;
-  }
-  const source = context.createBufferSource();
-  source.buffer = noiseBuffer;
-  const filter = context.createBiquadFilter();
-  filter.type = "bandpass";
-  filter.Q.value = 1.4;
-  filter.frequency.setValueAtTime(from, start);
-  filter.frequency.exponentialRampToValueAtTime(to, start + duration);
-  const gain = context.createGain();
-  gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(volume, start + 0.015);
-  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-  source.connect(filter).connect(gain).connect(context.destination);
-  source.start(start);
-  source.stop(start + duration + 0.02);
-}
-
-function thump(context, start, volume) {
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.type = "sine";
-  oscillator.frequency.setValueAtTime(130, start);
-  oscillator.frequency.exponentialRampToValueAtTime(48, start + 0.14);
-  gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(volume, start + 0.01);
-  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
-  oscillator.connect(gain).connect(context.destination);
-  oscillator.start(start);
-  oscillator.stop(start + 0.18);
-}
-
-// Higher the longer the streak, heavier when a whole page or folder goes.
+// Heavier when a whole page or folder goes at once.
 function deleteSound(count, milestone) {
   const context = thrillAudio();
   if (!context) return;
-  const start = context.currentTime;
-  const lift = Math.min(thrill.streak, 30) * 70;
-  noiseSweep(context, start, count > 1 ? 0.34 : 0.22, 2200 + lift, 380 + lift / 3, count > 1 ? 0.32 : 0.24);
-  thump(context, start, count > 1 ? 0.4 : 0.26);
-  if (milestone) arpeggio([523, 659, 784, 1047], start + 0.12, 0.07, 0.14);
+  playDeleteSound(context, { effect: state.settings.thrillEffect, weight: Math.min(1, (count - 1) / 6), streak: thrill.streak, milestone });
 }
 
 function keepSound() {
   const context = thrillAudio();
-  if (!context) return;
-  playTone(880, 80, 0.07, context.currentTime);
-  playTone(1320, 110, 0.05, context.currentTime + 0.06);
-}
-
-function arpeggio(notes, start, gap, volume) {
-  notes.forEach((frequency, index) => playTone(frequency, 220, volume, start + index * gap));
+  if (context) keepChime(context);
 }
 
 /* ---- toy ---- */
@@ -416,7 +343,10 @@ function checkRewards() {
   thrill.banked += earned - thrill.rewardsGiven;
   thrill.rewardsGiven = earned;
   const context = thrillAudio();
-  if (context) arpeggio([392, 523, 659, 784, 1047, 1319], context.currentTime + 0.18, 0.06, 0.12);
+  if (context) {
+    chime(context, [392, 523.25, 659.25, 783.99, 1046.5, 1318.5], context.currentTime + 0.18, 0.065, 0.14);
+    if (state.settings.thrillSound === "moan") moan(context, context.currentTime + 0.5, 1);
+  }
   buzz([60, 40, 60, 40, 120]);
   syncRewardReady();
   if (state.settings.rewardAuto !== false) {

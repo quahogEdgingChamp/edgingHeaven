@@ -305,7 +305,30 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
         page.wait_for_function("() => el('dangerousImage').complete && el('dangerousImage').naturalWidth")
         page.keyboard.press("ArrowLeft")
         page.wait_for_selector(".burn-ghost.is-burn", timeout=2000)
-        check("Swipe delete burns the card", page.locator(".burn-ghost .burn-ember").count() > 0)
+        check("Swipe delete burns the card", page.locator(".burn-ghost.is-burn canvas").count() == 1)
+        page.wait_for_timeout(500)
+        burn = page.evaluate("""() => {
+          const ghost = document.querySelector('.burn-ghost.is-burn');
+          if (!ghost) return null;
+          const canvas = ghost.querySelector('canvas');
+          const box = ghost.getBoundingClientRect(), outer = canvas.getBoundingClientRect();
+          const scale = canvas.width / outer.width;
+          const x = Math.round((box.left - outer.left) * scale), y = Math.round((box.top - outer.top) * scale);
+          const w = Math.round(box.width * scale), h = Math.round(box.height * scale);
+          const data = canvas.getContext('2d').getImageData(x, y, w, h).data;
+          let gone = 0, fire = 0, picture = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] < 8) gone++;
+            else if (data[i] > 200 && data[i + 1] > 60 && data[i + 2] < 140) fire++;
+            else picture++;
+          }
+          const n = data.length / 4;
+          return { gone: gone / n, fire: fire / n, picture: picture / n };
+        }""")
+        check("Mid-burn: part burnt away, a glowing edge, part still there", burn and burn["gone"] > 0.03 and burn["fire"] > 0.003 and burn["picture"] > 0.2, burn)
+        page.screenshot(path=str(SHOTS / "swipe-burn.png"))
+        page.wait_for_function("() => !document.querySelector('.burn-ghost')", timeout=4000)
+        check("Burn cleans up after itself", True)
         page.wait_for_function("() => !dangerous.busy")
         check("Card shows again after the next file comes", not page.evaluate("() => el('dangerousCard').classList.contains('is-burnt')"))
         page.evaluate("() => { state.settings.thrillEffect = 'shred'; queueSettingsSave(); }"); page.wait_for_timeout(400)
@@ -313,7 +336,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
         page.wait_for_function("() => el('dangerousImage').complete && el('dangerousImage').naturalWidth")
         page.keyboard.press("ArrowLeft")
         page.wait_for_selector(".burn-ghost.is-shred", timeout=2000)
-        check("Shred cuts the picture into strips", page.locator(".burn-ghost.is-shred .shred-strip").count() == 9)
+        check("Shred lays one canvas over the card", page.locator(".burn-ghost.is-shred canvas").count() == 1)
         page.wait_for_timeout(150)
         page.screenshot(path=str(SHOTS / "swipe-shred.png"))
         page.wait_for_function("() => !dangerous.busy")
@@ -323,6 +346,35 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
         page.wait_for_timeout(200)
         check("Plain: no ghost", page.locator(".burn-ghost").count() == 0, page.evaluate("() => [...document.querySelectorAll('.burn-ghost')].map(g => g.className + ' ' + g.style.cssText)"))
         page.evaluate("() => { state.settings.thrillEffect = 'burn'; queueSettingsSave(); }"); page.wait_for_timeout(400)
+
+        # ---- Sounds: rendered offline, every effect with and without the moan ----
+        levels = page.evaluate("""async () => {
+          const out = {};
+          for (const sound of ['moan', 'effects']) for (const effect of ['burn', 'shred', 'off']) {
+            state.settings.thrillSound = sound;
+            const context = new OfflineAudioContext(1, 44100 * 2.5, 44100);
+            playDeleteSound(context, { effect, weight: 0.5, streak: 12, milestone: effect === 'burn' });
+            const data = (await context.startRendering()).getChannelData(0);
+            let peak = 0, sum = 0, bad = false;
+            for (const v of data) { if (!Number.isFinite(v)) bad = true; peak = Math.max(peak, Math.abs(v)); sum += v * v; }
+            out[sound + '/' + effect] = { peak, rms: Math.sqrt(sum / data.length), bad };
+          }
+          const context = new OfflineAudioContext(1, 44100 * 2.5, 44100);
+          moan(context, 0, 1);
+          const data = (await context.startRendering()).getChannelData(0);
+          let peak = 0; for (const v of data) peak = Math.max(peak, Math.abs(v));
+          out.moanOnly = { peak };
+          state.settings.thrillSound = 'moan';
+          return out;
+        }""")
+        print("     sound levels:", {k: round(v["peak"], 2) for k, v in levels.items()})
+        check("Every delete sound renders, audible and not clipping", all(not v.get("bad") and 0.05 < v["peak"] <= 1.0 for v in levels.values()), levels)
+        check("The moan is a real part of the mix", levels["moanOnly"]["peak"] > 0.1, levels["moanOnly"])
+        page.evaluate("() => { state.settings.thrillSound = true; sanitizePlaySettings(); }")
+        check("Old on/off sound setting reads as Moan", page.evaluate("() => state.settings.thrillSound") == "moan")
+        page.evaluate("() => { state.settings.thrillSound = false; sanitizePlaySettings(); }")
+        check("Old off reads as Silent", page.evaluate("() => state.settings.thrillSound") == "off")
+        page.evaluate("() => { state.settings.thrillSound = 'moan'; queueSettingsSave(); }"); page.wait_for_timeout(400)
 
         # ---- Grid: marked tiles burn on commit ----
         page.click('.workspace-link[data-mode="dgrid"]')
@@ -343,6 +395,12 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
         page.wait_for_timeout(1500)
         check("…and is saved on the server", lib.state["settings"].get("rewardSeconds") == 60, lib.state["settings"].get("rewardSeconds"))
         check("Best streak is saved", lib.state["settings"].get("thrillBestStreak", 0) >= 2, lib.state["settings"].get("thrillBestStreak"))
+        page.click('#dgridDrawer [data-setting="thrillSound"] [data-value="effects"]')
+        page.wait_for_timeout(1500)
+        check("Sound choice is a three-way control, saved on the server", lib.state["settings"].get("thrillSound") == "effects", lib.state["settings"].get("thrillSound"))
+        page.locator('#dgridDrawer [data-setting="thrillSound"]').scroll_into_view_if_needed()
+        page.screenshot(path=str(SHOTS / "drawer-feedback.png"))
+        page.click('#dgridDrawer [data-setting="thrillSound"] [data-value="moan"]')
         page.keyboard.press("Escape")
 
         # ---- phone ----
