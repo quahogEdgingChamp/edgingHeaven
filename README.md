@@ -379,8 +379,7 @@ and has Undo; nothing is erased until you empty the trash.
     char and embers) or **shreds** (torn strips that fall away), or goes plain,
     where it was. Deletes close together build a **purge streak** (×N on screen,
     bigger at 5, 10, 25, …; a keep keeps it alive, Undo takes it down). Sound:
-    **Moan** (a synthesized voice over the effect, more worked up the longer the
-    streak), **Effects only** (whoosh and crackle, or a shredder) or **Silent**;
+    **Effects** (whoosh and crackle, or a shredder) or **Silent**;
     picking one plays a sample. Phones also buzz. The best streak is saved.
     Reduced motion skips the effects
   - **Toy** (Intiface, see Settings): `Deletes` pushes the toy up one step per file

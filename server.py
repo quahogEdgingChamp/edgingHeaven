@@ -144,11 +144,11 @@ DEFAULT_SETTINGS = {
     "survivorKind": "photos",
     "survivorTarget": "half",
     "survivorLovedSafe": True,
-    # Every Dangerous mode: burn/shred and a sound (moan / effects / off) on
+    # Every Dangerous mode: burn/shred and a sound (effects / off) on
     # delete, a reward clip of Loved files every so many MB freed, and the toy
     # driven by deletes/keeps. thrillSound was a bool once; the page maps it.
     "thrillEffect": "burn",
-    "thrillSound": "moan",
+    "thrillSound": "effects",
     "thrillBestStreak": 0,
     "rewardEveryMb": 500,
     "rewardSeconds": 30,

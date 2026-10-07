@@ -4,9 +4,7 @@
    - Burn: a ragged burn line eats the picture from one or more sparks, with
      a glowing edge, char behind it, flames licking up, embers and smoke.
    - Shred: the picture tears into strips with torn edges that fall away.
-   - Sound: a whoosh and crackle for a burn, a shredder for a shred, and with
-     Moan on, a synthesized voice on top that gets more worked up as the purge
-     streak grows.
+   - Sound: a whoosh and crackle for a burn, a shredder for a shred.
 
    Everything is drawn on one canvas per deleted file, laid over where it was
    (38-thrill.js decides when). One animation loop runs every canvas on screen.
@@ -550,149 +548,14 @@ function plainSound(context, start, weight) {
   thud(context, start, 0.5 + weight * 0.3);
 }
 
-/* ---- the moan ---- */
-
-// Formants (Hz) of a woman's voice for the sounds a moan passes through.
-const VOWELS = {
-  m: [[290, 1, 70], [1300, 0.12, 120], [2500, 0.05, 180], [3500, 0.02, 240]],
-  a: [[850, 1, 90], [1250, 0.55, 110], [2850, 0.3, 160], [3900, 0.12, 220]],
-  o: [[560, 1, 85], [960, 0.5, 100], [2750, 0.2, 160], [3800, 0.08, 220]],
-  u: [[380, 1, 70], [820, 0.35, 90], [2600, 0.1, 160], [3600, 0.05, 220]],
-  e: [[640, 1, 90], [1700, 0.4, 120], [2700, 0.25, 160], [3800, 0.1, 220]],
-};
-
-// Pitch contours (multiples of the base pitch over the length) and the
-// vowels they move through: a soft "mm", "mm-ah", "ah-oh", a rising "oh!".
-const MOAN_SHAPES = [
-  { pitch: [[0, 0.94], [0.35, 1.06], [1, 0.84]], vowels: [[0, "m"], [0.55, "u"], [1, "m"]], breath: 0.32, min: 0, max: 0.5 },
-  { pitch: [[0, 0.96], [0.25, 1.14], [0.6, 1.04], [1, 0.8]], vowels: [[0, "m"], [0.22, "a"], [0.75, "o"], [1, "u"]], breath: 0.24, min: 0.15, max: 0.85 },
-  { pitch: [[0, 1.02], [0.18, 1.2], [0.5, 1.08], [1, 0.76]], vowels: [[0, "e"], [0.15, "a"], [0.65, "o"], [1, "o"]], breath: 0.2, min: 0.35, max: 1 },
-  { pitch: [[0, 0.98], [0.3, 1.1], [0.55, 1.28], [0.75, 1.18], [1, 0.82]], vowels: [[0, "o"], [0.3, "a"], [0.7, "a"], [1, "o"]], breath: 0.22, min: 0.6, max: 1 },
-];
-
-let moanPlaying = null;
-
-// Voice source: a soft glottal pulse (falling harmonics), brighter when worked up.
-function glottalWave(context, intensity) {
-  const harmonics = 48;
-  const real = new Float32Array(harmonics), imag = new Float32Array(harmonics);
-  const tilt = 1.75 - intensity * 0.55;
-  for (let n = 1; n < harmonics; n += 1) imag[n] = 1 / Math.pow(n, tilt);
-  return context.createPeriodicWave(real, imag);
-}
-
-// intensity 0..1: a quiet "mm" at 0, a long high "ah-oh!" at 1.
-function moan(context, start, intensity) {
-  // One voice: a new moan takes over from the last one.
-  if (moanPlaying?.context === context && moanPlaying.end > start) {
-    moanPlaying.out.gain.cancelScheduledValues(start);
-    moanPlaying.out.gain.setTargetAtTime(0.0001, start, 0.03);
-  }
-  const shapes = MOAN_SHAPES.filter((shape) => intensity >= shape.min && intensity <= shape.max);
-  const shape = randomOf(shapes.length ? shapes : MOAN_SHAPES);
-  const length = 0.55 + intensity * 0.75 + Math.random() * 0.25;
-  const base = 205 + intensity * 85 + Math.random() * 30;
-  const end = start + length;
-
-  const out = voiceOut(context, 0.32);
-  out.gain.value = 0.9;
-  moanPlaying = { context, out, end };
-
-  // The voice.
-  const voice = context.createOscillator();
-  voice.setPeriodicWave(glottalWave(context, intensity));
-  voice.frequency.setValueAtTime(base * shape.pitch[0][1], start);
-  shape.pitch.slice(1).forEach(([at, ratio]) => voice.frequency.linearRampToValueAtTime(base * ratio, start + at * length));
-  // Vibrato that comes in once the note is held, and a little waver.
-  const vibrato = context.createOscillator();
-  vibrato.frequency.value = 5 + Math.random() * 1.2;
-  const vibratoDepth = context.createGain();
-  vibratoDepth.gain.setValueAtTime(0, start);
-  vibratoDepth.gain.linearRampToValueAtTime(18 + intensity * 22, start + length * 0.5);
-  vibrato.connect(vibratoDepth).connect(voice.detune);
-  const waver = context.createOscillator();
-  waver.type = "triangle";
-  waver.frequency.value = 11 + Math.random() * 5;
-  const waverDepth = context.createGain();
-  waverDepth.gain.value = 7;
-  waver.connect(waverDepth).connect(voice.detune);
-
-  const voiceLevel = context.createGain();
-  envelope(voiceLevel.gain, start, [[0.1, 0.55], [length * 0.3, 1], [length * 0.72, 0.7], [length, 0.0001]]);
-  voice.connect(voiceLevel);
-
-  // Breath: noise shaped by the same mouth, strongest at the start and the
-  // sigh at the end.
-  const breath = noiseSource(context, start, length + 0.35);
-  const breathTone = context.createBiquadFilter();
-  breathTone.type = "highpass";
-  breathTone.frequency.value = 500;
-  const breathLevel = context.createGain();
-  const air = shape.breath * (1.1 - intensity * 0.4);
-  envelope(breathLevel.gain, start, [[0.05, air * 1.6], [0.18, air * 0.7], [length * 0.8, air * 0.6], [length + 0.08, air * 1.3], [length + 0.34, 0.0001]]);
-  breath.connect(breathTone).connect(breathLevel);
-
-  // The mouth: four formant filters that glide between the shape's vowels.
-  const mouth = context.createGain();
-  mouth.gain.value = 1;
-  VOWELS.a.forEach((_, formant) => {
-    const filter = context.createBiquadFilter();
-    filter.type = "bandpass";
-    const level = context.createGain();
-    shape.vowels.forEach(([at, vowel], index) => {
-      const [frequency, gain, width] = VOWELS[vowel][formant];
-      const when = start + at * length;
-      if (index === 0) {
-        filter.frequency.setValueAtTime(frequency, when);
-        filter.Q.setValueAtTime(frequency / width, when);
-        level.gain.setValueAtTime(gain, when);
-      } else {
-        filter.frequency.linearRampToValueAtTime(frequency, when);
-        filter.Q.linearRampToValueAtTime(frequency / width, when);
-        level.gain.linearRampToValueAtTime(gain, when);
-      }
-    });
-    voiceLevel.connect(filter);
-    breathLevel.connect(filter);
-    filter.connect(level).connect(mouth);
-  });
-  // A closed mouth hums through the nose: low, round, under the vowels.
-  const nose = context.createBiquadFilter();
-  nose.type = "lowpass";
-  nose.frequency.value = 420;
-  const noseLevel = context.createGain();
-  shape.vowels.forEach(([at, vowel], index) => {
-    const value = vowel === "m" ? 0.5 : vowel === "u" ? 0.18 : 0.05;
-    if (index === 0) noseLevel.gain.setValueAtTime(value, start);
-    else noseLevel.gain.linearRampToValueAtTime(value, start + at * length);
-  });
-  voiceLevel.connect(nose).connect(noseLevel).connect(mouth);
-
-  // Formant filters are narrow and lose a lot of level: make it back here.
-  const makeUp = context.createGain();
-  makeUp.gain.value = 2.4 * (0.75 + intensity * 0.35);
-  mouth.connect(makeUp).connect(out);
-
-  [voice, vibrato, waver].forEach((node) => {
-    node.start(start);
-    node.stop(end + 0.05);
-  });
-}
-
 // What 38-thrill.js calls on every delete. weight 0..1 is how much went at
-// once; streak drives the pitch of the effect and how worked up the moan is.
+// once; streak drives the pitch of the effect.
 function playDeleteSound(context, { effect, weight, streak, milestone }) {
   const start = context.currentTime + 0.01;
   const lift = Math.min(streak, 30) * 60;
-  const voice = state.settings.thrillSound === "moan";
-  // Under a moan the effect steps back a little.
-  if (effect === "shred") shredSound(context, start, weight * (voice ? 0.7 : 1), lift);
-  else if (effect === "burn") burnSound(context, start, weight * (voice ? 0.7 : 1), lift);
+  if (effect === "shred") shredSound(context, start, weight, lift);
+  else if (effect === "burn") burnSound(context, start, weight, lift);
   else plainSound(context, start, weight);
-  if (voice) {
-    const intensity = milestone ? 1 : Math.min(1, 0.12 + streak / 30 + weight * 0.3);
-    moan(context, start + 0.06, intensity);
-  }
   if (milestone) chime(context, [523.25, 659.25, 783.99, 1046.5, 1318.5], start + 0.12, 0.075, 0.16);
 }
 

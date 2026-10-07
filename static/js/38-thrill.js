@@ -4,8 +4,8 @@
    Cleaning is a hundred small decisions with nothing back but a byte count.
    This is what comes back, the same in every Dangerous mode:
 
-   - Feedback: a deleted file burns (or shreds) where it was, with a sound (a
-     moan, if you want one) and a buzz, and deletes in quick succession build a
+   - Feedback: a deleted file burns (or shreds) where it was, with a sound and
+     a buzz, and deletes in quick succession build a
      purge streak. How it looks and sounds is in 40-thrill-fx.js.
    - Rewards: every so much freed earns a short clip of what you Loved (your
      marked moments first). It plays over the mode, then you go on cleaning.
@@ -19,7 +19,7 @@
 const DANGEROUS_MODES = ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders", "survivor"];
 const THRILL_DEFAULTS = {
   thrillEffect: "burn",
-  thrillSound: "moan",
+  thrillSound: "effects",
   rewardEveryMb: 500,
   rewardSeconds: 30,
   rewardAuto: true,
@@ -32,7 +32,7 @@ Object.assign(MODE_DEFAULTS, THRILL_DEFAULTS, { thrillBestStreak: 0 });
 Object.assign(PLAY_SETTING_RANGES, { toyCleanupStep: [0.05, 0.25] });
 Object.assign(PLAY_SETTING_CHOICES, {
   thrillEffect: ["burn", "shred", "off"],
-  thrillSound: ["moan", "effects", "off"],
+  thrillSound: ["effects", "off"],
   rewardEveryMb: [0, 250, 500, 1000, 2000],
   rewardSeconds: [15, 30, 60],
   toyCleanup: ["off", "delete", "keep"],
@@ -68,7 +68,7 @@ const THRILL_SECTION = `
   <section class="cc-section">
     <h3>Feedback</h3>
     <div class="segmented" role="group" aria-label="What a delete looks like" data-setting="thrillEffect"><button type="button" class="segment" data-value="burn">Burn</button><button type="button" class="segment" data-value="shred">Shred</button><button type="button" class="segment" data-value="off">Plain</button></div>
-    <div class="segmented" role="group" aria-label="What a delete sounds like" data-setting="thrillSound"><button type="button" class="segment" data-value="moan">Moan</button><button type="button" class="segment" data-value="effects">Effects only</button><button type="button" class="segment" data-value="off">Silent</button></div>
+    <div class="segmented" role="group" aria-label="What a delete sounds like" data-setting="thrillSound"><button type="button" class="segment" data-value="effects">Effects</button><button type="button" class="segment" data-value="off">Silent</button></div>
     <p class="subtle" data-thrill-streak></p>
   </section>
   <section class="cc-section">
@@ -345,7 +345,6 @@ function checkRewards() {
   const context = thrillAudio();
   if (context) {
     chime(context, [392, 523.25, 659.25, 783.99, 1046.5, 1318.5], context.currentTime + 0.18, 0.065, 0.14);
-    if (state.settings.thrillSound === "moan") moan(context, context.currentTime + 0.5, 1);
   }
   buzz([60, 40, 60, 40, 120]);
   syncRewardReady();

@@ -347,10 +347,10 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
         check("Plain: no ghost", page.locator(".burn-ghost").count() == 0, page.evaluate("() => [...document.querySelectorAll('.burn-ghost')].map(g => g.className + ' ' + g.style.cssText)"))
         page.evaluate("() => { state.settings.thrillEffect = 'burn'; queueSettingsSave(); }"); page.wait_for_timeout(400)
 
-        # ---- Sounds: rendered offline, every effect with and without the moan ----
+        # ---- Sounds: rendered offline, every effect ----
         levels = page.evaluate("""async () => {
           const out = {};
-          for (const sound of ['moan', 'effects']) for (const effect of ['burn', 'shred', 'off']) {
+          for (const sound of ['effects']) for (const effect of ['burn', 'shred', 'off']) {
             state.settings.thrillSound = sound;
             const context = new OfflineAudioContext(1, 44100 * 2.5, 44100);
             playDeleteSound(context, { effect, weight: 0.5, streak: 12, milestone: effect === 'burn' });
@@ -359,22 +359,18 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
             for (const v of data) { if (!Number.isFinite(v)) bad = true; peak = Math.max(peak, Math.abs(v)); sum += v * v; }
             out[sound + '/' + effect] = { peak, rms: Math.sqrt(sum / data.length), bad };
           }
-          const context = new OfflineAudioContext(1, 44100 * 2.5, 44100);
-          moan(context, 0, 1);
-          const data = (await context.startRendering()).getChannelData(0);
-          let peak = 0; for (const v of data) peak = Math.max(peak, Math.abs(v));
-          out.moanOnly = { peak };
-          state.settings.thrillSound = 'moan';
+          state.settings.thrillSound = 'effects';
           return out;
         }""")
         print("     sound levels:", {k: round(v["peak"], 2) for k, v in levels.items()})
         check("Every delete sound renders, audible and not clipping", all(not v.get("bad") and 0.05 < v["peak"] <= 1.0 for v in levels.values()), levels)
-        check("The moan is a real part of the mix", levels["moanOnly"]["peak"] > 0.1, levels["moanOnly"])
+        check("The moan is gone", page.evaluate("() => typeof moan") == "undefined")
+        page.evaluate("() => { state.settings.thrillSound = 'moan'; sanitizePlaySettings(); }")
+        check("A saved Moan setting falls back to Effects", page.evaluate("() => state.settings.thrillSound") == "effects")
         page.evaluate("() => { state.settings.thrillSound = true; sanitizePlaySettings(); }")
-        check("Old on/off sound setting reads as Moan", page.evaluate("() => state.settings.thrillSound") == "moan")
+        check("Old on/off sound setting reads as Effects", page.evaluate("() => state.settings.thrillSound") == "effects")
         page.evaluate("() => { state.settings.thrillSound = false; sanitizePlaySettings(); }")
         check("Old off reads as Silent", page.evaluate("() => state.settings.thrillSound") == "off")
-        page.evaluate("() => { state.settings.thrillSound = 'moan'; queueSettingsSave(); }"); page.wait_for_timeout(400)
 
         # ---- Grid: marked tiles burn on commit ----
         page.click('.workspace-link[data-mode="dgrid"]')
@@ -395,12 +391,13 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
         page.wait_for_timeout(1500)
         check("…and is saved on the server", lib.state["settings"].get("rewardSeconds") == 60, lib.state["settings"].get("rewardSeconds"))
         check("Best streak is saved", lib.state["settings"].get("thrillBestStreak", 0) >= 2, lib.state["settings"].get("thrillBestStreak"))
-        page.click('#dgridDrawer [data-setting="thrillSound"] [data-value="effects"]')
+        check("Sound choice is Effects or Silent", page.locator('#dgridDrawer [data-setting="thrillSound"] .segment').count() == 2)
+        page.click('#dgridDrawer [data-setting="thrillSound"] [data-value="off"]')
         page.wait_for_timeout(1500)
-        check("Sound choice is a three-way control, saved on the server", lib.state["settings"].get("thrillSound") == "effects", lib.state["settings"].get("thrillSound"))
+        check("…saved on the server", lib.state["settings"].get("thrillSound") == "off", lib.state["settings"].get("thrillSound"))
         page.locator('#dgridDrawer [data-setting="thrillSound"]').scroll_into_view_if_needed()
         page.screenshot(path=str(SHOTS / "drawer-feedback.png"))
-        page.click('#dgridDrawer [data-setting="thrillSound"] [data-value="moan"]')
+        page.click('#dgridDrawer [data-setting="thrillSound"] [data-value="effects"]')
         page.keyboard.press("Escape")
 
         # ---- phone ----

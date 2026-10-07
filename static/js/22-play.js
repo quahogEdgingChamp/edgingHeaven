@@ -70,8 +70,9 @@ function sanitizePlaySettings() {
     const value = Number(settings[key] ?? fallback);
     settings[key] = clampNumber(Number.isFinite(value) ? value : fallback, min, max);
   });
-  // The delete sound was an on/off switch before Moan came along.
-  if (typeof settings.thrillSound === "boolean") settings.thrillSound = settings.thrillSound ? "moan" : "off";
+  // The delete sound was an on/off switch once; a stored "moan" falls back
+  // to the default below.
+  if (typeof settings.thrillSound === "boolean") settings.thrillSound = settings.thrillSound ? "effects" : "off";
   Object.entries(PLAY_SETTING_CHOICES).forEach(([key, allowed]) => {
     if (!allowed.includes(settings[key])) settings[key] = MODE_DEFAULTS[key] ?? allowed[0];
   });
