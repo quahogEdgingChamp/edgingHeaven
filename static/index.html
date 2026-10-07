@@ -14,7 +14,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23b7ecd3'/%3E%3Cpath d='M10 7h3v8c5-5 10-2 9 4l-1 7h-3l1-7c1-4-4-4-6 1l-1 6H9z' fill='%23102e29'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="/styles.css?v=9" />
+    <link rel="stylesheet" href="/styles.css?v=10" />
   </head>
   <body data-mode="home">
     <!-- One sprite for every interface icon; buttons reference it with <use>. -->
@@ -43,6 +43,7 @@
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" /></symbol>
       <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" /></symbol>
       <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5" /></symbol>
+      <symbol id="i-crown" viewBox="0 0 24 24"><path d="M4 18h16M5 18 3.5 8l4.5 3.5L12 5l4 6.5L20.5 8 19 18" /></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" /></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
       <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20h-5.5v-6h-5v6H4z" /></symbol>
@@ -1259,6 +1260,98 @@
           </div>
         </section>
 
+        <!-- ============================== Survivor (Dangerous) ============================== -->
+        <section id="survivorMode" class="mode-panel" aria-label="Survivor">
+          <div class="survivor-layout">
+            <div class="stage-toolbar">
+              <span id="survivorProgress" class="tool-note"></span>
+              <button id="survivorUndo" class="tool-button" disabled aria-label="Undo"><svg aria-hidden="true"><use href="#i-undo" /></svg><span class="label">Undo</span></button>
+              <button id="survivorFocusToggle" class="tool-button focus-toggle" aria-label="Focus"><svg aria-hidden="true"><use href="#i-focus" /></svg><span class="label">Focus</span></button>
+              <button id="survivorDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
+            </div>
+            <p id="survivorReadOnly" class="readonly-note" hidden>This drive is read-only. Survivor deletes every loser, so it needs a writable media folder.</p>
+            <header class="survivor-head">
+              <button id="survivorHeadButton" class="survivor-where" type="button" aria-label="Change folder">
+                <span id="survivorModel" class="folder-model"></span>
+                <strong id="survivorWhere"></strong>
+              </button>
+              <span id="survivorStatus" class="survivor-status"></span>
+              <span id="survivorBar" class="meter-bar survivor-bar" hidden></span>
+            </header>
+            <div id="survivorArena" class="duel-arena survivor-arena" hidden>
+              <button id="survivorLeft" class="duel-side" data-side="0">
+                <img alt="" draggable="false" hidden /><video playsinline muted loop hidden></video>
+                <span class="duel-key" aria-hidden="true">←</span>
+                <span class="survivor-crown" aria-hidden="true"><svg><use href="#i-crown" /></svg></span>
+                <span class="duel-caption"><strong></strong><small></small></span>
+              </button>
+              <span class="duel-vs" aria-hidden="true">vs</span>
+              <button id="survivorRight" class="duel-side" data-side="1">
+                <img alt="" draggable="false" hidden /><video playsinline muted loop hidden></video>
+                <span class="duel-key" aria-hidden="true">→</span>
+                <span class="survivor-crown" aria-hidden="true"><svg><use href="#i-crown" /></svg></span>
+                <span class="duel-caption"><strong></strong><small></small></span>
+              </button>
+            </div>
+            <div id="survivorActions" class="dangerous-actions survivor-actions" hidden>
+              <button id="survivorBothGo" class="deck-button delete"><svg aria-hidden="true"><use href="#i-trash" /></svg><span>Both go</span><kbd>X</kbd></button>
+              <button id="survivorSkip" class="deck-button skip"><svg aria-hidden="true"><use href="#i-shuffle" /></svg><span>New pair</span><kbd>↓</kbd></button>
+              <button id="survivorBothStay" class="deck-button keep"><svg aria-hidden="true"><use href="#i-check" /></svg><span>Both stay</span><kbd>↑</kbd></button>
+            </div>
+            <div id="survivorDone" class="survivor-done" hidden>
+              <div class="survivor-done-head">
+                <svg aria-hidden="true"><use href="#i-crown" /></svg>
+                <div><h2 id="survivorDoneTitle"></h2><p id="survivorDoneText"></p></div>
+              </div>
+              <div id="survivorGrid" class="sweep-grid" role="list" aria-label="The survivors"></div>
+              <p id="survivorMore" class="survivor-more"></p>
+              <div class="sweep-actions">
+                <button id="survivorCutAgain" class="deck-button skip"><svg aria-hidden="true"><use href="#i-trash" /></svg><span>Cut again</span></button>
+                <button id="survivorKeepAll" class="deck-button keep"><svg aria-hidden="true"><use href="#i-check" /></svg><span>Keep all</span></button>
+                <button id="survivorKeepLove" class="deck-button love"><svg aria-hidden="true"><use href="#i-heart" /></svg><span>Keep, Love top 3</span></button>
+              </div>
+            </div>
+            <div id="survivorEmpty" class="sweep-empty" hidden><svg aria-hidden="true"><use href="#i-crown" /></svg><h2 id="survivorEmptyTitle"></h2><p id="survivorEmptyText"></p></div>
+            <div class="cleanup-meter" data-cleanup-meter></div>
+
+            <aside id="survivorDrawer" class="drawer control-panel" data-mode="survivor" aria-hidden="true">
+              <header class="drawer-header">
+                <div class="drawer-title"><span class="drawer-kicker">Controls</span><h2>Survivor</h2></div>
+                <button id="survivorDrawerClose" class="icon-button" aria-label="Close controls"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+              </header>
+              <div class="drawer-body" data-panel="tune">
+                <p id="survivorSummary" class="drawer-summary"></p>
+                <section class="cc-section">
+                  <h3>Folder</h3>
+                  <label class="survivor-folder"><span class="subtle">A model, or one folder inside it. Biggest first.</span><select id="survivorFolder"></select></label>
+                </section>
+                <section class="cc-section">
+                  <h3>Media</h3>
+                  <div class="segmented" role="group" aria-label="Which media fight" data-setting="survivorKind"><button type="button" class="segment" data-value="photos">Photos</button><button type="button" class="segment" data-value="videos">Videos</button><button type="button" class="segment" data-value="all">Both</button></div>
+                  <p class="subtle">With Both, photos still fight photos and clips fight clips.</p>
+                  <button class="switch-row" role="switch" aria-checked="true" data-setting="survivorLovedSafe"><span>Loved files sit out (never in the fight)</span><i aria-hidden="true"></i></button>
+                </section>
+                <section class="cc-section">
+                  <h3>Down to</h3>
+                  <div class="segmented" role="group" aria-label="How many survive" data-setting="survivorTarget"><button type="button" class="segment" data-value="half">Half</button><button type="button" class="segment" data-value="third">A third</button><button type="button" class="segment" data-value="quarter">A quarter</button></div>
+                  <div class="segmented" role="group" aria-label="Or a fixed number" data-setting="survivorTarget"><button type="button" class="segment" data-value="10">10</button><button type="button" class="segment" data-value="25">25</button><button type="button" class="segment" data-value="50">50</button></div>
+                  <p class="subtle">Every fight sends one file to the trash, so a folder of 200 cut to half is 100 fights. The files with the fewest wins fight first.</p>
+                </section>
+                <section class="cc-section">
+                  <h3>Goal</h3>
+                  <label class="range-row"><span>Free this much</span><strong data-value-for="cleanupGoalGb" data-format="gb"></strong><input type="range" min="0" max="20" step="0.5" data-setting="cleanupGoalGb" /></label>
+                  <p class="subtle">Counts what every Dangerous mode moves to the trash this visit. Off at 0.</p>
+                </section>
+                <p class="cc-keys">← left stays · → right stays · ↑ both stay · X both go · ↓ new pair · U undo · R play a reward</p>
+              </div>
+              <footer class="drawer-footer">
+                <button id="survivorNewRun" class="primary-button"><svg aria-hidden="true"><use href="#i-shuffle" /></svg>Start over</button>
+                <button id="survivorResetSettingsButton" class="text-button"><svg aria-hidden="true"><use href="#i-reset" /></svg>Defaults</button>
+              </footer>
+            </aside>
+          </div>
+        </section>
+
         <!-- ============================== Grid (Dangerous) ============================== -->
         <section id="dgridMode" class="mode-panel" aria-label="Grid">
           <div class="sweep-layout">
@@ -2015,6 +2108,19 @@
         <button id="cleanupViewerClose" class="icon-button" aria-label="Close"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
       </div>
     </div>
+    <div id="rewardOverlay" class="reward-overlay" role="dialog" aria-modal="true" aria-labelledby="rewardTitle" hidden>
+      <div class="reward-media">
+        <img id="rewardImage" alt="" hidden />
+        <video id="rewardVideo" playsinline hidden></video>
+      </div>
+      <div class="reward-progress"><i id="rewardFill"></i></div>
+      <div class="reward-bar">
+        <svg aria-hidden="true"><use href="#i-heart" /></svg>
+        <div><strong id="rewardTitle">Reward</strong><span id="rewardNote"></span></div>
+        <span id="rewardClock" class="reward-clock" role="timer">0:30</span>
+        <button id="rewardDone" class="ghost-button small-button">Back to cleaning</button>
+      </div>
+    </div>
     <div id="galleryLightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Media preview">
       <div class="lightbox-top">
         <div class="lightbox-caption">
@@ -2116,42 +2222,44 @@
       </div>
     </div>
 
-    <script src="/js/01-core.js?v=9" defer></script>
-    <script src="/js/02-decks.js?v=9" defer></script>
-    <script src="/js/03-shell.js?v=9" defer></script>
-    <script src="/js/04-escalation.js?v=9" defer></script>
-    <script src="/js/05-media.js?v=9" defer></script>
-    <script src="/js/06-ratings.js?v=9" defer></script>
-    <script src="/js/07-session.js?v=9" defer></script>
-    <script src="/js/08-gallery.js?v=9" defer></script>
-    <script src="/js/09-controls.js?v=9" defer></script>
-    <script src="/js/10-collection.js?v=9" defer></script>
-    <script src="/js/11-mosaic.js?v=9" defer></script>
-    <script src="/js/12-feed.js?v=9" defer></script>
-    <script src="/js/13-settings.js?v=9" defer></script>
-    <script src="/js/14-picking.js?v=9" defer></script>
-    <script src="/js/15-folders.js?v=9" defer></script>
-    <script src="/js/16-workspace.js?v=9" defer></script>
-    <script src="/js/17-seen.js?v=9" defer></script>
-    <script src="/js/18-duel.js?v=9" defer></script>
-    <script src="/js/19-rediscover.js?v=9" defer></script>
-    <script src="/js/20-dangerous.js?v=9" defer></script>
-    <script src="/js/21-ui.js?v=9" defer></script>
-    <script src="/js/22-play.js?v=9" defer></script>
-    <script src="/js/23-toy.js?v=9" defer></script>
-    <script src="/js/24-privacy.js?v=9" defer></script>
-    <script src="/js/25-marks.js?v=9" defer></script>
-    <script src="/js/26-highlights.js?v=9" defer></script>
-    <script src="/js/27-ladder.js?v=9" defer></script>
-    <script src="/js/28-spotlight.js?v=9" defer></script>
-    <script src="/js/29-beat.js?v=9" defer></script>
-    <script src="/js/30-redlight.js?v=9" defer></script>
-    <script src="/js/31-dice.js?v=9" defer></script>
-    <script src="/js/32-models.js?v=9" defer></script>
-    <script src="/js/33-downloads.js?v=9" defer></script>
-    <script src="/js/34-bookmarks.js?v=9" defer></script>
-    <script src="/js/35-cleanup.js?v=9" defer></script>
-    <script src="/js/36-sortrate.js?v=9" defer></script>
-    <script src="/js/37-removemodel.js?v=9" defer></script>
+    <script src="/js/01-core.js?v=10" defer></script>
+    <script src="/js/02-decks.js?v=10" defer></script>
+    <script src="/js/03-shell.js?v=10" defer></script>
+    <script src="/js/04-escalation.js?v=10" defer></script>
+    <script src="/js/05-media.js?v=10" defer></script>
+    <script src="/js/06-ratings.js?v=10" defer></script>
+    <script src="/js/07-session.js?v=10" defer></script>
+    <script src="/js/08-gallery.js?v=10" defer></script>
+    <script src="/js/09-controls.js?v=10" defer></script>
+    <script src="/js/10-collection.js?v=10" defer></script>
+    <script src="/js/11-mosaic.js?v=10" defer></script>
+    <script src="/js/12-feed.js?v=10" defer></script>
+    <script src="/js/13-settings.js?v=10" defer></script>
+    <script src="/js/14-picking.js?v=10" defer></script>
+    <script src="/js/15-folders.js?v=10" defer></script>
+    <script src="/js/16-workspace.js?v=10" defer></script>
+    <script src="/js/17-seen.js?v=10" defer></script>
+    <script src="/js/18-duel.js?v=10" defer></script>
+    <script src="/js/19-rediscover.js?v=10" defer></script>
+    <script src="/js/20-dangerous.js?v=10" defer></script>
+    <script src="/js/21-ui.js?v=10" defer></script>
+    <script src="/js/22-play.js?v=10" defer></script>
+    <script src="/js/23-toy.js?v=10" defer></script>
+    <script src="/js/24-privacy.js?v=10" defer></script>
+    <script src="/js/25-marks.js?v=10" defer></script>
+    <script src="/js/26-highlights.js?v=10" defer></script>
+    <script src="/js/27-ladder.js?v=10" defer></script>
+    <script src="/js/28-spotlight.js?v=10" defer></script>
+    <script src="/js/29-beat.js?v=10" defer></script>
+    <script src="/js/30-redlight.js?v=10" defer></script>
+    <script src="/js/31-dice.js?v=10" defer></script>
+    <script src="/js/32-models.js?v=10" defer></script>
+    <script src="/js/33-downloads.js?v=10" defer></script>
+    <script src="/js/34-bookmarks.js?v=10" defer></script>
+    <script src="/js/35-cleanup.js?v=10" defer></script>
+    <script src="/js/36-sortrate.js?v=10" defer></script>
+    <script src="/js/37-removemodel.js?v=10" defer></script>
+    <script src="/js/38-thrill.js?v=10" defer></script>
+    <script src="/js/39-survivor.js?v=10" defer></script>
   </body>
 </html>

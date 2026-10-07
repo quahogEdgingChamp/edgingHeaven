@@ -49,6 +49,8 @@ function setMode(mode) {
   } else if (MODE_HANDLERS[mode]) {
     MODE_HANDLERS[mode].enter();
   }
+  // Rewards, the toy and the streak carry on across the Dangerous modes.
+  thrillEnter();
   syncWorkspace();
   syncFocusMode();
   syncWakeLock();
@@ -63,6 +65,7 @@ function quietAllModes() {
   pauseFeed();
   pauseToktinderVideo();
   Object.values(MODE_HANDLERS).forEach((handler) => handler.quiet());
+  thrillQuiet();
   document.querySelectorAll("video").forEach(video => video.pause());
   toyStop();
 }
@@ -183,7 +186,7 @@ function wakeIdle() {
   document.body.classList.remove("idle");
   window.clearTimeout(idleTimer);
   // The Dangerous modes delete files, so their buttons stay put instead of fading.
-  const deletes = ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders"].includes(state.currentMode);
+  const deletes = DANGEROUS_MODES.includes(state.currentMode);
   if (document.body.classList.contains("immersive") && !deletes) {
     idleTimer = window.setTimeout(() => {
       // Never hide the controls from under an open panel or a dragging finger.

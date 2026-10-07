@@ -1610,8 +1610,8 @@ body.immersive .tool-note { color: #ddd; }
 body.focus-mode .topbar .mode-switch,
 body.focus-mode #themeButton { display: none; }
 /* The Dangerous modes delete files, so their tools never fade. */
-body.immersive.idle:not([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) .topbar { opacity: 0; }
-body.immersive.idle:not([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) { cursor: none; }
+body.immersive.idle:not([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]) .topbar { opacity: 0; }
+body.immersive.idle:not([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]) { cursor: none; }
 
 body.immersive .swipe-layout,
 body.immersive .stream-layout,
@@ -2219,18 +2219,18 @@ body.panic .shell, body.panic .drawer, body.panic .workspace-toast { visibility:
 
 /* Dangerous deletes files: every way into it is red, never the calm accent
    of the modes that only look, so it cannot be mistaken for one of them. */
-.workspace-link:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) { color: var(--danger); }
-.workspace-link:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]):hover,
-.workspace-link:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]).active { background: var(--danger-soft); color: var(--danger); }
+.workspace-link:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]) { color: var(--danger); }
+.workspace-link:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]):hover,
+.workspace-link:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]).active { background: var(--danger-soft); color: var(--danger); }
 .workspace-link[data-mode="dangerous"].active kbd { color: var(--danger); }
-.launcher-card:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
-.launcher-card:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) svg { stroke: var(--danger); }
-.launcher-card:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) strong { color: var(--danger); }
-.launcher-card:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]).active { border-color: var(--danger); background: var(--danger-soft); }
+.launcher-card:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.launcher-card:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]) svg { stroke: var(--danger); }
+.launcher-card:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]) strong { color: var(--danger); }
+.launcher-card:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]).active { border-color: var(--danger); background: var(--danger-soft); }
 .home-mode[data-tone="danger"] { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
 .home-mode[data-tone="danger"] strong { color: var(--danger); }
-body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) #workspaceTitle { color: var(--danger); }
-body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"]) #modeMenuButton { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); }
+body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]) #workspaceTitle { color: var(--danger); }
+body:is([data-mode="dangerous"], [data-mode="dgrid"], [data-mode="djunk"], [data-mode="dsimilar"], [data-mode="dfolders"], [data-mode="survivor"]) #modeMenuButton { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); }
 
 /* ------------------------------------------- Dangerous: Grid, Junk, Look-alikes, Folders -- */
 .sweep-layout { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -2396,4 +2396,122 @@ body.immersive .sweep-actions .ghost-button { background: var(--glass); border-c
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 450;
+}
+
+/* -------------------------------------------- Dangerous: the payoff -- */
+/* A deleted file burns or shreds where it was: a copy of its picture over
+   it (38-thrill.js), so the mode underneath can move on at once. */
+.burn-ghost { position: fixed; z-index: 66; pointer-events: none; overflow: visible; contain: layout; }
+.burn-ghost.is-burn { overflow: hidden; }
+.burn-ghost canvas { position: absolute; display: block; }
+.burn-picture { inset: 0; width: 100%; height: 100%; animation: burn-out 900ms cubic-bezier(0.45, 0, 0.8, 0.6) forwards; }
+@keyframes burn-out {
+  0% { filter: none; transform: none; opacity: 1; }
+  30% { filter: sepia(1) saturate(5) hue-rotate(-28deg) brightness(1.35) contrast(1.2); transform: scale(1.02); opacity: 1; }
+  70% { filter: sepia(1) saturate(3) brightness(0.45) contrast(1.6) blur(1px); transform: scale(0.94) translateY(-3%); opacity: 0.7; }
+  100% { filter: brightness(0.1) blur(6px); transform: scale(0.82) translateY(-10%); opacity: 0; }
+}
+.burn-flame {
+  position: absolute; inset: 0; mix-blend-mode: screen; opacity: 0;
+  background: linear-gradient(to top, rgba(255, 196, 64, 0.95), rgba(255, 92, 24, 0.75) 28%, rgba(255, 40, 0, 0.3) 55%, transparent 75%);
+  animation: flame-up 900ms ease-out forwards;
+}
+@keyframes flame-up {
+  0% { opacity: 0; transform: translateY(60%) scaleY(0.6); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-35%) scaleY(1.3); }
+}
+.burn-ember {
+  position: absolute; bottom: 10%; width: 5px; height: 5px; border-radius: 50%; opacity: 0;
+  background: #ffcf6b; box-shadow: 0 0 8px 2px rgba(255, 140, 40, 0.9);
+  animation: ember-rise 800ms ease-out var(--delay, 200ms) forwards;
+}
+@keyframes ember-rise {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--drift, 0), var(--rise, -160px)) scale(0.3); }
+}
+.shred-strip { top: 0; height: 100%; animation: shred-fall 950ms cubic-bezier(0.55, 0, 0.9, 0.45) var(--delay, 0ms) forwards; }
+@keyframes shred-fall {
+  0% { transform: none; opacity: 1; }
+  15% { transform: translateY(2%) rotate(calc(var(--spin) * 0.2)); opacity: 1; }
+  100% { transform: translate(var(--drift, 0), var(--fall, 140%)) rotate(var(--spin, 10deg)); opacity: 0; }
+}
+.dangerous-card.is-burnt > img, .dangerous-card.is-burnt > video { opacity: 0; }
+
+.thrill-combo {
+  position: fixed; z-index: 67; left: 50%; top: 24%; transform: translateX(-50%);
+  display: grid; justify-items: center; gap: 0; pointer-events: none; text-align: center;
+  color: var(--danger); text-shadow: 0 2px 16px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.9);
+}
+.thrill-combo[hidden] { display: none; }
+.thrill-combo strong { font-size: clamp(2.5rem, 9vw, 4.25rem); font-weight: 850; line-height: 1; font-variant-numeric: tabular-nums; }
+.thrill-combo span { font-size: 0.8125rem; font-weight: 750; letter-spacing: 0.16em; text-transform: uppercase; }
+.thrill-combo.is-milestone { color: var(--love); }
+.thrill-combo.is-milestone strong { font-size: clamp(3.25rem, 13vw, 6rem); }
+.thrill-combo.is-pop { animation: combo-pop 420ms cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes combo-pop { from { transform: translateX(-50%) scale(1.6); opacity: 0.3; } to { transform: translateX(-50%) scale(1); opacity: 1; } }
+
+.tool-button.reward-tool { background: var(--love); border-color: var(--love); color: var(--love-ink, #3a2600); animation: reward-glow 1.4s ease-in-out infinite alternate; }
+.tool-button.reward-tool[hidden] { display: none; }
+.tool-button.reward-tool svg { fill: currentColor; }
+@keyframes reward-glow { to { box-shadow: 0 0 0 5px color-mix(in srgb, var(--love) 30%, transparent); } }
+
+.reward-overlay { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; background: #000; color: #fff; }
+.reward-overlay[hidden] { display: none; }
+.reward-media { position: relative; flex: 1 1 auto; min-height: 0; }
+.reward-media > img, .reward-media > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.reward-progress { flex: none; height: 4px; background: rgba(255, 255, 255, 0.12); }
+.reward-progress i { display: block; height: 100%; width: 0; background: var(--love); transition: width 200ms linear; }
+.reward-bar {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 12px max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+.reward-bar > svg { flex: none; width: 22px; height: 22px; fill: var(--love); }
+.reward-bar > div { flex: 1 1 auto; min-width: 0; }
+.reward-bar strong { display: block; font-size: 0.875rem; color: var(--love); }
+.reward-bar span { display: block; font-size: 0.75rem; color: var(--on-media-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reward-bar .reward-clock { flex: none; font-size: 1.25rem; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+.reward-bar .ghost-button { flex: none; }
+
+/* Survivor */
+.survivor-layout { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.survivor-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+.survivor-where {
+  display: grid; gap: 1px; min-width: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer;
+}
+.survivor-where .folder-model { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--danger); }
+.survivor-where strong { font-size: 1rem; font-weight: 650; overflow-wrap: anywhere; }
+@media (hover: hover) { .survivor-where:hover strong { text-decoration: underline; } }
+.survivor-status { font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.survivor-bar { flex: 0 1 200px; }
+.survivor-bar[hidden] { display: none; }
+.survivor-arena[hidden], .survivor-actions[hidden], .survivor-done[hidden] { display: none; }
+.survivor-arena .duel-side.lost { opacity: 0; transform: scale(0.9); }
+.survivor-arena .duel-side:disabled:not(.lost) { opacity: 1; cursor: default; }
+.survivor-crown {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: none;
+  padding: 4px 10px; border-radius: var(--r-full); background: var(--glass); border: 1px solid var(--glass-line);
+}
+.survivor-crown svg { display: block; width: 22px; height: 22px; fill: none; stroke: var(--love); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.duel-side.is-champ { border-color: color-mix(in srgb, var(--love) 70%, transparent); }
+.duel-side.is-champ .survivor-crown { display: block; }
+.duel-side.is-champ .duel-caption small { color: var(--love); }
+.survivor-actions .deck-button, .survivor-done .deck-button { white-space: nowrap; }
+.survivor-actions .deck-button.skip { flex: 0 1 170px; }
+.survivor-done { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.survivor-done-head { flex: none; display: flex; align-items: center; gap: 14px; }
+.survivor-done-head svg { flex: none; width: 40px; height: 40px; fill: none; stroke: var(--love); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.survivor-done-head h2 { font-weight: 650; }
+.survivor-done-head p { color: var(--muted); font-size: 0.8125rem; }
+.survivor-more { flex: none; margin: 0; text-align: center; font-size: 0.75rem; color: var(--faint); }
+.survivor-more:empty { display: none; }
+.survivor-folder { display: grid; gap: 8px; }
+.survivor-folder select { width: 100%; }
+#survivorEmpty svg { stroke: var(--love); }
+body.immersive .survivor-layout { gap: 0; }
+body.immersive .survivor-head { display: none; }
+body.immersive .survivor-done { padding: calc(58px + env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom)); }
+@media (max-width: 767px) {
+  .survivor-actions .deck-button.skip { flex: 0 1 64px; }
+  .survivor-done .sweep-actions .deck-button { flex: 1 1 100%; max-width: none; }
 }

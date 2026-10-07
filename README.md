@@ -4,9 +4,9 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 
 ## Features
 
-- Twenty-one modes, grouped the same way in the sidebar, the overview and the phone mode picker:
+- Twenty-two modes, grouped the same way in the sidebar, the overview and the phone mode picker:
   - **Sort & rate:** `Photo deck`, `Video deck`, `Feed`, `Rediscover`
-  - **Dangerous** (they delete files, red everywhere): `Swipe`, `Grid`, `Junk`, `Look-alikes`, `Folders`
+  - **Dangerous** (they delete files, red everywhere): `Swipe`, `Survivor`, `Grid`, `Junk`, `Look-alikes`, `Folders`
   - **Sit back:** `Escalation` (which now includes the old Stream mode), `Session`,
     `Beat`, `Red light`, `Dice`, `Mosaic`
   - **Your best:** `Ladder`, `Spotlight`, `Highlights`
@@ -110,7 +110,8 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   - Decks, Rediscover: `←` pass, `→` keep, `↑` love, `↓` skip, `U` undo
   - Dangerous Swipe: `←` delete, `→` keep, `↑` keep and Love (or only keep, if
     switched off), `↓` skip, `Space` play/pause, `B` Blitz, `U` undo. The other
-    Dangerous modes' keys are in the table under [Dangerous](#dangerous)
+    Dangerous modes' keys are in the table under [Dangerous](#dangerous). `R` plays
+    a waiting reward in any of them
   - Feed: `↑` `↓` previous/next clip, `←` pass, `→` keep, `L` love, `Space` play/pause
   - `B`: mark a moment (Video deck, Feed, Rediscover, video preview)
   - Duel: `←` left wins, `→` right wins, `↓` new pair, `U` undo
@@ -334,6 +335,7 @@ and has Undo; nothing is erased until you empty the trash.
 | Mode | What you decide | Keys |
 |---|---|---|
 | **Swipe** | One file at a time: left deletes, right keeps, up keeps and **Loves**, down skips | `← → ↑ ↓`, Space play, `B` Blitz, `U` |
+| **Survivor** | Two files from one folder: tap the one that stays, the other goes to the trash, until the folder is down to half / a third / a quarter / 10 / 25 / 50. Then keep the survivors (optionally Loving the top 3) or cut again | `←` / `→` that one stays, `↑` both stay, `X` both go, `↓` new pair, `U` |
 | **Grid** | A page of files (on a computer 9–20; on a phone 2, 4 or 6 big tiles in two columns): tap the ones to delete, the rest are kept in one go. Clips play in their tiles, muted | arrows, Space/`X` mark, Enter, `S`, `A`, `V`, `U` |
 | **Junk** | Only suspects, most likely first, each tile saying why: photos under 30 KB (tiny) or 80 KB (small), under 480 px, clips under 1.5 / 4 MB, names like screenshot, avatar, preview or a promo handle. Nothing is marked for you | as Grid |
 | **Look-alikes** | Sets of near-identical shots in one model (resized, re-saved, bursts): the best copy (most pixels, then biggest) is kept, the rest marked | tap to switch, Enter, `K` keep all, `S`, `U` |
@@ -356,6 +358,32 @@ and has Undo; nothing is erased until you empty the trash.
 - Every mode shows what this visit freed. **Goal** (in any Dangerous control
   center) turns that into a bar and says when you reach it. The space only comes
   back when the trash is emptied
+- **Survivor** picks a model, or one folder inside it (biggest model first), in
+  its control center. The files with the fewest wins are paired, so everyone
+  fights once before anyone fights twice; with Media `Both`, photos fight photos
+  and clips fight clips. **Loved files sit out** (on by default). A champion (most
+  wins, from two up, no tie) gets a crown. Its run lives in the page: leaving and
+  coming back resumes it, and changing folder, Media or the target starts over
+- **The payoff** (the same three sections in every Dangerous control center,
+  shared by all six modes; `static/js/38-thrill.js`):
+  - **Rewards**: every 250 MB / 500 MB (default) / 1 GB / 2 GB freed this visit
+    earns a 15 s / 30 s / 1 min clip of your Loved files: marked moments first,
+    then Loved clips from a random point, then Loved photos (liked ones if
+    nothing is Loved). It plays over the mode, which pauses underneath; `Esc` or
+    `Enter` ends it, `Space` pauses, and arrow keys do nothing to the file
+    behind it. It counts what is freed now, so deleting and undoing never earns
+    twice; changing the rate counts from that moment. With **Play a reward as
+    soon as it is earned** off, or when several are earned at once, a **Reward**
+    button waits in the tool bar (`R`). During Blitz it waits for the end
+  - **Feedback**: a deleted file **burns** (or **shreds**, or goes plain) where it
+    was, deletes close together build a **purge streak** (×N on screen, bigger at
+    5, 10, 25, …; a keep keeps it alive, Undo takes it down), with sounds and a
+    buzz on phones. The best streak is saved. Reduced motion skips the effects
+  - **Toy** (Intiface, see Settings): `Deletes` pushes the toy up one step per file
+    and each keep brings it down; `Keeps` the other way round; `Off` leaves it.
+    Step 5–25%. **Toy stops if you wait more than 3 s** makes it stop between
+    decisions; the next one picks up at half. A reward ramps the toy from 35% to
+    full, then hands it back. Leaving the mode, hiding the tab or panic stop it
 - **Look-alikes fingerprints in the browser**: the server has no image decoder,
   so the page reads each photo once, shrinks it to 9×8 greys and keeps a 64-bit
   difference hash (clips use their saved still). Fingerprints are stored in
@@ -401,6 +429,12 @@ three test-library folders: Grid, Junk, Look-alikes (with a resized copy it make
 in the browser), Folders, Swipe's order, Love, frame strip, speed, goal and Blitz,
 and the same Grid page against a server without the batch endpoints:
 `python3 tests/browser_cleanup.py --media-dir /mnt/edging-heaven/testing`.
+
+`tests/browser_thrill.py` checks Survivor (pairing, picks, both stay / both go,
+undo, the end, keep and Love, cut again), rewards, the streak, burn and shred,
+and the toy against a mock Intiface server. It needs no media: a fake catalog,
+flat-colour pictures made by the test, and every trash/restore answered by the
+test itself: `python3 tests/browser_thrill.py` (needs Playwright and `websockets`).
 
 `tests/browser_live.py` checks using a download while it runs (files arriving
 without reshuffling, Arriving, Sort in Dangerous, Keep without rating, Drive full

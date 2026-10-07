@@ -127,6 +127,7 @@ function startDangerous(rebuild = false) {
 
 function renderDangerous() {
   if (state.currentMode !== "dangerous") return;
+  el("dangerousCard").classList.remove("is-burnt");
   const item = dangerous.items[dangerous.index];
   const image = el("dangerousImage"), video = el("dangerousVideo");
   const isVideo = item?.kind === "video";
@@ -251,6 +252,11 @@ async function actDangerous(action) {
   // that is switched off; then it only keeps, like →.
   if (action === "love" && state.settings.dangerousUpLoves === false) action = "keep";
   const entry = { action, item, index: dangerous.index, library };
+  if (action === "delete") {
+    // The copy burns over the card; the card itself goes blank until the next file.
+    thrillBurn([el("dangerousCard")]);
+    if (state.settings.thrillEffect !== "off" && !REDUCED_MOTION.matches) el("dangerousCard").classList.add("is-burnt");
+  }
   try {
     if (action === "delete") {
       const result = await postJson("/api/trash", { path: item.path, library });
@@ -286,6 +292,7 @@ async function actDangerous(action) {
     syncWorkspace();
     renderDangerous();
   } catch (error) {
+    el("dangerousCard").classList.remove("is-burnt");
     toast(error.message || "Could not save. This item is still here.");
   } finally {
     dangerous.busy = false;

@@ -110,11 +110,13 @@ const DRAWER_MODES = [
   "djunk",
   "dsimilar",
   "dfolders",
+  "survivor",
 ];
-const FOCUS_MODES = ["swipe", "toktinder", "escalation", "session", "mosaic", "feed", "dangerous", "dgrid", "djunk", "dsimilar", "dfolders", "duel", "rediscover",
+const FOCUS_MODES = ["swipe", "toktinder", "escalation", "session", "mosaic", "feed", "dangerous", "dgrid", "djunk", "dsimilar", "dfolders", "survivor", "duel", "rediscover",
   "beat", "redlight", "dice", "ladder", "spotlight", "highlights"];
-// Spotlight picks a model (a top-level folder) instead of folders.
-const FOLDER_MODES = DRAWER_MODES.filter((mode) => mode !== "spotlight");
+// Spotlight picks a model (a top-level folder) and Survivor one folder,
+// instead of the folder tree.
+const FOLDER_MODES = DRAWER_MODES.filter((mode) => mode !== "spotlight" && mode !== "survivor");
 // Modes whose control center has an All / Unrated / Liked / Loved "Show" filter.
 const RATING_FILTER_MODES = ["swipe", "toktinder", "escalation", "session", "gallery", "mosaic", "feed", "duel", "rediscover",
   "beat", "redlight", "dice", "ladder", "spotlight", "highlights"];
@@ -145,6 +147,7 @@ const ALL_MODES = [
   "djunk",
   "dsimilar",
   "dfolders",
+  "survivor",
 ];
 
 document.addEventListener("DOMContentLoaded", () => {

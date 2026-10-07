@@ -15,23 +15,23 @@ MODE_CARDS.push({ mode: "dangerous", name: "Swipe",
 const workspaceNames = { home: "Overview", duel: "Duel", rediscover: "Rediscover", swipe: "Photo deck", toktinder: "Video deck",
   escalation: "Escalation", session: "Session", gallery: "Gallery", ranked: "Collection",
   mosaic: "Mosaic", feed: "Feed", dangerous: "Swipe", dgrid: "Grid", djunk: "Junk", dsimilar: "Look-alikes",
-  dfolders: "Folders", beat: "Beat", redlight: "Red light", dice: "Dice",
+  dfolders: "Folders", survivor: "Survivor", beat: "Beat", redlight: "Red light", dice: "Dice",
   ladder: "Ladder", spotlight: "Spotlight", highlights: "Highlights", downloads: "Downloads",
   bookmarks: "Bookmarks" };
 // One grouping for the sidebar, the overview and the mode picker.
 const MODE_GROUPS = [
   { label: "Sort & rate", modes: ["swipe", "toktinder", "feed", "rediscover"] },
   // Everything that deletes lives here, red, away from the modes that only look.
-  { label: "Dangerous", modes: ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders"] },
+  { label: "Dangerous", modes: ["dangerous", "survivor", "dgrid", "djunk", "dsimilar", "dfolders"] },
   { label: "Sit back", modes: ["escalation", "session", "beat", "redlight", "dice", "mosaic"] },
   { label: "Your best", modes: ["ladder", "spotlight", "highlights"] },
   { label: "Your library", modes: ["gallery", "ranked", "duel", "bookmarks", "downloads"] },
 ];
 const MODE_TONES = { duel: "warm", rediscover: "violet", mosaic: "violet", escalation: "warm", session: "warm", dangerous: "danger",
-  dgrid: "danger", djunk: "danger", dsimilar: "danger", dfolders: "danger",
+  dgrid: "danger", djunk: "danger", dsimilar: "danger", dfolders: "danger", survivor: "danger",
   beat: "warm", redlight: "danger", dice: "violet", ladder: "warm", spotlight: "violet", highlights: "violet" };
 const workspaceEyebrows = { home: "Your library", duel: "Your library", rediscover: "Sort & rate", swipe: "Sort & rate", toktinder: "Sort & rate", feed: "Sort & rate",
-  dangerous: "Dangerous", dgrid: "Dangerous", djunk: "Dangerous", dsimilar: "Dangerous", dfolders: "Dangerous", mosaic: "Sit back", escalation: "Sit back", session: "Sit back",
+  dangerous: "Dangerous", dgrid: "Dangerous", djunk: "Dangerous", dsimilar: "Dangerous", dfolders: "Dangerous", survivor: "Dangerous", mosaic: "Sit back", escalation: "Sit back", session: "Sit back",
   beat: "Sit back", redlight: "Sit back", dice: "Sit back", ladder: "Your best", spotlight: "Your best", highlights: "Your best",
   gallery: "Your library", ranked: "Your library", downloads: "Your library",
   bookmarks: "Your library" };

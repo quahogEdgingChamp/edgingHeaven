@@ -137,6 +137,24 @@ DEFAULT_SETTINGS = {
     # Grid / Junk on a phone: tiles per page, and clips playing in their tiles.
     "cleanupPhoneTiles": 4,
     "cleanupClipPreviews": True,
+    # Survivor (Dangerous): two files from one folder, the loser goes to trash,
+    # until the folder is down to half / a third / a quarter or 10 / 25 / 50.
+    # survivorFolder "" means the biggest model.
+    "survivorFolder": "",
+    "survivorKind": "photos",
+    "survivorTarget": "half",
+    "survivorLovedSafe": True,
+    # Every Dangerous mode: burn/shred and sounds on delete, a reward clip of
+    # Loved files every so many MB freed, and the toy driven by deletes/keeps.
+    "thrillEffect": "burn",
+    "thrillSound": True,
+    "thrillBestStreak": 0,
+    "rewardEveryMb": 500,
+    "rewardSeconds": 30,
+    "rewardAuto": True,
+    "toyCleanup": "delete",
+    "toyCleanupStep": 0.1,
+    "toyCleanupHurry": False,
     # "Show: All / Unrated / Liked" for the lean-back modes.
     "escalationRatingFilter": "all",
     "sessionRatingFilter": "all",

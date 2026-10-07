@@ -3,6 +3,7 @@
 
    Swipe (20-dangerous.js) decides one file at a time. These decide many at
    once: a page of files, a set of near-identical shots, a whole folder.
+   Survivor (39-survivor.js) uses the same delete, keep and Undo.
    They share what deletes and keeps (one request for many files), the Undo
    stack, the "freed this visit" meter with its goal, and the tile the grids
    are built from. Nothing is erased here: Delete moves files into
@@ -310,6 +311,8 @@ function cleanupCount(action, bytes = 0, count = 1) {
     blitz.count = Math.max(0, blitz.count - count);
     blitz.freed = Math.max(0, blitz.freed - bytes);
   }
+  // Streak, sounds, the toy and rewards (38-thrill.js).
+  thrillCount(action, bytes, count);
   renderCleanupMeters();
 }
 
@@ -318,7 +321,8 @@ function renderCleanupMeters() {
   const reached = goal > 0 && cleanup.freed >= goal;
   document.querySelectorAll("[data-cleanup-meter]").forEach((node) => {
     const text = document.createElement("span");
-    text.textContent = `Freed ${formatBytes(cleanup.freed)} this visit · ${plural(cleanup.deleted, "deleted", "deleted")} · ${plural(cleanup.kept, "kept", "kept")}`;
+    const reward = rewardMeterText();
+    text.textContent = `Freed ${formatBytes(cleanup.freed)} this visit · ${plural(cleanup.deleted, "deleted", "deleted")} · ${plural(cleanup.kept, "kept", "kept")}${reward ? ` · ${reward}` : ""}`;
     const parts = [text];
     if (goal > 0) {
       const bar = document.createElement("span");
@@ -628,6 +632,7 @@ function syncCleanupButtons() {
   ["dgrid", "djunk"].forEach((mode) => el(`${mode}Commit`) && syncSweepActions(mode));
   syncSimilarActions();
   syncFolderActions();
+  if (el("survivorUndo")) syncSurvivorActions();
 }
 
 function markWholePage(mode) {
@@ -646,6 +651,7 @@ async function commitSweep(mode) {
   const keep = page.filter((item) => !sweep.marked.has(item.path));
   cleanup.busy = true;
   syncSweepActions(mode);
+  if (state.canTrash) thrillBurn(doomed.map((item) => el(`${mode}Grid`).querySelector(`.sweep-tile[data-path="${CSS.escape(item.path)}"]`)));
   try {
     const result = doomed.length ? await cleanupDelete(doomed) : { trashed: [], failed: [], library: state.currentMediaDirectory };
     await cleanupKeep(keep);
@@ -1109,6 +1115,7 @@ async function commitSet(keepAll = false) {
   const keep = set.items.filter((item) => !doomed.includes(item));
   cleanup.busy = true;
   syncSimilarActions();
+  if (state.canTrash) thrillBurn(doomed.map((item) => el("dsimilarGrid").querySelector(`.sweep-tile[data-path="${CSS.escape(item.path)}"]`)));
   try {
     const result = doomed.length ? await cleanupDelete(doomed) : { trashed: [], failed: [], library: state.currentMediaDirectory };
     await cleanupKeep(keep);
@@ -1299,6 +1306,7 @@ async function deleteFolder() {
   if (!window.confirm(`Delete all ${plural(group.items.length, "file", "files")} in “${where}” (${formatBytes(group.bytes)})?${warning} They go to the trash; Undo brings them back until you empty it.`)) return;
   cleanup.busy = true;
   syncFolderActions();
+  if (state.canTrash) thrillBurn([...el("dfoldersGrid").querySelectorAll(".sweep-tile")]);
   const button = el("dfoldersDelete").querySelector("span");
   try {
     const result = await cleanupDelete(group.items, (done, total) => {
@@ -1592,6 +1600,8 @@ function endBlitz(stopped) {
   el("dangerousBlitz").hidden = true;
   el("dangerousBlitzButton").classList.remove("active");
   el("dangerousBlitzButton").querySelector(".label").textContent = "Blitz";
+  // A reward earned during the round plays now.
+  if (state.settings.rewardAuto !== false) window.setTimeout(() => playReward(true), 1200);
   if (stopped) {
     toast(`Blitz stopped: ${plural(blitz.count, "file", "files")}, ${formatBytes(blitz.freed)} freed.`);
     return;
@@ -1661,6 +1671,12 @@ function bindCleanup() {
       CLEANUP_DRAWERS.forEach((other) => syncSettingControls(el(`${other}Drawer`)));
       return;
     }
+    if (THRILL_KEYS.includes(key)) {
+      // Shared by every Dangerous mode; nothing about the deal changes.
+      CLEANUP_DRAWERS.forEach((other) => syncSettingControls(el(`${other}Drawer`)));
+      thrillSettingChanged(key);
+      return;
+    }
     if (mode === "dangerous") {
       if (key === "dangerousOrder") startDangerous(true);
       else renderDangerous();
@@ -1680,6 +1696,6 @@ function bindCleanup() {
   renderCleanupMeters();
 }
 
-const CLEANUP_DRAWERS = ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders"];
+const CLEANUP_DRAWERS = ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders", "survivor"];
 
 document.addEventListener("DOMContentLoaded", bindCleanup);
