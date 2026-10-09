@@ -23,6 +23,7 @@ registerModeUI("ladder", {
     ladderStartSeconds: 10,
     ladderEndSeconds: 3,
     ladderVolume: 0.3,
+    ladderRank: "elo",
   },
   presets: {
     short: { ladderSteps: 20, ladderStartSeconds: 10, ladderEndSeconds: 4 },
@@ -37,9 +38,20 @@ registerModeUI("ladder", {
   },
 });
 
+// "fair": the Bradley-Terry refit of every duel (41-signals.js), which does
+// not depend on the order the picks were made in.
+function ladderFair() {
+  return signalsAvailable() && state.settings.ladderRank === "fair" && !!duelLog.rows?.length;
+}
+
+function ladderScore(path) {
+  return ladderFair() ? duelFairScore(path) : Math.round(duelRating(path).r);
+}
+
 function buildLadder() {
   const pool = playPool("ladder", state.settings.ladderKind);
-  const ranked = pool.filter((item) => duelRating(item.path).n > 0).sort((a, b) => duelRating(b.path).r - duelRating(a.path).r);
+  const strength = ladderFair() ? (item) => duelStrength(item.path).z : (item) => duelRating(item.path).r;
+  const ranked = pool.filter((item) => duelRating(item.path).n > 0).sort((a, b) => strength(b) - strength(a));
   const unranked = pool.filter((item) => !duelRating(item.path).n);
   shuffleBalanced(unranked);
   unranked.sort((a, b) => (b.rating === "love") - (a.rating === "love"));
@@ -108,7 +120,7 @@ function syncLadderHud() {
   setHud("ladder", {
     phase: top ? "finish" : ladder.paused ? "hold" : "go",
     cue: top ? "Top of the ladder" : `Step ${ladder.index + 1} / ${count}`,
-    sub: `#${rank}${rating.n ? ` · ${Math.round(rating.r)}` : " · unranked"}${item.rating === "love" ? " · loved" : ""}${ladder.paused ? " · paused" : ""}`,
+    sub: `#${rank}${rating.n ? ` · ${ladderScore(item.path)}` : " · unranked"}${item.rating === "love" ? " · loved" : ""}${ladder.paused ? " · paused" : ""}`,
     compact: true,
   });
   el("ladderStatus").textContent = `${ladderStepSeconds(ladder.index).toFixed(1)}s a step`;
@@ -117,6 +129,7 @@ function syncLadderHud() {
 
 async function startLadder() {
   await loadDuelRatings();
+  if (state.settings.ladderRank === "fair") await loadDuelLog();
   ladder.steps = buildLadder();
   if (ladder.steps.length < 2) {
     ladder.running = false;

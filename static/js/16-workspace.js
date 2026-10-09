@@ -132,9 +132,17 @@ function initWorkspace() {
   };
   card.addEventListener("pointerup", finish);
   card.addEventListener("pointercancel", finish);
-  window.addEventListener("pagehide", () => flushSeen(true));
+  window.addEventListener("pagehide", () => {
+    flushSeen(true);
+    watchEndAll("left");
+    flushWatch(true);
+  });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) flushSeen(true);
+    if (document.hidden) {
+      flushSeen(true);
+      watchEndAll("left");
+      flushWatch(true);
+    }
     if (!document.hidden && !state.panic && !state.locked && state.currentMode === "dangerous" && !el("dangerousVideo").hidden) {
       playWhenReady(el("dangerousVideo"), el("dangerousVideo").dataset.loadToken);
     }

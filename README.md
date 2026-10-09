@@ -13,6 +13,9 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   - **Your library:** `Gallery`, `Collection`, `Duel`, and the `Bookmarks` and `Downloads` pages
 - Two levels of keep: **Keep** and **Love** (swipe up, `↑` or `L`). Love counts
   as kept everywhere; `Show` gains a `Loved` option in every mode
+- **Smart order** (Adjust → Order: `Shuffled` / `Smart`, off by default) in
+  Photo deck, Video deck, Feed, Rediscover, Escalation, Session, Mosaic, Beat,
+  Red light, Dice and Spotlight. See "Smart order" below
 - **Marked moments:** press `B` (or **Mark**) at the start and end of a moment
   in a clip. Highlights plays only those; Escalation, Session, Mosaic and the
   timed modes start clips at them
@@ -68,6 +71,43 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   fast-start MP4 layout (originals unchanged)
 - No build step and no external Python packages (simp, the optional downloader,
   keeps its packages in its own venv, `scrprsimp/.venv`, and runs as a separate process)
+
+## Smart order
+
+Every mode that deals or picks files can do it **Shuffled** (the folder-balanced
+shuffle) or **Smart**. The code is `static/js/41-signals.js` (what it learns
+from) and `static/js/42-smart.js` (how it picks).
+
+- **Score per file.** Love +2, Keep +1, Pass −2; never seen +0.8, or up to
+  +0.8 as it goes unseen for weeks; marked moments +0.6; duel strength; clips
+  you watch through up, files you skip within 2.5 s down; photos you linger on
+  up. A file is picked with odds proportional to e^score, so favourites come
+  up more often but nothing is certain or ruled out.
+- **Folder first, by Thompson sampling.** Each folder has a Beta(keeps, passes)
+  belief about how often you keep from it. Each pick draws one guess per folder
+  and the highest wins. Folders you keep from usually win, and folders you have
+  barely rated still win now and then, which is how they get a chance.
+- **1 in 5 picks stays random** ("wildcard"), and a folder sits out after two
+  turns in a row, so the order cannot close in on itself.
+- **More like this.** Love a file in a deck, Feed or Rediscover and up to three
+  similar ones come up next: same folder, same day, or a close fingerprint from
+  Look-alikes. Near-copies (6 bits or fewer apart) are skipped. In Feed they
+  arrive a few clips later, because the next dozen clips are already on the page.
+- **Rediscover revisits.** In smart order a kept file is due again a week after
+  you last saw or rated it. Keeping it again in Rediscover pushes the next visit
+  further out (7, 17, 44, 109 days…), a skip asks again tomorrow, and a pass takes
+  it off the schedule. The deal takes one card in turn from each of three lanes:
+  due revisits, never seen, and longest unseen.
+- **Ladder → Rank by → Every duel** refits the ranking from every duel at once
+  (Bradley-Terry), so pick order does not matter and two lucky wins cannot
+  top it. Only duels made since this was added are in that history.
+- **Why.** The decks, Feed and Rediscover show why each file came up, e.g.
+  `never seen · from a folder you keep`.
+
+What it learns from is stored next to `state.json`: `watch.json` (per file:
+views, quick skips, clips watched through, seconds on screen, and the revisit
+schedule) and `duels.json` (every duel as winner, loser, time; the newest
+20,000). An older server without these hides the Order switches.
 
 ## Supported Media
 
@@ -414,6 +454,7 @@ The service must restart to load Python changes (`sudo systemctl restart edging-
 ```bash
 python3 -m unittest discover -s tests -v
 for f in static/js/*.js; do node --check "$f"; done
+node tests/smart_order_check.js      # smart order's maths, no browser
 scrprsimp/.venv/bin/python -m pytest -q scrprsimp/tests   # simp itself
 ```
 
@@ -446,6 +487,12 @@ without reshuffling, Arriving, Sort in Dangerous, Keep without rating, Drive ful
 and Resume) on a temporary copy of two test-library folders:
 `python3 tests/browser_live.py`.
 
+`tests/browser_smart.py` checks smart order end to end: the Order switch, the
+kept model leading the deck, quick skips and slow looks reaching `watch.json`,
+more like this after a Love, Rediscover's revisit schedule, the duel log with
+undo, Ladder ranked from every duel, smart picks in the lean-back modes, and the
+switch hiding on an older server: `python3 tests/browser_smart.py`.
+
 `tests/browser_features.py` drives Love, marking, Highlights, Session clip
 playback, Beat, Red light, Dice, Ladder, Spotlight, crossfades, session history,
 model pages, panic, toy sync (against a mock Intiface server), the PIN lock and
@@ -458,7 +505,7 @@ python3 tests/browser_features.py
 
 ## Notes
 
-- Ratings, duel rankings, marked moments, session history, settings and the PIN hash are stored in `data/state.json`; seen times in `data/seen.json`; video stills in `data/thumbs/` (safe to delete — they are remade on demand).
+- Ratings, duel rankings, marked moments, session history, settings and the PIN hash are stored in `data/state.json`; seen times in `data/seen.json`; smart order's watch signals and revisit schedule in `data/watch.json` and every duel in `data/duels.json` (deleting either only makes smart order start learning again); video stills in `data/thumbs/` (safe to delete — they are remade on demand).
 - The page's code is split into ordered plain scripts in `static/js/` (no build step). They share one global scope, in file order, so the browser tests can call `setMode()`, `state`, etc. directly.
 - Forgot the PIN: stop the server, set `"lock": null` and `"lockTokens": {}` in `state.json`, start it again.
 - If you switch to a different media directory, saved ratings are cleared so the state matches the new library.

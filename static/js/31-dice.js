@@ -20,6 +20,7 @@ registerModeUI("dice", {
     stat: () => (Number(state.settings.diceFinishOdds) ? `finish 1 in ${state.settings.diceFinishOdds}` : "no finish"),
   },
   defaults: {
+    diceOrder: "random",
     diceRatingFilter: "all",
     diceKind: "all",
     diceDrawMin: 20,

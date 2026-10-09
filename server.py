@@ -241,6 +241,22 @@ DEFAULT_SETTINGS = {
     "highlightsOrder": "shuffle",
     "highlightsRepeat": 1,
     "highlightsVolume": 0.5,
+    # Order: "random" (the balanced shuffle) or "smart" (scored picks, see
+    # static/js/42-smart.js). Per mode, off by default.
+    "swipeOrder": "random",
+    "toktinderOrder": "random",
+    "feedOrder": "random",
+    "rediscoverOrder": "random",
+    "escalationOrder": "random",
+    "sessionOrder": "random",
+    "mosaicOrder": "random",
+    "beatOrder": "random",
+    "redlightOrder": "random",
+    "diceOrder": "random",
+    "spotlightOrder": "random",
+    # Ladder: rank by the running Elo score, or "fair" = refitted from every
+    # duel in duels.json (Bradley-Terry).
+    "ladderRank": "elo",
 }
 
 RATINGS = {"like", "dislike", "love"}
@@ -250,6 +266,18 @@ MARKS_PER_FILE = 24
 MARK_MAX_SECONDS = 600
 SESSIONS_LIMIT = 1000
 SESSION_MODES = {"session", "beat", "redlight", "dice", "escalation", "ladder", "spotlight", "highlights"}
+# Watch signals (watch.json): events per POST, seconds counted per view, and
+# how much of a clip must have played to count as watched through.
+WATCH_BATCH_LIMIT = 200
+WATCH_MAX_SECONDS = 600
+WATCH_COMPLETE = 0.85
+# Rediscover's revisit schedule: first interval, growth on a keep, floor.
+REVIEW_FIRST_DAYS = 7
+REVIEW_GROWTH = 2.5
+REVIEW_MIN_DAYS = 3
+REVIEW_REVIEWS = {"keep", "love", "pass", "skip"}
+# Every duel result, oldest first, in duels.json; the oldest drop off.
+DUEL_LOG_LIMIT = 20000
 # PIN lock. The PIN is never stored, only a salted PBKDF2 hash of it.
 PIN_RE = re.compile(r"\d{4,12}")
 PIN_ITERATIONS = 200_000
@@ -259,7 +287,7 @@ LOCK_FREE_ATTEMPTS = 5
 # Reachable without unlocking: the page itself, so it can show the PIN pad.
 PUBLIC_PATHS = {"/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/api/lock", "/api/unlock"}
 STATIC_JS_RE = re.compile(r"/js/[0-9a-z-]+\.js")
-FEATURES = ["love", "marks", "sessions", "lock", "simp", "bookmarks", "additions", "dangerousKept", "cleanup", "modelReset"]
+FEATURES = ["love", "marks", "sessions", "lock", "simp", "bookmarks", "additions", "dangerousKept", "cleanup", "modelReset", "smart"]
 # Downloads (simpjobs.py): /api/simp/jobs/<id>/log and /api/simp/jobs/<id>/cancel.
 SIMP_JOB_RE = re.compile(r"/api/simp/jobs/([a-f0-9]{12})/(log|cancel|arrivals)")
 # Bookmark previews: /api/simp/previews/<model, URL-encoded>/<n>.<ext>
@@ -378,6 +406,15 @@ class MediaLibrary:
         self.seen = self._load_seen()
         self.fingerprints_path = state_path.parent / "fingerprints.json"
         self.fingerprints = self._load_fingerprints()
+        # What you do with a file, beyond rating it: views, quick skips,
+        # clips watched through, time on screen, and Rediscover's revisit
+        # schedule. Its own file for the same reason as seen.json.
+        self.watch_path = state_path.parent / "watch.json"
+        self.watch = self._load_watch()
+        # Every duel as [winner, loser, epoch], so a ranking can be refitted
+        # from all of them rather than only the running Elo score.
+        self.duel_log_path = state_path.parent / "duels.json"
+        self.duel_log = self._load_duel_log()
         self.catalog = {"images": [], "videos": [], "updatedAt": None}
         # Files a download added since the last full scan, oldest first, as
         # (path, kind). Pages fetch these instead of the whole catalog, so a
@@ -765,6 +802,10 @@ class MediaLibrary:
                 self.state["dangerousKept"] = {}
                 self.seen = {}
                 self._save_seen()
+                self.watch = {}
+                self._save_watch()
+                self.duel_log = []
+                self._save_duel_log()
 
         self.scan()
         return True, None
@@ -846,6 +887,8 @@ class MediaLibrary:
                 item.pop("rating", None)
                 item.pop("ratedAt", None)
             self._save_state()
+            self.duel_log = []
+            self._save_duel_log()
 
     def reset_saved_data(self) -> None:
         with self.lock:
@@ -859,6 +902,10 @@ class MediaLibrary:
             self.state["marks"] = {}
             self.state["sessions"] = []
             self.state["dangerousKept"] = {}
+            self.watch = {}
+            self._save_watch()
+            self.duel_log = []
+            self._save_duel_log()
             # The PIN is privacy, not library data: resetting the library keeps it.
             self._write_state_payload({"lock": self.state.get("lock"), "lockTokens": self.state.get("lockTokens", {})})
 
@@ -1024,9 +1071,15 @@ class MediaLibrary:
             table[winner] = {"r": round(w["r"] + k_w * (1 - expected), 1), "n": w["n"] + 1}
             table[loser] = {"r": round(l["r"] - k_l * (1 - expected), 1), "n": l["n"] + 1}
             self._save_state()
+            self.duel_log.append([winner, loser, int(time.time())])
+            del self.duel_log[:-DUEL_LOG_LIMIT]
+            self._save_duel_log()
             return {"before": before, "ratings": {winner: table[winner], loser: table[loser]}}
 
-    def restore_duel(self, ratings) -> bool:
+    def restore_duel(self, ratings, undo=None, clear_log=False) -> bool:
+        """Put duel scores back (Undo, Reset). `undo` is the [winner, loser]
+        pick being taken back: its entry leaves duels.json too. `clear_log`
+        empties duels.json (Reset)."""
         if not isinstance(ratings, dict):
             return False
         with self.lock:
@@ -1037,7 +1090,113 @@ class MediaLibrary:
                 elif isinstance(value, dict) and isinstance(value.get("r"), (int, float)) and isinstance(value.get("n"), int):
                     table[path] = {"r": float(value["r"]), "n": int(value["n"])}
             self._save_state()
+            if clear_log is True:
+                self.duel_log = []
+                self._save_duel_log()
+            elif isinstance(undo, list) and len(undo) == 2:
+                for index in range(len(self.duel_log) - 1, -1, -1):
+                    if self.duel_log[index][:2] == undo:
+                        del self.duel_log[index]
+                        self._save_duel_log()
+                        break
             return True
+
+    def _load_duel_log(self) -> list:
+        try:
+            loaded = json.loads(self.duel_log_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        if not isinstance(loaded, list):
+            return []
+        return [row for row in loaded if isinstance(row, list) and len(row) == 3
+                and isinstance(row[0], str) and isinstance(row[1], str) and isinstance(row[2], int)]
+
+    def _save_duel_log(self) -> None:
+        temporary = self.duel_log_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self.duel_log, separators=(",", ":")), encoding="utf-8")
+        temporary.replace(self.duel_log_path)
+
+    def duel_log_payload(self) -> list:
+        with self.lock:
+            known = self._catalog_paths()
+            return [row for row in self.duel_log if row[0] in known and row[1] in known]
+
+    # ---- watch signals (smart order) ----
+
+    def _load_watch(self) -> dict:
+        try:
+            loaded = json.loads(self.watch_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(loaded, dict):
+            return {}
+        return {path: row for path, row in loaded.items() if isinstance(path, str) and isinstance(row, dict)}
+
+    def _save_watch(self) -> None:
+        temporary = self.watch_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self.watch, separators=(",", ":")), encoding="utf-8")
+        temporary.replace(self.watch_path)
+
+    def watch_payload(self) -> dict:
+        with self.lock:
+            known = self._catalog_paths()
+            return {path: row for path, row in self.watch.items() if path in known}
+
+    def record_watch(self, events) -> int:
+        """One event per time a file was the one on screen in a deck, Feed
+        or Rediscover: {path, seconds, coverage (clips: share played, else
+        null), skipped, review (Rediscover's keep/love/pass/skip, else null)}.
+        Rows: v views, s quick skips, c clips watched through, t seconds on
+        screen, at last time; iv/due the revisit schedule in days/epoch."""
+        if not isinstance(events, list):
+            return 0
+        now = int(time.time())
+        stored = 0
+        with self.lock:
+            known = self._catalog_paths()
+            for event in events[:WATCH_BATCH_LIMIT]:
+                if not isinstance(event, dict):
+                    continue
+                path, seconds = event.get("path"), event.get("seconds")
+                if not isinstance(path, str) or path not in known:
+                    continue
+                if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or not 0 <= seconds <= 86400:
+                    continue
+                coverage = event.get("coverage")
+                if coverage is not None and (not isinstance(coverage, (int, float)) or isinstance(coverage, bool) or not 0 <= coverage <= 1):
+                    continue
+                row = self.watch.setdefault(path, {"v": 0, "s": 0, "c": 0, "t": 0})
+                row["v"] = row.get("v", 0) + 1
+                row["t"] = round(row.get("t", 0) + min(float(seconds), WATCH_MAX_SECONDS), 1)
+                if event.get("skipped") is True:
+                    row["s"] = row.get("s", 0) + 1
+                if coverage is not None and coverage >= WATCH_COMPLETE:
+                    row["c"] = row.get("c", 0) + 1
+                row["at"] = now
+                self._apply_review(row, event.get("review"), now)
+                stored += 1
+            if stored:
+                self._save_watch()
+        return stored
+
+    @staticmethod
+    def _apply_review(row: dict, review, now: int) -> None:
+        """Spaced repetition for Rediscover: keeping a file again pushes its
+        next revisit further out (7 days, then x2.5 each time), a skip asks
+        again tomorrow, a pass drops it from the schedule."""
+        if review not in REVIEW_REVIEWS:
+            return
+        if review in ("keep", "love"):
+            interval = row.get("iv")
+            interval = REVIEW_FIRST_DAYS if not isinstance(interval, (int, float)) else max(REVIEW_MIN_DAYS, interval * REVIEW_GROWTH)
+            row["iv"] = round(min(interval, 3650), 1)
+            row["due"] = now + int(row["iv"] * 86400)
+        elif review == "skip":
+            if "iv" in row:
+                row["due"] = now + 86400
+        else:
+            row.pop("iv", None)
+            row.pop("due", None)
 
     # ---- marked moments (Highlights) ----
 
@@ -1560,6 +1719,16 @@ class MediaLibrary:
                 self.seen.pop(path)
             if seen:
                 self._save_seen()
+            watched = self._model_keys(self.watch, model)
+            for path in watched:
+                self.watch.pop(path)
+            if watched:
+                self._save_watch()
+            prefix = model + "/"
+            kept_log = [row for row in self.duel_log if not (row[0].startswith(prefix) or row[1].startswith(prefix))]
+            if len(kept_log) != len(self.duel_log):
+                self.duel_log = kept_log
+                self._save_duel_log()
             prints = self._model_keys(self.fingerprints, model)
             for path in prints:
                 self.fingerprints.pop(path)
@@ -1890,6 +2059,14 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ratings": self.server.library.duel_payload()})
             return
 
+        if parsed.path == "/api/duel-log":
+            self._send_json({"log": self.server.library.duel_log_payload()})
+            return
+
+        if parsed.path == "/api/watch":
+            self._send_json({"watch": self.server.library.watch_payload()})
+            return
+
         if parsed.path == "/media":
             query = parse_qs(parsed.query)
             relative_path = query.get("path", [None])[0]
@@ -2077,6 +2254,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "marked": self.server.library.mark_seen(payload.get("paths"))})
             return
 
+        if parsed.path == "/api/watch":
+            self._send_json({"ok": True, "stored": self.server.library.record_watch(payload.get("events"))})
+            return
+
         if parsed.path == "/api/duel":
             result = self.server.library.record_duel(payload.get("winner"), payload.get("loser"))
             if result is None:
@@ -2086,7 +2267,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/duel-restore":
-            if not self.server.library.restore_duel(payload.get("ratings")):
+            if not self.server.library.restore_duel(payload.get("ratings"), payload.get("undo"), payload.get("clearLog")):
                 self._send_json({"error": "Invalid duel ratings."}, HTTPStatus.BAD_REQUEST)
                 return
             self._send_json({"ok": True})

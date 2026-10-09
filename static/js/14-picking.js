@@ -38,9 +38,13 @@ function randomOf(items) {
 // One item, chosen folder-first. `recentPaths` is skipped where it can be,
 // and folders holding a recent pick are deprioritised so the wall/stream
 // moves on to a different folder rather than digging through the same one.
-function pickBalanced(items, recentPaths, avoidPath) {
+// `mode` is the asking mode; in smart order the pick is scored (42-smart.js).
+function pickBalanced(items, recentPaths, avoidPath, mode = null) {
   if (!items.length) {
     return null;
+  }
+  if (smartOn(mode)) {
+    return smartPick(items, recentPaths, avoidPath, mode);
   }
   if (!foldersAreBalanced()) {
     return pickFlat(items, recentPaths, avoidPath);
@@ -80,12 +84,12 @@ function pickFlat(items, recentPaths, avoidPath) {
   return randomOf(candidates);
 }
 
-function pickWithoutRepeats(items, recentPaths, avoidPath) {
-  return pickBalanced(items, recentPaths, avoidPath);
+function pickWithoutRepeats(items, recentPaths, avoidPath, mode = null) {
+  return pickBalanced(items, recentPaths, avoidPath, mode);
 }
 
-function pickRandom(items, avoidPath) {
-  return pickBalanced(items, avoidPath ? [avoidPath] : [], avoidPath);
+function pickRandom(items, avoidPath, mode = null) {
+  return pickBalanced(items, avoidPath ? [avoidPath] : [], avoidPath, mode);
 }
 
 function mediaUrl(path) {

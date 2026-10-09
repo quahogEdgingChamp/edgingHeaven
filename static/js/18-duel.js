@@ -84,8 +84,10 @@ function bindDuel() {
     if (!window.confirm("Forget every duel result? Likes and dislikes stay.")) return;
     const cleared = Object.fromEntries(Object.keys(duel.ratings || {}).map((path) => [path, null]));
     try {
-      await postJson("/api/duel-restore", { ratings: cleared });
+      await postJson("/api/duel-restore", { ratings: cleared, clearLog: true });
       duel.ratings = {};
+      if (duelLog.rows) duelLog.rows = [];
+      duelLog.fit = null;
       duel.history = [];
       renderDuelLeaders();
       nextDuel();
@@ -181,7 +183,8 @@ async function pickDuelWinner(index) {
   try {
     const result = await postJson("/api/duel", { winner: winner.path, loser: loser.path });
     Object.assign(duel.ratings, result.ratings);
-    duel.history.push({ before: result.before, pair: [...duel.pair] });
+    noteDuelLogged(winner.path, loser.path);
+    duel.history.push({ before: result.before, pair: [...duel.pair], pick: [winner.path, loser.path] });
     duel.history = duel.history.slice(-40);
     duel.count += 1;
     saved = true;
@@ -200,11 +203,12 @@ async function undoDuel() {
   if (!entry || duel.busy) return;
   duel.busy = true;
   try {
-    await postJson("/api/duel-restore", { ratings: entry.before });
+    await postJson("/api/duel-restore", { ratings: entry.before, undo: entry.pick });
     Object.entries(entry.before).forEach(([path, value]) => {
       if (value) duel.ratings[path] = value;
       else delete duel.ratings[path];
     });
+    noteDuelUndone(...entry.pick);
     duel.history.pop();
     duel.count = Math.max(0, duel.count - 1);
     duel.pair = entry.pair;

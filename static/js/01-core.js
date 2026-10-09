@@ -572,6 +572,7 @@ function bindEvents() {
   bindRankedEvents();
   bindModeLauncher();
   bindDrawerControls();
+  bindSmartOrderControls();
   bindPrivacyCards();
   bindDownloads();
   bindBookmarks();
@@ -592,7 +593,7 @@ function bindEvents() {
   });
 
   controls.shuffleButton.addEventListener("click", () => {
-    shuffleBalanced(state.swipeItems);
+    shuffleBalanced(state.swipeItems, "swipe");
     state.swipeIndex = 0;
     renderSwipe();
   });
@@ -617,7 +618,7 @@ function bindEvents() {
   document.querySelectorAll("[data-global-sound]").forEach((button) => button.addEventListener("click", toggleVideoAudio));
 
   controls.toktinderShuffleButton.addEventListener("click", () => {
-    shuffleBalanced(state.toktinderItems);
+    shuffleBalanced(state.toktinderItems, "toktinder");
     state.toktinderIndex = 0;
     renderToktinder();
   });
@@ -1057,6 +1058,8 @@ async function loadState({ rebuild = false } = {}) {
   if (state.currentMode === "dangerous" && !restoreMode) startDangerous(libraryChanged);
   if (libraryChanged && MODE_HANDLERS[state.currentMode]) MODE_HANDLERS[state.currentMode].refresh();
   if (state.features.has("marks")) loadMarks();
+  syncSmartOrderControls();
+  primeSmart();
   loadDangerKeptForSortRate();
   if (state.settings.toyAuto && !state.toyAutoTried) {
     state.toyAutoTried = true;

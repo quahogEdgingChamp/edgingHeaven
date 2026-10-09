@@ -121,7 +121,7 @@ function swapMosaicTile(tile) {
     return;
   }
   const taken = state.mosaic.tiles.map((entry) => entry.video.dataset.path || entry.image.dataset.path);
-  const chosen = pickWithoutRepeats(items, taken, null);
+  const chosen = pickWithoutRepeats(items, taken, null, "mosaic");
   if (!chosen) {
     return;
   }

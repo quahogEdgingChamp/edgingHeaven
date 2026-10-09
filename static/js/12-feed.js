@@ -26,7 +26,7 @@ function startFeed() {
 
 function rebuildFeed() {
   state.feed.items = getFeedItems();
-  shuffleBalanced(state.feed.items);
+  shuffleBalanced(state.feed.items, "feed");
   state.feed.rendered = 0;
   state.feed.activeIndex = -1;
   state.feed.dirty = false;
@@ -66,7 +66,8 @@ function appendFeedBatch() {
     const article = node.querySelector(".feed-item");
     article.dataset.index = String(index);
     article.querySelector(".feed-item-name").textContent = item.name;
-    article.querySelector(".feed-item-folder").textContent = item.folder || "Library root";
+    const why = smartWhy("feed", item.path);
+    article.querySelector(".feed-item-folder").textContent = `${item.folder || "Library root"}${why ? ` · ${why}` : ""}`;
 
     const video = article.querySelector("video");
     video.dataset.path = item.path;
@@ -178,6 +179,7 @@ function activateFeedItem(index, force) {
     }
     if (position === index) {
       applyFeedAudio();
+      watchBegin("feed", state.feed.items[position]?.path, video);
       markSeen(state.feed.items[position]?.path);
       playWhenReady(video, video.dataset.loadToken, null);
     } else {
@@ -226,6 +228,9 @@ async function rateFeedItem(index, rating, advance = true) {
   }
   recordRating(item.path, rating, item);
   haptic();
+  if (index === state.feed.activeIndex) watchNoteRated("feed");
+  // Smart order: a Love pulls a few like it into the next unrendered batch.
+  if (rating === "love") pullSimilarForward("feed", state.feed.items, state.feed.rendered, item);
 
   const article = controls.feedScroller.querySelector(`.feed-item[data-index="${index}"]`);
   if (article) {

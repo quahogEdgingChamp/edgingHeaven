@@ -10,9 +10,10 @@
 // Only the keys a mode owns; a reset must not reach into another mode's
 // settings, its folders, or the library-wide ones.
 const MODE_SETTING_KEYS = {
-  swipe: ["swipeRatingFilter", "swipeDangerKeptOnly"],
-  toktinder: ["toktinderRatingFilter", "toktinderDangerKeptOnly"],
+  swipe: ["swipeRatingFilter", "swipeDangerKeptOnly", "swipeOrder"],
+  toktinder: ["toktinderRatingFilter", "toktinderDangerKeptOnly", "toktinderOrder"],
   escalation: [
+    "escalationOrder",
     "escalationRatingFilter",
     "escalationBaseInterval",
     "escalationMinInterval",
@@ -23,6 +24,7 @@ const MODE_SETTING_KEYS = {
     "escalationCorners",
   ],
   session: [
+    "sessionOrder",
     "sessionRatingFilter",
     "sessionRounds",
     "sessionBuildSeconds",
@@ -31,14 +33,21 @@ const MODE_SETTING_KEYS = {
     "sessionVideoVolume",
   ],
   gallery: ["galleryRatingFilter", "galleryKind", "gallerySort"],
-  mosaic: ["mosaicRatingFilter", "mosaicTiles", "mosaicSwapSeconds", "mosaicIncludePhotos", "mosaicVolume"],
-  feed: ["feedRatingFilter", "feedDangerKeptOnly", "feedVolume", "feedAutoAdvance"],
+  mosaic: ["mosaicOrder", "mosaicRatingFilter", "mosaicTiles", "mosaicSwapSeconds", "mosaicIncludePhotos", "mosaicVolume"],
+  feed: ["feedOrder", "feedRatingFilter", "feedDangerKeptOnly", "feedVolume", "feedAutoAdvance"],
   dangerous: ["dangerousKind", "dangerousHideKept"],
   duel: ["duelKind", "duelRatingFilter"],
-  rediscover: ["rediscoverKind", "rediscoverRatingFilter", "rediscoverDangerKeptOnly"],
+  rediscover: ["rediscoverOrder", "rediscoverKind", "rediscoverRatingFilter", "rediscoverDangerKeptOnly"],
 };
 
 const MODE_DEFAULTS = {
+  swipeOrder: "random",
+  toktinderOrder: "random",
+  feedOrder: "random",
+  rediscoverOrder: "random",
+  escalationOrder: "random",
+  sessionOrder: "random",
+  mosaicOrder: "random",
   duelKind: "photos",
   duelRatingFilter: "liked",
   rediscoverKind: "all",
@@ -145,6 +154,7 @@ function afterModeSettingsChange(mode) {
   sanitizeModeSettings();
   invalidateMediaPools();
   syncControls();
+  syncSmartOrderControls();
   syncDrawerSummaries();
   refreshMode(mode);
   if (mode === "escalation") {
@@ -256,7 +266,7 @@ function syncDrawerSummaries() {
     if (node) {
       const extra = ["escalation", "session", "mosaic", "rediscover"].includes(mode) ? filterNote(mode) : "";
       const kept = dangerKeptSummary(mode);
-      node.textContent = DRAWER_SUMMARIES[mode] ? DRAWER_SUMMARIES[mode]() + extra + kept : "";
+      node.textContent = DRAWER_SUMMARIES[mode] ? DRAWER_SUMMARIES[mode]() + extra + kept + smartOrderNote(mode) : "";
     }
     const presets = controls[`${mode}Preset`];
     if (presets) {

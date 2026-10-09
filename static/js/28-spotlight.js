@@ -23,6 +23,7 @@ registerModeUI("spotlight", {
     spotlightBaseInterval: 10,
     spotlightMinInterval: 3,
     spotlightVolume: 0.3,
+    spotlightOrder: "random",
   },
   presets: {
     slow: { spotlightRampSeconds: 480, spotlightBaseInterval: 14, spotlightMinInterval: 4 },
@@ -84,6 +85,8 @@ function spotlightModelName() {
 function surpriseModel(avoid) {
   const rows = spotlightModels().filter((row) => row.total >= 3 && row.model !== avoid);
   if (!rows.length) return spotlightModels()[0]?.model ?? null;
+  // Smart order: Thompson sampling over models (42-smart.js).
+  if (smartOn("spotlight")) return smartSurpriseModel(rows);
   // Weighted by what you kept, with a floor so an unexplored model can win.
   const weights = rows.map((row) => Math.sqrt(row.kept + row.loved * 2) + 0.6);
   let roll = Math.random() * weights.reduce((a, b) => a + b, 0);

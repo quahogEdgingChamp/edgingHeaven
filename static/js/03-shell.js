@@ -9,6 +9,8 @@ function setMode(mode) {
     queueSettingsSave();
   }
   closeDrawers();
+  // Whatever was on screen is no longer being watched (41-signals.js).
+  watchEndAll("left");
   document.querySelectorAll(".mode-panel").forEach((panel) => {
     panel.classList.toggle("active", panel.id === `${mode}Mode`);
   });

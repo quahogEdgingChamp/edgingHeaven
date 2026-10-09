@@ -20,6 +20,7 @@ registerModeUI("redlight", {
     stat: () => `${state.settings.redlightMinutes ?? 10} min`,
   },
   defaults: {
+    redlightOrder: "random",
     redlightRatingFilter: "all",
     redlightKind: "all",
     redlightGreenMin: 8,

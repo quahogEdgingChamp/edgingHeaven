@@ -270,7 +270,7 @@ function refreshSessionMedia(force) {
     return;
   }
 
-  const chosen = pickWithoutRepeats(items, state.session.recentPaths, controls.sessionStage.dataset.path);
+  const chosen = pickWithoutRepeats(items, state.session.recentPaths, controls.sessionStage.dataset.path, "session");
   if (!chosen) {
     return;
   }

@@ -533,7 +533,7 @@ function pickEscalationItem(items) {
 
   const historyCap = Math.min(Math.max(3, Math.floor(items.length / 3)), 10);
   const recentPaths = state.escalationRecentPaths.slice(-historyCap);
-  const chosen = pickBalanced(items, recentPaths, controls.escalationStage?.dataset.path);
+  const chosen = pickBalanced(items, recentPaths, controls.escalationStage?.dataset.path, "escalation");
   if (!chosen) {
     return null;
   }
@@ -594,7 +594,12 @@ function shuffleArray(items) {
 // with the folder order reshuffled every round -- so the first N cards come
 // from N different folders and a small folder shows up just as early as a
 // large one. Folders run out at different points; those simply drop out.
-function shuffleBalanced(items) {
+// `mode` is the asking mode; in smart order the deal is scored (42-smart.js).
+function shuffleBalanced(items, mode = null) {
+  if (smartOn(mode)) {
+    smartShuffle(items, mode);
+    return;
+  }
   if (!foldersAreBalanced() || items.length < 2) {
     shuffleArray(items);
     return;

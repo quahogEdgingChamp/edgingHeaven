@@ -59,6 +59,8 @@ const PLAY_SETTING_CHOICES = {
   redlightKind: ["all", "photos", "videos"], redlightEnding: ["finish", "deny", "random"],
   diceKind: ["all", "photos", "videos"], ladderKind: ["all", "photos", "videos"],
   highlightsOrder: ["shuffle", "best", "newest"],
+  beatOrder: ["random", "smart"], redlightOrder: ["random", "smart"], diceOrder: ["random", "smart"],
+  spotlightOrder: ["random", "smart"], ladderRank: ["elo", "fair"],
 };
 const PLAY_SETTING_SWITCHES = ["beatVibrate", "redlightWarning", "redlightSound", "diceHolds", "diceSpeed", "diceEdges",
   "useMarks", "neutralTitle", "panicOnHide", "toyAuto"];
@@ -133,6 +135,8 @@ function settingControlChanged(scope, key, onChange) {
   sanitizePlaySettings();
   syncSettingControls(scope);
   queueSettingsSave();
+  // Smart order needs seen times, watch rows and duels loaded (42-smart.js).
+  if (key.endsWith("Order") || key === "ladderRank") primeSmart();
   onChange?.(key);
 }
 
@@ -279,7 +283,7 @@ class PlayStage {
   }
 
   pick(items) {
-    const chosen = pickWithoutRepeats(items, this.recent, this.item?.path);
+    const chosen = pickWithoutRepeats(items, this.recent, this.item?.path, this.mode);
     if (chosen) {
       this.recent.push(chosen.path);
       if (this.recent.length > Math.min(40, Math.max(3, Math.floor(items.length / 2)))) this.recent.shift();

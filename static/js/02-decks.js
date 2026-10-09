@@ -57,7 +57,7 @@ function rebuildDeck(mode) {
     }
     return matchesRatingFilter(item, ratingFilterValue(config.filterKey)) && matchesDangerKept(mode, item);
   });
-  shuffleBalanced(state[config.itemsKey]);
+  shuffleBalanced(state[config.itemsKey], mode);
   state[config.indexKey] = 0;
 }
 
@@ -103,13 +103,17 @@ function renderDeck(mode) {
     return;
   }
 
+  // Opened before the media changes, so the outgoing clip's played share
+  // is read before the element loads the next one.
+  watchBegin(mode, item.path, controls[config.mediaControl]);
   setDeckMedia(mode, item);
+  const why = smartWhy(mode, item.path);
   markSeen(item.path);
   syncDrawerSummaries();
   setLabel(controls[config.nameControl], item.name);
   setLabel(controls[config.folderControl], item.folder || "Library root");
   controls[config.statusControl].textContent =
-    `${state[config.indexKey] + 1} / ${state[config.itemsKey].length} in current deck`;
+    `${state[config.indexKey] + 1} / ${state[config.itemsKey].length} in current deck${why ? ` · ${why}` : ""}`;
 }
 
 // Optimistic: the card leaves at once and the save happens behind it. Over
@@ -125,6 +129,7 @@ async function rateDeckItem(mode, rating) {
 
   const previousRating = item.rating ?? null;
   const index = state[config.indexKey];
+  watchEnd(mode, "rated");
   recordRating(item.path, rating, item);
   haptic();
 
@@ -141,6 +146,10 @@ async function rateDeckItem(mode, rating) {
     }
   } else if (state[config.itemsKey].length > 1) {
     state[config.indexKey] = (index + 1) % state[config.itemsKey].length;
+  }
+  // Smart order: a Love pulls a few like it up next (not past a wrap).
+  if (rating === "love" && (state[config.indexKey] > index || !stillVisible)) {
+    pullSimilarForward(mode, state[config.itemsKey], state[config.indexKey], item);
   }
   animateDeckAdvance(mode, rating === "love" ? "up" : rating === "like" ? "right" : "left");
 
@@ -168,6 +177,7 @@ function skipDeckItem(mode) {
   if (!config || !state[config.itemsKey].length) {
     return;
   }
+  watchEnd(mode, "skip");
   pushHistory(mode, { kind: "skip", index: state[config.indexKey] });
   state[config.indexKey] = (state[config.indexKey] + 1) % state[config.itemsKey].length;
   animateDeckAdvance(mode, "down");

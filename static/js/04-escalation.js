@@ -328,7 +328,7 @@ function loadCornerClip(video) {
     return;
   }
   const busy = [controls.escalationVideo.dataset.path, ...state.cornerSlots.map((slot) => slot.video.dataset.path)].filter(Boolean);
-  const chosen = pickWithoutRepeats(videos, busy, video.dataset.path);
+  const chosen = pickWithoutRepeats(videos, busy, video.dataset.path, "escalation");
   if (!chosen) {
     return;
   }

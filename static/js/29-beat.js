@@ -28,6 +28,7 @@ registerModeUI("beat", {
     stat: () => `${state.settings.beatStartBpm ?? 70}→${state.settings.beatPeakBpm ?? 140} bpm`,
   },
   defaults: {
+    beatOrder: "random",
     beatRatingFilter: "all",
     beatKind: "all",
     beatStartBpm: 70,

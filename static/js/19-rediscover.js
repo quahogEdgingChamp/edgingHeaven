@@ -57,10 +57,16 @@ async function startRediscover(rebuild = false) {
       ...(kind !== "videos" ? modeSource("rediscover", "images").map((item) => ({ ...item, kind: "photo" })) : []),
       ...(kind !== "photos" ? modeSource("rediscover", "videos").map((item) => ({ ...item, kind: "video" })) : []),
     ];
-    const never = items.filter((item) => !seenAt(item.path));
-    shuffleBalanced(never);
-    const seen = items.filter((item) => seenAt(item.path)).sort((a, b) => seenAt(a.path) - seenAt(b.path));
-    rediscover.items = [...never, ...seen].slice(0, REDISCOVER_DEAL);
+    if (smartOn("rediscover")) {
+      await primeSmart();
+      if (state.currentMode !== "rediscover") return;
+      rediscover.items = smartRediscoverDeal(items, REDISCOVER_DEAL);
+    } else {
+      const never = items.filter((item) => !seenAt(item.path));
+      shuffleBalanced(never);
+      const seen = items.filter((item) => seenAt(item.path)).sort((a, b) => seenAt(a.path) - seenAt(b.path));
+      rediscover.items = [...never, ...seen].slice(0, REDISCOVER_DEAL);
+    }
     // Remember what each card said when dealt; seeing it now changes the map.
     rediscover.items.forEach((item) => { item.lastSeen = seenAt(item.path); });
     rediscover.index = 0;
@@ -84,6 +90,8 @@ function renderRediscover() {
   image.hidden = !item || isVideo;
   video.hidden = !item || !isVideo;
   resetSwipeCard("rediscover");
+  const why = item ? smartWhy("rediscover", item.path) : "";
+  if (item) watchBegin("rediscover", item.path, video);
   if (!isVideo) releaseVideo(video);
   if (!item || isVideo) image.removeAttribute("src");
   if (item) {
@@ -105,7 +113,7 @@ function renderRediscover() {
   }
   setLabel(el("rediscoverName"), item?.name || "");
   setLabel(el("rediscoverFolder"), item ? item.folder || "Library root" : "");
-  el("rediscoverStatus").textContent = item ? `${(rediscover.index + 1).toLocaleString()} / ${rediscover.items.length.toLocaleString()}` : "";
+  el("rediscoverStatus").textContent = item ? `${(rediscover.index + 1).toLocaleString()} / ${rediscover.items.length.toLocaleString()}${why ? ` · ${why}` : ""}` : "";
   el("rediscoverProgress").textContent = item ? `${(rediscover.index + 1).toLocaleString()} / ${rediscover.items.length.toLocaleString()}` : "";
   el("rediscoverUndoButton").disabled = !rediscover.history.length;
   ["rediscoverKeep", "rediscoverLove", "rediscoverPass", "rediscoverSkip"].forEach((id) => { el(id).disabled = !item; });
@@ -121,6 +129,9 @@ async function actRediscover(action) {
   rediscover.history.push(entry);
   rediscover.history = rediscover.history.slice(-60);
   rediscover.index += 1;
+  // The review feeds the revisit schedule (watch.json → iv, due).
+  watchEnd("rediscover", action === "skip" ? "skip" : "rated", action);
+  if (action === "love") pullSimilarForward("rediscover", rediscover.items, rediscover.index, item);
   if (action === "skip") {
     animateDeckAdvance("rediscover", "down");
     return;

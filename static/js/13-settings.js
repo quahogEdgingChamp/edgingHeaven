@@ -146,6 +146,11 @@ function bindFeedEvents() {
 function sanitizeModeSettings() {
   const pick = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
 
+  // Order (42-smart.js); the timed modes' keys are checked in sanitizePlaySettings.
+  SMART_LEGACY_DRAWERS.forEach((mode) => {
+    state.settings[`${mode}Order`] = pick(state.settings[`${mode}Order`], ["random", "smart"], "random");
+  });
+
   ["session", "gallery", "mosaic", "feed", "dangerous", "duel", "rediscover", ...PLAY_MODES.filter((mode) => mode !== "spotlight")].forEach((mode) => {
     state.settings[`${mode}Folders`] = sanitizeFolderSelection(
       state.settings[`${mode}Folders`],
