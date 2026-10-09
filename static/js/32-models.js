@@ -184,7 +184,8 @@ async function renderSessionHistory() {
     { value: recent.length.toLocaleString(), label: "sessions in 30 days" },
     { value: `${Math.round(minutes).toLocaleString()} min`, label: "in 30 days" },
     { value: formatClock(longest.seconds), label: `longest · ${SESSION_MODE_NAMES[longest.mode] || longest.mode}` },
-    { value: `${sessionStreak(sessions)}`, label: "day streak" },
+    // Only with streaks on (Settings → Streaks).
+    ...(state.settings.showStreaks ? [{ value: `${sessionStreak(sessions)}`, label: "day streak" }] : []),
     { value: withEdges.length ? (withEdges.reduce((sum, entry) => sum + entry.edges, 0) / withEdges.length).toFixed(1) : "--", label: "edges per session" },
   ];
   el("sessionStats").replaceChildren(...tiles.map((tile) => {

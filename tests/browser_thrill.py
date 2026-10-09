@@ -192,13 +192,20 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
         page.keyboard.press("ArrowUp")
         page.wait_for_function("() => !survivor.busy")
         check("↑ both stay: nobody deleted, both got a win", page.evaluate("() => survivor.arena.length") == 15 and len(trashed) == 2)
+        # Two quick deletes so far, but streaks are off until turned on.
+        check("Streaks are off by default: no streak, no combo", page.evaluate("() => !state.settings.showStreaks && thrill.streak === 0 && (!el('thrillCombo') || el('thrillCombo').hidden)"))
+        check("…and the drawer says so", page.text_content("#survivorDrawer [data-thrill-streak]") == "Streaks are off.")
+        page.click("#survivorDrawerToggle")
+        page.click('#survivorDrawer [data-setting="showStreaks"]')
+        check("The drawer switch turns streaks on", page.evaluate("() => state.settings.showStreaks") is True)
+        page.click("#survivorDrawerToggle")
         before = len(trashed)
         page.keyboard.press("x")
         page.wait_for_function("() => !survivor.busy && survivor.arena.length === 13")
         check("X both go: two deleted", len(trashed) == before + 2)
         check("Round 1 pairs the files with fewest wins first", page.evaluate("() => survivor.pair.every(i => (survivor.wins.get(i.path) || 0) === 0)"))
 
-        # ---- the streak ----
+        # ---- the streak (turned on above) ----
         page.keyboard.press("ArrowLeft")
         page.wait_for_function("() => !survivor.busy")
         combo = page.evaluate("() => ({ hidden: el('thrillCombo')?.hidden, text: el('thrillCombo')?.textContent, streak: thrill.streak })")
@@ -390,6 +397,9 @@ with tempfile.TemporaryDirectory(prefix="heaven-thrill-") as tmp:
         check("A payoff setting syncs every Dangerous drawer", page.evaluate("() => DANGEROUS_MODES.every(m => document.querySelector(`#${m}Drawer [data-setting=rewardSeconds] [data-value='60']`).classList.contains('active') || document.querySelector(`#${m}Drawer [data-setting=rewardSeconds] [data-value='60']`).getAttribute('aria-pressed') === 'true')"))
         page.wait_for_timeout(1500)
         check("…and is saved on the server", lib.state["settings"].get("rewardSeconds") == 60, lib.state["settings"].get("rewardSeconds"))
+        check("Streaks on is saved on the server", lib.state["settings"].get("showStreaks") is True, lib.state["settings"].get("showStreaks"))
+        page.evaluate("() => syncPrivacyCards()")
+        check("…and Settings → Streaks shows it on", page.get_attribute('#streaksCard [data-setting="showStreaks"]', "aria-checked") == "true")
         check("Best streak is saved", lib.state["settings"].get("thrillBestStreak", 0) >= 2, lib.state["settings"].get("thrillBestStreak"))
         check("Sound choice is Effects or Silent", page.locator('#dgridDrawer [data-setting="thrillSound"] .segment').count() == 2)
         page.click('#dgridDrawer [data-setting="thrillSound"] [data-value="off"]')

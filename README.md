@@ -262,7 +262,7 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
 
 - What you kept: stats (kept, loved, this week, size, how much you have looked
   at), `Play what you kept` shortcuts, kept per day, **Sessions** (count, minutes,
-  longest, day streak, edges per session, minutes per day, recent runs), top
+  longest, day streak if streaks are on, edges per session, minutes per day, recent runs), top
   models (with `Browse`), and a grid sorted by newest/oldest kept, loved first,
   folder, name, size or `Duel rank`
 - A model's name opens its **page**: files, kept, loved, looked at, duel-ranked,
@@ -417,7 +417,8 @@ and has Undo; nothing is erased until you empty the trash.
     button waits in the tool bar (`R`). During Blitz it waits for the end
   - **Feedback**: a deleted file **burns** (a ragged burn line with flames,
     char and embers) or **shreds** (torn strips that fall away), or goes plain,
-    where it was. Deletes close together build a **purge streak** (×N on screen,
+    where it was. With **Streaks** on (off by default; here or Settings →
+    Streaks), deletes close together build a **purge streak** (×N on screen,
     bigger at 5, 10, 25, …; a keep keeps it alive, Undo takes it down). Sound:
     **Effects** (whoosh and crackle, or a shredder) or **Silent**;
     picking one plays a sample. Phones also buzz. The best streak is saved.

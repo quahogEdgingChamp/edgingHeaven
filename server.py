@@ -150,6 +150,9 @@ DEFAULT_SETTINGS = {
     "thrillEffect": "burn",
     "thrillSound": "effects",
     "thrillBestStreak": 0,
+    # Streaks (the purge streak above, the day streak in session stats) are
+    # off until turned on in Settings or a Dangerous control center.
+    "showStreaks": False,
     "rewardEveryMb": 500,
     "rewardSeconds": 30,
     "rewardAuto": True,

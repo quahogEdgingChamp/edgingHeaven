@@ -257,9 +257,10 @@ function bindPrivacyCards() {
       if (event.key === "Enter") savePin(false);
     });
   });
-  const cards = [el("privacyCard"), el("playbackCard"), el("toyCard")];
+  const cards = [el("privacyCard"), el("playbackCard"), el("streaksCard"), el("toyCard")];
   cards.forEach((card) => bindSettingControls(card, (key) => {
     if (key === "neutralTitle") syncDocumentTitle();
+    if (key === "showStreaks") thrillSettingChanged(key);
   }));
   bindToyPanel();
   bindPanic();
@@ -267,7 +268,7 @@ function bindPrivacyCards() {
 }
 
 function syncPrivacyCards() {
-  [el("privacyCard"), el("playbackCard"), el("toyCard")].forEach(syncSettingControls);
+  [el("privacyCard"), el("playbackCard"), el("streaksCard"), el("toyCard")].forEach(syncSettingControls);
   syncPinCard();
   syncToyPanel();
 }

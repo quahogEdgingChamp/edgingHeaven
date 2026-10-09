@@ -1671,7 +1671,7 @@ function bindCleanup() {
       CLEANUP_DRAWERS.forEach((other) => syncSettingControls(el(`${other}Drawer`)));
       return;
     }
-    if (THRILL_KEYS.includes(key)) {
+    if (THRILL_KEYS.includes(key) || key === "showStreaks") {
       // Shared by every Dangerous mode; nothing about the deal changes.
       CLEANUP_DRAWERS.forEach((other) => syncSettingControls(el(`${other}Drawer`)));
       thrillSettingChanged(key);

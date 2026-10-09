@@ -5,7 +5,7 @@
    This is what comes back, the same in every Dangerous mode:
 
    - Feedback: a deleted file burns (or shreds) where it was, with a sound and
-     a buzz, and deletes in quick succession build a
+     a buzz, and (with streaks on) deletes in quick succession build a
      purge streak. How it looks and sounds is in 40-thrill-fx.js.
    - Rewards: every so much freed earns a short clip of what you Loved (your
      marked moments first). It plays over the mode, then you go on cleaning.
@@ -28,7 +28,10 @@ const THRILL_DEFAULTS = {
   toyCleanupHurry: false,
 };
 const THRILL_KEYS = Object.keys(THRILL_DEFAULTS);
-Object.assign(MODE_DEFAULTS, THRILL_DEFAULTS, { thrillBestStreak: 0 });
+// Streaks are off until turned on, here or in Settings. Library-wide, so not
+// in THRILL_KEYS: a mode reset leaves it alone. The day streak in the session
+// stats (32-models.js) follows it too.
+Object.assign(MODE_DEFAULTS, THRILL_DEFAULTS, { thrillBestStreak: 0, showStreaks: false });
 Object.assign(PLAY_SETTING_RANGES, { toyCleanupStep: [0.05, 0.25] });
 Object.assign(PLAY_SETTING_CHOICES, {
   thrillEffect: ["burn", "shred", "off"],
@@ -37,7 +40,7 @@ Object.assign(PLAY_SETTING_CHOICES, {
   rewardSeconds: [15, 30, 60],
   toyCleanup: ["off", "delete", "keep"],
 });
-PLAY_SETTING_SWITCHES.push("rewardAuto", "toyCleanupHurry");
+PLAY_SETTING_SWITCHES.push("rewardAuto", "toyCleanupHurry", "showStreaks");
 // Survivor registers itself after this file and adds the keys there.
 ["dangerous", "dgrid", "djunk", "dsimilar", "dfolders"].forEach((mode) => MODE_SETTING_KEYS[mode].push(...THRILL_KEYS));
 
@@ -69,6 +72,7 @@ const THRILL_SECTION = `
     <h3>Feedback</h3>
     <div class="segmented" role="group" aria-label="What a delete looks like" data-setting="thrillEffect"><button type="button" class="segment" data-value="burn">Burn</button><button type="button" class="segment" data-value="shred">Shred</button><button type="button" class="segment" data-value="off">Plain</button></div>
     <div class="segmented" role="group" aria-label="What a delete sounds like" data-setting="thrillSound"><button type="button" class="segment" data-value="effects">Effects</button><button type="button" class="segment" data-value="off">Silent</button></div>
+    <button class="switch-row" role="switch" aria-checked="false" data-setting="showStreaks"><span>Streaks</span><i aria-hidden="true"></i></button>
     <p class="subtle" data-thrill-streak></p>
   </section>
   <section class="cc-section">
@@ -96,6 +100,15 @@ function thrillSettingChanged(key) {
     const every = rewardEvery();
     thrill.rewardsGiven = every ? Math.floor(cleanup.freed / every) : 0;
   }
+  if (key === "showStreaks") {
+    if (!state.settings.showStreaks) {
+      thrill.streak = 0;
+      window.clearTimeout(thrill.comboTimer);
+      const node = el("thrillCombo");
+      if (node) node.hidden = true;
+    }
+    renderSessionHistory();
+  }
   if (key.startsWith("toyCleanup")) {
     if (state.settings.toyCleanup === "off") {
       thrill.toyLevel = 0;
@@ -121,7 +134,9 @@ function syncThrillNotes() {
       ? `${thrill.banked ? `${plural(thrill.banked, "reward", "rewards")} waiting. ` : ""}Clips come from your ${rewardSource().level === "love" ? "Loved" : "liked"} files.`
       : "Nothing is Loved yet, so there is nothing to play. ↑ in Swipe keeps and Loves a file.";
   const best = Number(state.settings.thrillBestStreak) || 0;
-  const streakNote = best ? `Best purge streak: ×${best}. Deletes close together build one; a keep does not break it.` : "Deletes close together build a purge streak; a keep does not break it.";
+  const streakNote = !state.settings.showStreaks
+    ? "Streaks are off."
+    : best ? `Best purge streak: ×${best}. Deletes close together build one; a keep does not break it.` : "Deletes close together build a purge streak; a keep does not break it.";
   const toyNote = state.settings.toyCleanup === "off"
     ? "The toy is left alone here."
     : !toyConnected()
@@ -138,19 +153,10 @@ function thrillCount(action, bytes, count) {
   if (!DANGEROUS_MODES.includes(state.currentMode) || !count) return;
   const now = Date.now();
   if (action === "delete") {
-    const gap = STREAK_WINDOW[state.currentMode] || STREAK_PAGE_WINDOW;
-    const before = now - thrill.lastAt <= gap ? thrill.streak : 0;
-    thrill.streak = before + count;
-    thrill.lastAt = now;
-    const milestone = STREAK_MILESTONES.filter((step) => before < step && thrill.streak >= step).pop();
+    const milestone = state.settings.showStreaks ? growStreak(now, count) : undefined;
     showCombo(milestone);
     deleteSound(count, milestone);
     buzz(milestone ? [30, 40, 30] : 18);
-    const best = Number(state.settings.thrillBestStreak) || 0;
-    if (thrill.streak > best) {
-      state.settings.thrillBestStreak = thrill.streak;
-      queueSettingsSave();
-    }
   } else if (action === "keep") {
     // A keep is a decision too: it keeps the streak alive without adding to it.
     if (thrill.streak) thrill.lastAt = now;
@@ -164,6 +170,22 @@ function thrillCount(action, bytes, count) {
 }
 
 /* ---- the purge streak ---- */
+
+// Only with streaks on: off, thrill.streak stays 0, so there is no combo, no
+// milestone and the delete sound keeps one pitch. The milestone just passed,
+// if any.
+function growStreak(now, count) {
+  const gap = STREAK_WINDOW[state.currentMode] || STREAK_PAGE_WINDOW;
+  const before = now - thrill.lastAt <= gap ? thrill.streak : 0;
+  thrill.streak = before + count;
+  thrill.lastAt = now;
+  const best = Number(state.settings.thrillBestStreak) || 0;
+  if (thrill.streak > best) {
+    state.settings.thrillBestStreak = thrill.streak;
+    queueSettingsSave();
+  }
+  return STREAK_MILESTONES.filter((step) => before < step && thrill.streak >= step).pop();
+}
 
 function comboNode() {
   let node = el("thrillCombo");
