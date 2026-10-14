@@ -174,6 +174,44 @@ original command (or submit the same download in the app) to retry missing
 pages; `simp retry` only retries recorded download failures. Reusing an
 incomplete export with `--skip-crawl` still reports failure.
 
+### Only some pages, photos or videos, how many (per model or per run)
+
+Saved per model in `state/model-rules.json` (Edging Heaven's "Settings per model"
+writes it), applied by `thread` and `download` to that model only:
+
+```json
+{"anna": {"threadPages": "1-3", "only": "videos", "maxFiles": 40, "order": "newest", "updatedAt": "…"}}
+```
+
+The same choices as flags, for one run (a flag wins over the model's saved value):
+
+```bash
+simp thread --thread-pages=1-3 URL                 # pages 1-3 of the thread only
+simp thread "--thread-pages=1,3,4" URL
+simp thread "--thread-pages=last 5" URL            # the newest five pages; "10-" = page 10 to the end
+simp thread --only=videos URL                      # or --only=images
+simp thread --max-files=50 --newest-first URL      # at most 50 NEW files, newest posts first
+simp download --page 1 --thread-pages="last 1" --only=images   # every bookmark on list page 1
+```
+
+| Option | How it works | What is left out |
+|---|---|---|
+| `--thread-pages` | Pages already in `state/crawl/` come from there (no request); the rest, and the last page read before (new posts land there), are fetched. Pages never read are saved as `"gaps"` in the crawl file, and the next whole-thread run reads them. | Not recorded: a later run without it downloads them |
+| `--only` | A link whose type shows in its address (`.jpg`, `.mp4`, image hosts, turbo/saint/redgifs) is dropped up front. A direct file is checked again by its name once fetched. Albums go to cyberdrop-dl with `--no-videos` / `--no-images`, which does not mark the skipped files done. | Not recorded |
+| `--max-files N` | Counts files new to the model folder (already there, deleted or duplicate don't count). Direct downloads take a slot before writing and give it back on a duplicate or failure, so they never go over. cyberdrop-dl gets `--downloads <slots left>` (at most 15) and is stopped with Ctrl-C once enough finished files are in staging; only that many move into the library, extra finished files stay staged and come in first with the model's next download. With a limit, `--slow-later` does not hold Bunkr back. | Not recorded; cyberdrop-dl's unfinished rows stay incomplete |
+| `--newest-first` | Last thread page first, later posts first within a page. | — |
+
+Deleted files stay deleted with or without these: they only ever download less.
+`state/later/<model>.only` remembers `--only` for the Bunkr links saved for `simp later`
+(a later run with the same type adds to that list; another type replaces it), and a
+failed cyberdrop-dl run records it in `state/failed/<model>.jsonl` for `simp retry`.
+A run that took only part of a thread keeps earlier failures it did not retry.
+
+Every model simp has downloaded has a `state/done/<model>.jsonl`, even when
+cyberdrop-dl fetched everything: `adopt_existing` (below) is only for folders from
+before that file existed, and must not run after a videos-only or some-pages run
+(it would take the thread's other photos for deleted).
+
 ### Retry failures
 
 ```bash
@@ -294,10 +332,12 @@ state/
   cdl_<slug>.txt               # host URLs for cyberdrop-dl
   cdl_<slug>.jsonl             # same + thread page provenance
   post_resolve_cache.json
-  crawl/<host>_<thread>.json   # per-thread links + last page crawled
+  crawl/<host>_<thread>.json   # per-thread links, last page crawled, failed pages, gaps (never read)
   done/<model>.jsonl           # direct downloads: URL → filename
   content/<model>.jsonl        # SHA-256 cache for unchanged existing files
   failed/<model>.jsonl         # what `simp retry` reruns
+  later/<model>.txt, .only     # Bunkr links for `simp later`, and the --only they were saved with
+  model-rules.json             # settings per model (pages, photos/videos, max files, order)
   cdl/
     cyberdrop.db               # download history (skip/resume)
     cache.json

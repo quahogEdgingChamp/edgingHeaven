@@ -22,6 +22,7 @@ from .download import (
     retry_model,
 )
 from .estimate import estimate_models
+from .filters import ONLY_CHOICES, RunFilter, model_rules, parse_thread_pages
 from .hosts import MediaLink, link_to_dict, links_from_rows
 from .space import DriveFull, check_space
 from .thread import CrawlLinks, crawl_thread
@@ -68,6 +69,69 @@ def _add_slow_later_arg(p: argparse.ArgumentParser) -> None:
         help="Save Bunkr links (one file at a time per server, slow) in state/later/ "
         "for `simp later` instead of downloading them now",
     )
+
+
+def _thread_pages(spec: str) -> object:
+    try:
+        return parse_thread_pages(spec)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _max_files(text: str) -> int:
+    n = int(text)
+    if n < 0:
+        raise argparse.ArgumentTypeError("--max-files is 0 (no limit) or more")
+    return n
+
+
+def _add_filter_args(p: argparse.ArgumentParser) -> None:
+    """What to take from each thread, for this run only (see filters.py)."""
+    p.add_argument(
+        "--thread-pages",
+        type=_thread_pages,
+        default=None,
+        metavar="PAGES",
+        help="Only these pages of each model's thread: 1-3 | 1,3,4 | 10- | 'last 5' (default: all)",
+    )
+    p.add_argument(
+        "--only",
+        choices=ONLY_CHOICES,
+        default="",
+        help="Only photos or only videos (default: both)",
+    )
+    p.add_argument(
+        "--max-files",
+        type=_max_files,
+        default=0,
+        metavar="N",
+        help="At most N new files per model (0 = no limit; album hosts may give a few more)",
+    )
+    p.add_argument(
+        "--newest-first",
+        action="store_true",
+        help="Newest posts first (the last thread page first)",
+    )
+
+
+def _run_filter(args: argparse.Namespace) -> RunFilter:
+    return RunFilter(
+        pages=getattr(args, "thread_pages", None),
+        only=getattr(args, "only", "") or "",
+        max_files=getattr(args, "max_files", 0) or 0,
+        newest_first=bool(getattr(args, "newest_first", False)),
+    )
+
+
+def _apply_filter(filt: RunFilter, links: list[MediaLink]) -> list[MediaLink]:
+    """Type and order; pages were chosen by the crawl. Keeps a CrawlLinks' failed pages."""
+    if not (filt.only or filt.newest_first):
+        return links
+    chosen = filt.select(list(links))
+    if filt.only and len(chosen) < len(links):
+        console.print(f"  {filt.only} only: {len(chosen)} of {len(links)} links (albums are sorted out as they download)")
+    failed = getattr(links, "failed_pages", ())
+    return CrawlLinks(chosen, failed_pages=failed) if failed else chosen
 
 
 def _pages_arg(args: argparse.Namespace) -> str | int | None:
@@ -124,6 +188,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Reuse state/media_urls.jsonl from a previous scrape",
     )
     _add_slow_later_arg(dl)
+    _add_filter_args(dl)
     dl.set_defaults(func=cmd_download)
 
     one = sub.add_parser(
@@ -147,6 +212,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_full_crawl_arg(one)
     _add_slow_later_arg(one)
+    _add_filter_args(one)
     one.set_defaults(func=cmd_thread)
 
     retry = sub.add_parser(
@@ -232,6 +298,7 @@ def _crawl_all(
     bookmarks: list[Bookmark],
     *,
     full: bool = False,
+    filter_for=None,
 ) -> list[tuple[Bookmark, list[MediaLink]]]:
     results: list[tuple[Bookmark, list[MediaLink]]] = []
     state = ensure_dir(cfg.resolve(cfg.paths.state_dir))
@@ -244,7 +311,8 @@ def _crawl_all(
         for i, bm in enumerate(bookmarks, 1):
             console.print(f"[bold]({i}/{len(bookmarks)})[/] {bm.title}")
             try:
-                links = crawl_thread(client, bm.url, cfg, full=full)
+                pages = filter_for(bm.url).pages if filter_for else None
+                links = crawl_thread(client, bm.url, cfg, full=full, pages=pages)
             except Exception as exc:
                 console.print(f"  [red]crawl failed:[/] {exc}")
                 links = CrawlLinks(failed_pages=[1])
@@ -322,7 +390,34 @@ def cmd_scrape(args: argparse.Namespace, cfg: Config) -> int:
     return 1 if incomplete else 0
 
 
+def _say_filter(filt: RunFilter) -> None:
+    if filt.active or filt.newest_first:
+        console.print(f"[bold]Taking:[/] {filt.describe()}")
+
+
+def _per_model(cfg: Config, filt: RunFilter):
+    """thread URL → this run's filter over that model's saved settings
+    (state/model-rules.json, set on Edging Heaven's Downloads page)."""
+    from .util import thread_slug_from_url
+
+    rules = model_rules(cfg.resolve(cfg.paths.state_dir), say=console.print)
+    told: set[str] = set()
+
+    def filter_for(url: str) -> RunFilter:
+        slug = thread_slug_from_url(url)
+        saved = rules.get(slug)
+        if saved is not None and slug not in told:
+            told.add(slug)
+            console.print(f"  [bold]settings for {slug}:[/] {saved.describe()}")
+        return filt.over(saved)
+
+    return filter_for
+
+
 def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
+    filt = _run_filter(args)
+    _say_filter(filt)
+    filter_for = _per_model(cfg, filt)
     if args.skip_crawl:
         jsonl = cfg.resolve(cfg.paths.state_dir) / "media_urls.jsonl"
         if not jsonl.is_file():
@@ -337,6 +432,10 @@ def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
             links = links_from_rows(
                 row.get("media", []), exclude_extensions=cfg.download.exclude_extensions
             )
+            pages = filter_for(bm.url).pages
+            if pages:
+                chosen = pages.resolve(max((l.thread_page or 0 for l in links), default=0))
+                links = [l for l in links if l.thread_page in chosen]
             if row.get("crawl_failed"):
                 links = CrawlLinks(links, failed_pages=[1])
             results.append((bm, links))
@@ -353,8 +452,9 @@ def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
                 client, cfg, limit=args.limit, pages=_pages_arg(args)
             )
         export_url_list(cfg.resolve(cfg.paths.urls_export), [b.url for b in bookmarks])
-        results = _crawl_all(cfg, bookmarks, full=args.full_crawl)
+        results = _crawl_all(cfg, bookmarks, full=args.full_crawl, filter_for=filter_for)
 
+    results = [(bm, _apply_filter(filter_for(bm.url), links)) for bm, links in results]
     if not args.no_estimate and results:
         _estimate(cfg, results)
 
@@ -369,7 +469,8 @@ def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
                 if not links:
                     console.print("  (no media)")
                     continue
-                done.append(download_model(client, bm.url, bm.title, links, cfg, slow_later=args.slow_later))
+                done.append(download_model(client, bm.url, bm.title, links, cfg, slow_later=args.slow_later,
+                                           filt=filter_for(bm.url)))
     except DriveFull as exc:
         return _stopped_for_space(done, exc)
 
@@ -382,6 +483,9 @@ def cmd_thread(args: argparse.Namespace, cfg: Config) -> int:
     urls: list[str] = list(args.urls)
     done: list[ModelResult] = []
     incomplete = 0
+    filt = _run_filter(args)
+    _say_filter(filt)
+    filter_for = _per_model(cfg, filt)
     try:
         with build_client(cfg) as client:
             assert_logged_in(client, cfg)
@@ -391,16 +495,18 @@ def cmd_thread(args: argparse.Namespace, cfg: Config) -> int:
                     f"[bold]thread ({i}/{len(urls)})[/] {url}"
                 )
                 check_space(cfg, cfg.models_root())  # before crawling, not after
+                model_filt = filter_for(url)
                 try:
-                    links = crawl_thread(client, url, cfg, full=args.full_crawl)
+                    links = crawl_thread(client, url, cfg, full=args.full_crawl, pages=model_filt.pages)
                 except Exception as exc:
                     console.print(f"  [red]crawl failed:[/] {exc}")
                     incomplete += 1
                     continue
                 incomplete += bool(getattr(links, "failed_pages", ()))
+                links = _apply_filter(model_filt, links)
                 if links and not args.no_estimate:
                     estimate_models(client, [(url, links)], cfg)
-                done.append(download_model(client, url, title, links, cfg, slow_later=args.slow_later))
+                done.append(download_model(client, url, title, links, cfg, slow_later=args.slow_later, filt=model_filt))
     except DriveFull as exc:
         return _stopped_for_space(done, exc)
     return _summarize(done, incomplete)

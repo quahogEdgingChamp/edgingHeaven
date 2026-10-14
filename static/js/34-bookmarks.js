@@ -6,6 +6,9 @@
    have shows three of its own photos, loved and kept first, and what you
    kept of it; one you don't shows three small pictures simp saved from its
    thread. All pictures come from this server, never from SimpCity itself.
+   Download takes the thread, as that model's download settings allow;
+   Settings next to it edits them (thread pages, photos or videos, how many),
+   on a server that keeps them, and a card says when a model has some.
    ========================================================================== */
 
 const BOOKMARK_BATCH = 48;
@@ -169,7 +172,8 @@ function renderBookmarks(force = false) {
     : "No bookmarks yet. Refresh from SimpCity reads your bookmark list and saves three pictures of each model you don't have yet. The first time takes about 10–15 minutes.";
 
   // Only rebuild the grid when what it shows changed: rebuilding reloads every picture.
-  const signature = [data?.updatedAt, all.length, bookmarkPage.filter, bookmarkPage.search, bookmarkPage.shown, have, state.library.updatedAt].join("|");
+  const signature = [data?.updatedAt, all.length, bookmarkPage.filter, bookmarkPage.search, bookmarkPage.shown, have, state.library.updatedAt,
+    modelRulesReady(), JSON.stringify(modelRulesReady() ? status?.rules || {} : {})].join("|");
   if (!force && signature === bookmarkPage.signature && el("bmGrid").childElementCount) return;
   bookmarkPage.signature = signature;
   el("bmGrid").replaceChildren(...rows.slice(0, bookmarkPage.shown).map((row) => bookmarkCard(row, models.get(row.model))));
@@ -209,12 +213,28 @@ function bookmarkCard(row, info) {
   const name = row.title.toLowerCase().replace(/[^a-z0-9]/g, "") === row.model.toLowerCase().replace(/[^a-z0-9]/g, "") ? "" : row.model;
   meta.textContent = [name, info ? `In library · ${plural(info.files, "file", "files")} · ${info.kept.toLocaleString()} kept` : "Not downloaded yet"]
     .filter(Boolean).join(" · ");
+  body.append(title, meta);
+  // What the one-tap Download will take, when this model has settings.
+  const brief = ruleBrief(modelRule(row.model));
+  if (brief) {
+    const rule = document.createElement("span");
+    rule.className = "bm-rule";
+    rule.textContent = `Downloads: ${brief}`;
+    body.append(rule);
+  }
   const actions = document.createElement("div");
   actions.className = "bm-actions";
   if (row.url) {
     actions.append(downloadButton(info ? "New posts" : "Download", () =>
       submitDownload({ action: "thread", urls: [row.url] }, info ? `Checking ${row.title} for new posts. Follow it in Downloads.` : `Queued: ${row.title}. Follow it in Downloads.`),
       info ? "ghost-button small-button" : "primary-button small-button"));
+  }
+  if (modelRulesReady()) {
+    actions.append(ruleSettingsButton(row.model, row.title, () => openRuleDialog({
+      title: row.title,
+      target: { model: row.model, url: row.url || modelThreadUrl(row.model), byUrl: false },
+      go: row.url ? () => submitDownload({ action: "thread", urls: [row.url] }, `Queued: ${row.title}. Follow it in Downloads.`) : null,
+    })));
   }
   if (info) {
     actions.append(downloadButton("Open", () => {
@@ -235,7 +255,7 @@ function bookmarkCard(row, info) {
     link.textContent = "SimpCity";
     actions.append(link);
   }
-  body.append(title, meta, actions);
+  body.append(actions);
   card.append(strip, body);
   return card;
 }

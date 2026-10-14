@@ -785,6 +785,23 @@ class MediaLibrary:
         self.media_dir = resolved
         return True
 
+    # A folder holding at least this share of the files you rated, kept or
+    # marked is the same library in a new place (copied to a bigger drive).
+    MOVED_LIBRARY_SHARE = 0.8
+    MOVED_LIBRARY_SAMPLE = 400
+
+    def _same_library_moved(self) -> bool:
+        """True when the newly chosen folder (self.media_dir) has the files the
+        ratings, keeps and marks point at: then they are kept, not wiped."""
+        known = sorted({*self.state.get("ratings", {}), *self.state.get("dangerousKept", {}),
+                        *self.state.get("marks", {})})
+        if not known or self.media_dir is None:
+            return False
+        step = max(1, len(known) // self.MOVED_LIBRARY_SAMPLE)
+        sample = known[::step]
+        found = sum(1 for rel in sample if (self.media_dir / rel).is_file())
+        return found >= self.MOVED_LIBRARY_SHARE * len(sample)
+
     def set_media_directory(self, media_dir: str) -> tuple[bool, Optional[str]]:
         raw_value = media_dir.strip()
         if not raw_value:
@@ -797,7 +814,7 @@ class MediaLibrary:
                 self._save_state()
                 return False, f"Media directory does not exist: {self.state.get('mediaDirectory')}"
 
-            if previous and previous != self.state.get("mediaDirectory"):
+            if previous and previous != self.state.get("mediaDirectory") and not self._same_library_moved():
                 self.state["ratings"] = {}
                 self.state["ratingTimes"] = {}
                 self.state["duel"] = {}
@@ -1947,6 +1964,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, **simp.resume()})
             elif payload is not None and parsed.path == "/api/simp/cookies":
                 self._send_json({"ok": True, **simp.save_cookies(payload.get("text"))})
+            elif payload is not None and parsed.path == "/api/simp/rules":
+                self._send_json({"ok": True, **simp.save_rule(payload)})
             else:
                 self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
         except SimpError as error:

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -21,6 +22,7 @@ from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from .config import Config
 from .content import ContentIndex, complete_files
+from .filters import Budget, RunFilter
 from .hosts import MediaKind, MediaLink, blocked_extensions, is_excluded_url, link_to_dict, links_from_rows
 from .index import DownloadIndex, index_path
 from .net import MEDIA_ACCEPT, ThreadClients, bounded_results, retry_after_seconds
@@ -111,11 +113,17 @@ def direct_download_one(
     url: str | None = None,
     aliases: tuple[str, ...] | list[str] = (),
     model: str = "",
+    only: str = "",
+    budget: Budget | None = None,
 ) -> tuple[str, str]:
     """
     Download one direct link. Returns (status, detail):
       ok / skip / fail — detail is the filename or the failure reason
       page             — link is an image-host viewer page; detail is the image URL on it
+      limit            — the model's budget of new files (--max-files) is spent
+
+    only= skips a file whose name shows it is the other type, without
+    recording it, so a later run without the filter still gets it.
 
     url= fetches that URL on link's behalf (the image found on its page);
     aliases are more page links that resolved to the same image.
@@ -170,6 +178,8 @@ def direct_download_one(
                 name = _filename_from_response(target, r)
                 if any(name.lower().endswith(ext) for ext in blocked):
                     return _report(label, link, "skip", f"{name} (excluded)")
+                if RunFilter(only=only).wrong_file(name):
+                    return _report(label, link, "skip", f"{name} (not {only})")
 
                 cl = r.headers.get("content-length", "")
                 # Compressed bodies don't match Content-Length once decoded.
@@ -184,6 +194,9 @@ def direct_download_one(
                 if have:
                     index.record(name, *record_as)
                     return _report(label, link, "skip", name)
+                if budget is not None and not budget.take():
+                    index.release(name)
+                    return "limit", ""
 
                 dest = dest_dir / name
                 tmp = dest_dir / (name + ".part")
@@ -212,6 +225,8 @@ def direct_download_one(
                 except BaseException as exc:
                     tmp.unlink(missing_ok=True)
                     index.release(name)
+                    if budget is not None:
+                        budget.give_back()
                     if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
                         raise DriveFull(f"Drive full: no space left for {name}.") from exc
                     raise
@@ -219,6 +234,8 @@ def direct_download_one(
                 name = kept.relative_to(dest_dir).as_posix()
                 index.record(name, *record_as)
                 if duplicate:
+                    if budget is not None:
+                        budget.give_back()
                     return _report(label, link, "skip", f"duplicate content → {name}")
                 return _report(label, link, "ok", f"{name} ({size} B)")
         except DriveFull:
@@ -250,6 +267,8 @@ def download_direct_batch(
     index: DownloadIndex,
     *,
     model: str = "",
+    only: str = "",
+    budget: Budget | None = None,
 ) -> DirectResult:
     """Download non-CDL links with a small thread pool."""
     res = DirectResult()
@@ -263,7 +282,7 @@ def download_direct_batch(
     def tally(status: str, detail: str, group: list[MediaLink]) -> None:
         # A group is several page links that turned out to show one image:
         # the first carries the result, the rest are duplicates of it.
-        if status == "stopped":
+        if status in ("stopped", "limit"):
             return
         if status == "fail":
             res.failed.extend((link, detail) for link in group)
@@ -293,6 +312,7 @@ def download_direct_batch(
                 return direct_download_one(
                     clients.get(), link, dest_dir, cfg, index,
                     url=url, aliases=aliases or [], model=label,
+                    only=only, budget=budget,
                 )
             except DriveFull as exc:
                 if not full.is_set():
@@ -309,7 +329,7 @@ def download_direct_batch(
             def remaining_links():
                 seen = set()
                 for link in links:
-                    if full.is_set():
+                    if full.is_set() or (budget is not None and budget.spent()):
                         break
                     if link.url in seen:
                         res.skipped += 1
@@ -327,7 +347,7 @@ def download_direct_batch(
 
             def page_groups():
                 for item in pages.items():
-                    if full.is_set():
+                    if full.is_set() or (budget is not None and budget.spent()):
                         break
                     yield item
 
@@ -377,8 +397,21 @@ def cdl_exclude_regex(exclude: list[str] | None) -> str | None:
     return r"(?i)\.(" + "|".join(re.escape(e) for e in exts) + r")(\.|$)"
 
 
-def run_cyberdrop_dl(cfg: Config, urls_file: Path, download_dir: Path) -> int:
-    """Invoke cyberdrop-dl on a URL list. Returns process exit code."""
+def run_cyberdrop_dl(
+    cfg: Config,
+    urls_file: Path,
+    download_dir: Path,
+    *,
+    only: str = "",
+    stop: threading.Event | None = None,
+    parallel: int = 0,
+) -> int:
+    """Invoke cyberdrop-dl on a URL list. Returns process exit code.
+
+    only= "images" / "videos" skips the other type inside albums (it is not
+    marked done, so a later run gets it). Setting stop ends the run early, as
+    Ctrl-C would (its .part files stay for the next run). parallel > 0 lowers
+    how many files it fetches at once (its default is 15)."""
     bin_name = cfg.download.cyberdrop_dl_bin
     resolved = shutil.which(bin_name) or shutil.which("cyberdrop-dl-patched") or shutil.which("cyberdrop")
     if not resolved:
@@ -451,6 +484,12 @@ def run_cyberdrop_dl(cfg: Config, urls_file: Path, download_dir: Path) -> int:
     # models; its redundant hashes are turned off in paths["config"] (URL
     # history is independent).
     cmd.append("--no-auto-dedupe")
+    if parallel:
+        cmd.extend(["--downloads", str(min(parallel, CDL_PARALLEL))])
+    if only == "images":
+        cmd.append("--no-videos")
+    elif only == "videos":
+        cmd.append("--no-images")
     exclude = cdl_exclude_regex(cfg.download.exclude_extensions)
     if exclude:
         cmd.extend(["--filename-regex-exclude", exclude])
@@ -472,11 +511,42 @@ def run_cyberdrop_dl(cfg: Config, urls_file: Path, download_dir: Path) -> int:
     env.setdefault("CDL_APPDATA_FOLDER", str(paths["appdata"]))
     console.print(f"[bold]Running[/] {' '.join(cmd)}")
     try:
-        proc = subprocess.run(cmd, check=False, env=env)
-        return proc.returncode
+        proc = subprocess.Popen(cmd, env=env)
     except FileNotFoundError:
         console.print(f"[red]Could not execute {resolved}[/]")
         return 127
+    try:
+        while True:
+            try:
+                return proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                pass
+            if stop is not None and stop.is_set():
+                console.print("  enough new files: stopping cyberdrop-dl")
+                return _end_cyberdrop_dl(proc)
+    except BaseException:
+        # Ctrl-C / cancel from the web page: the signal reached it too. Give it
+        # a moment to shut down, then make sure it is gone.
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise
+
+
+def _end_cyberdrop_dl(proc: subprocess.Popen) -> int:
+    """Ctrl-C first (it shuts down cleanly), then SIGTERM, then SIGKILL."""
+    for send, wait in ((lambda: proc.send_signal(signal.SIGINT), 20), (proc.terminate, 10), (proc.kill, 10)):
+        if proc.poll() is not None:
+            break
+        send()
+        try:
+            proc.wait(timeout=wait)
+        except subprocess.TimeoutExpired:
+            continue
+    # Stopped on purpose: not a failure to retry.
+    return 0
 
 
 # Hosts that download slowly through cyberdrop-dl: its Bunkr downloader takes
@@ -501,14 +571,37 @@ def later_slugs(cfg: Config) -> list[str]:
     return sorted(p.stem for p in folder.glob("*.txt")) if folder.is_dir() else []
 
 
-def _save_later(cfg: Config, slug: str, links: list[MediaLink]) -> None:
-    """Keep a model's slow-host links for `simp later` (none: forget the old list)."""
+def later_only(cfg: Config, slug: str) -> str:
+    """The type filter (--only) of the run that saved a model's later list."""
+    try:
+        only = later_path(cfg, slug).with_suffix(".only").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return only if only in ("images", "videos") else ""
+
+
+def _save_later(cfg: Config, slug: str, links: list[MediaLink], filt: RunFilter | None = None) -> None:
+    """Keep a model's slow-host links for `simp later` (none: forget the old list).
+
+    A run that took only part of the thread adds to a list saved with the same
+    type filter instead of replacing it. A list for another type is replaced:
+    its links are not recorded as done, so the next run of the thread queues
+    them again."""
     path = later_path(cfg, slug)
-    if not links:
+    only = filt.only if filt else ""
+    urls = [link.url for link in links]
+    if filt is not None and filt.active and path.is_file() and later_only(cfg, slug) == only:
+        urls = list(dict.fromkeys(path.read_text(encoding="utf-8").split() + urls))
+    if not urls:
         path.unlink(missing_ok=True)
+        path.with_suffix(".only").unlink(missing_ok=True)
         return
-    export_url_list(path, [link.url for link in links])
-    console.print(f"  later: {len(links)} Bunkr links saved for the end ({path.name}); `simp later` downloads them")
+    export_url_list(path, urls)
+    if only:
+        path.with_suffix(".only").write_text(only + "\n", encoding="utf-8")
+    else:
+        path.with_suffix(".only").unlink(missing_ok=True)
+    console.print(f"  later: {len(urls)} Bunkr links saved for the end ({path.name}); `simp later` downloads them")
 
 
 def drop_excluded(cfg: Config, urls_file: Path) -> bool:
@@ -600,15 +693,35 @@ def failed_slugs(cfg: Config) -> list[str]:
     return sorted(p.stem for p in folder.glob("*.jsonl")) if folder.is_dir() else []
 
 
-def write_failures(cfg: Config, thread_url: str, result: ModelResult) -> None:
-    """Record what failed for `simp retry`; remove the file once nothing has."""
+def write_failures(
+    cfg: Config,
+    thread_url: str,
+    result: ModelResult,
+    *,
+    tried: set[str] | None = None,
+    only: str = "",
+) -> None:
+    """Record what failed for `simp retry`; remove the file once nothing has.
+
+    tried: the links a run that took only part of the thread looked at. Earlier
+    failures outside them stay listed (the run said nothing about those)."""
     path = failed_path(cfg, result.slug)
     rows = [
         {"via": "direct", "thread": thread_url, "reason": reason, **link_to_dict(link)}
         for link, reason in result.failed
     ]
+    if tried is not None and path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                old = json.loads(line)
+            except ValueError:
+                continue
+            if old.get("via") == "direct" and old.get("url") not in tried:
+                rows.append(old)
+            elif old.get("via") == "cdl" and result.cdl_exit is None:
+                rows.append(old)  # cyberdrop-dl did not run this time
     if result.cdl_failed:
-        rows.append({"via": "cdl", "thread": thread_url, "exit": result.cdl_exit})
+        rows.append({"via": "cdl", "thread": thread_url, "exit": result.cdl_exit, "only": only})
     if not rows:
         path.unlink(missing_ok=True)
         return
@@ -625,15 +738,20 @@ def _run_direct(
     dest: Path,
     links: list[MediaLink],
     result: ModelResult,
+    *,
+    only: str = "",
+    budget: Budget | None = None,
 ) -> None:
     console.print(f"  direct: {len(links)} files → {dest}")
     index = DownloadIndex.for_model(cfg, slug)
-    d = download_direct_batch(client, links, dest, cfg, index, model=slug)
+    d = download_direct_batch(client, links, dest, cfg, index, model=slug, only=only, budget=budget)
     result.ok, result.skipped, result.failed = d.ok, d.skipped, d.failed
     console.print(
         f"  direct done: [green]{d.ok} ok[/] / {d.skipped} skipped / "
         f"[red]{len(d.failed)} fail[/]"
     )
+    if budget is not None and budget.spent():
+        console.print("  [bold]enough new files[/] (--max-files): the rest is left for another run")
     if d.full:
         raise DriveFull(d.full)
 
@@ -644,7 +762,29 @@ CDL_PUBLISH_EVERY = 15.0
 CDL_SETTLED_SECONDS = 30.0
 
 
-def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult, rerun: str = "") -> None:
+# With --max-files, how often finished files are counted while cyberdrop-dl
+# runs. It then fetches no more files at once than may still come (at most its
+# default 15): files in flight when it is stopped can still finish.
+CDL_COUNT_EVERY = 1.0
+CDL_PARALLEL = 15
+
+
+def _run_cdl(
+    cfg: Config,
+    urls_file: Path,
+    dest: Path,
+    result: ModelResult,
+    rerun: str = "",
+    *,
+    only: str = "",
+    budget: Budget | None = None,
+) -> None:
+    """budget: new files the model may still get. Files are counted as they
+    finish in the staging folder, and cyberdrop-dl is stopped once there are
+    enough. Small files can finish faster than it stops, so only as many as the
+    budget allows move into the library; the rest wait in the staging folder
+    and come in first with the model's next download. Without a staging folder
+    there is nothing to count by."""
     console.print(f"  cyberdrop-dl → {dest}")
     if cfg.download.deduplicate and cfg.download.skip_existing:
         models = cfg.models_root().resolve()
@@ -661,8 +801,13 @@ def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult, reru
         ensure_dir(staging)
         index = ContentIndex(cfg.resolve(cfg.paths.state_dir) / "content" / f"{result.slug}.jsonl", dest)
 
+        cap = budget.left if budget is not None else None
+        before = result.ok
+
         def publish(settled: float = 0.0):
             for incoming in complete_files(staging):
+                if cap is not None and result.ok - before >= cap:
+                    return
                 try:
                     # cyberdrop-dl still sets the date just after renaming its .part
                     if settled and time.time() - incoming.stat().st_ctime < settled:
@@ -679,25 +824,39 @@ def _run_cdl(cfg: Config, urls_file: Path, dest: Path, result: ModelResult, reru
         # Move finished files in while it runs, so the library gets them as they
         # land instead of after the last (often slow) video.
         stop = threading.Event()
+        enough = threading.Event()
 
         def publish_while_running():
-            while not stop.wait(CDL_PUBLISH_EVERY):
-                try:
-                    publish(settled=CDL_SETTLED_SECONDS)
-                except OSError as exc:
-                    console.print(f"  [yellow]could not move a finished file yet:[/] {exc}")
+            last = time.monotonic()
+            while not stop.wait(CDL_COUNT_EVERY if budget is not None else CDL_PUBLISH_EVERY):
+                if budget is None or time.monotonic() - last >= CDL_PUBLISH_EVERY:
+                    last = time.monotonic()
+                    try:
+                        publish(settled=CDL_SETTLED_SECONDS)
+                    except OSError as exc:
+                        console.print(f"  [yellow]could not move a finished file yet:[/] {exc}")
+                if budget is not None and not enough.is_set():
+                    waiting = sum(1 for _ in complete_files(staging))
+                    if result.ok - before + waiting >= budget.left:
+                        enough.set()
 
         publish()  # recover completed files from an interrupted run first
         mover = threading.Thread(target=publish_while_running, name="cdl-publish", daemon=True)
         mover.start()
         try:
-            result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, staging)
+            extra = {"stop": enough, "parallel": budget.left} if budget is not None else {}
+            result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, staging, only=only, **extra)
         finally:
             stop.set()
             mover.join()
             publish()
+        if budget is not None:
+            budget.left = max(0, budget.left - (result.ok - before))
+            waiting = sum(1 for _ in complete_files(staging))
+            if waiting:
+                console.print(f"  {waiting} more finished files wait in {staging} for the next download of {result.slug}")
     else:
-        result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, dest)
+        result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, dest, only=only)
     if result.cdl_failed:
         console.print(
             f"  [yellow]cyberdrop-dl exited {result.cdl_exit}.[/] "
@@ -712,12 +871,19 @@ def download_model(
     links: list[MediaLink],
     cfg: Config,
     slow_later: bool = False,
+    filt: RunFilter | None = None,
 ) -> ModelResult:
     """Direct downloads, then cyberdrop-dl, into the model's folder. With
     slow_later, links to SLOW_HOSTS are saved for `simp later` instead.
 
+    filt: what this run takes (see filters.py); links are already chosen and
+    ordered by it. Its type also applies inside albums, and max_files caps the
+    new files (Bunkr then runs now, not later, so the cap covers it).
+
     Raises DriveFull when the drive reaches the reserve; what was not fetched
     is not recorded anywhere, so the next run for this thread fetches it."""
+    filt = filt or RunFilter()
+    budget = Budget(filt.max_files) if filt.max_files else None
     slug = thread_slug_from_url(thread_url)
     check_space(cfg, cfg.models_root())
     dest = model_folder(cfg, thread_url, title)
@@ -728,30 +894,41 @@ def download_model(
         console.print(f"  excluded: {len(excluded)} links in download.exclude_urls skipped")
         links = [link for link in links if link not in excluded]
     adopt_existing(cfg, slug, dest, links)
+    # From now on the index exists, even if only cyberdrop-dl downloads: the
+    # adoption above is for folders from before it, and must not run again
+    # after a run that took only some pages or one type.
+    index = index_path(cfg, slug)
+    if not index.exists():
+        ensure_dir(index.parent)
+        index.touch()
     result = ModelResult(slug)
     cdl_links, direct_links = partition_links(links)
-    if slow_later:
-        _save_later(cfg, slug, [link for link in cdl_links if is_slow_host(link.url)])
+    if slow_later and budget is None:
+        _save_later(cfg, slug, [link for link in cdl_links if is_slow_host(link.url)], filt)
         cdl_links = [link for link in cdl_links if not is_slow_host(link.url)]
-    elif cdl_links and cfg.download.use_cyberdrop_dl:
+    elif cdl_links and cfg.download.use_cyberdrop_dl and not filt.active:
         # This run takes every host again, so an older saved list is covered.
         later_path(cfg, slug).unlink(missing_ok=True)
+        later_path(cfg, slug).with_suffix(".only").unlink(missing_ok=True)
+    tried = {link.url for link in links} if filt.active else None
 
     try:
         if cfg.download.use_direct and direct_links:
-            _run_direct(client, cfg, slug, dest, direct_links, result)
-        if cdl_links:
+            _run_direct(client, cfg, slug, dest, direct_links, result, only=filt.only, budget=budget)
+        if cdl_links and budget is not None and budget.spent():
+            console.print(f"  {len(cdl_links)} host links left for another run (enough new files)")
+        elif cdl_links:
             urls_file = _queue_cdl(cfg, slug, cdl_links)
             if cfg.download.use_cyberdrop_dl:
                 check_space(cfg, dest)
-                _run_cdl(cfg, urls_file, dest, result)
+                _run_cdl(cfg, urls_file, dest, result, only=filt.only, budget=budget)
                 check_space(cfg, dest)  # it skipped what did not fit: stop here too
     except DriveFull:
         # Files never tried are not failures; only record the real ones.
         if result.failed or result.cdl_failed:
-            write_failures(cfg, thread_url, result)
+            write_failures(cfg, thread_url, result, tried=tried, only=filt.only)
         raise
-    write_failures(cfg, thread_url, result)
+    write_failures(cfg, thread_url, result, tried=tried, only=filt.only)
     return result
 
 
@@ -833,10 +1010,11 @@ def later_model(cfg: Config, slug: str) -> ModelResult:
     if not drop_excluded(cfg, urls_file):
         return result
     check_space(cfg, dest)
-    _run_cdl(cfg, urls_file, dest, result, rerun=f"simp later {slug}")
+    _run_cdl(cfg, urls_file, dest, result, rerun=f"simp later {slug}", only=later_only(cfg, slug))
     check_space(cfg, dest)
     if not result.cdl_failed:
         urls_file.unlink(missing_ok=True)
+        urls_file.with_suffix(".only").unlink(missing_ok=True)
     return result
 
 
@@ -851,7 +1029,8 @@ def retry_model(client: httpx.Client, cfg: Config, slug: str) -> ModelResult:
     result = ModelResult(slug)
     # Stopped for space: the list stays as it was, and the next retry reruns it.
     _retry_rows(client, cfg, slug, dest, rows, result)
-    write_failures(cfg, thread_url, result)
+    only = next((r.get("only") or "" for r in rows if r.get("via") == "cdl"), "")
+    write_failures(cfg, thread_url, result, only=only)
     return result
 
 
@@ -871,7 +1050,7 @@ def _retry_rows(client: httpx.Client, cfg: Config, slug: str, dest: Path, rows: 
         if cfg.download.use_cyberdrop_dl and urls_file.is_file():
             if drop_excluded(cfg, urls_file):  # all excluded now: nothing left to fail
                 check_space(cfg, dest)
-                _run_cdl(cfg, urls_file, dest, result)
+                _run_cdl(cfg, urls_file, dest, result, only=cdl_row.get("only") or "")
                 check_space(cfg, dest)
         else:
             result.cdl_exit = cdl_row.get("exit", 1)  # couldn't rerun — keep it listed

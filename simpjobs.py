@@ -33,6 +33,14 @@ SIMP_BIN = Path(__file__).parent / "scrprsimp" / ".venv" / "bin" / "simp"
 # shell), so nothing a page sends can turn into an option or a file path.
 THREAD_URL_RE = re.compile(r"https://simpcity\.[a-z]{2,12}/threads/[^/\s?#]+\.\d+/")
 PAGES_RE = re.compile(r"\d{1,4}(-\d{1,4})?(,\d{1,4}(-\d{1,4})?)*")
+# Pages of a model's thread (simp --thread-pages): 3 | 2-4 | 10- | last 5, comma-separated.
+THREAD_PAGE_PART = r"(?:\d{1,5}(?:-\d{1,5}|-)?|last ?\d{1,5})"
+THREAD_PAGES_RE = re.compile(rf"{THREAD_PAGE_PART}(?:,{THREAD_PAGE_PART})*")
+MAX_FILES = 100000
+# Settings saved for single models, in simp's state folder; simp applies them
+# to every download of that model (scrprsimp/src/simp/filters.py).
+RULES_FILE = "model-rules.json"
+RULE_FIELDS = ("threadPages", "only", "maxFiles", "order")
 JOB_ID_RE = re.compile(r"[a-f0-9]{12}")
 # Preview pictures simp saves: state/previews/<model>/<n>.<ext>
 PREVIEW_NAME_RE = re.compile(r"\d{1,2}\.(?:jpg|png|gif|webp|avif)")
@@ -330,6 +338,110 @@ class SimpJobs:
         return rows
 
     @staticmethod
+    def download_options(payload: dict) -> tuple:
+        """What to take from each thread: (simp flags, words for the job's
+        label). Only what differs from the default becomes a flag."""
+        options = SimpJobs.clean_options(payload)
+        flags = [f"--thread-pages={options['threadPages']}"] if "threadPages" in options else []
+        flags += [f"--only={options['only']}"] if "only" in options else []
+        flags += [f"--max-files={options['maxFiles']}"] if "maxFiles" in options else []
+        flags += ["--newest-first"] if "order" in options else []
+        return flags, SimpJobs.option_words(options)
+
+    @staticmethod
+    def option_words(options: dict) -> list:
+        """Words for a job's label: pages 1-3 · videos · at most 40 · newest first."""
+        words = [f"pages {options['threadPages'].replace(',', ', ')}"] if "threadPages" in options else []
+        words += [{"images": "photos", "videos": "videos"}[options["only"]]] if "only" in options else []
+        words += [f"at most {options['maxFiles']}"] if "maxFiles" in options else []
+        words += ["newest first"] if "order" in options else []
+        return words
+
+    @staticmethod
+    def clean_options(payload: dict) -> dict:
+        """The options in a request, checked and written one way; only those
+        that differ from the default are kept."""
+        options = {}
+        pages = " ".join(str(payload.get("threadPages") or "").lower().split())
+        pages = pages.replace(" ,", ",").replace(", ", ",")
+        if pages and pages != "all":
+            if not THREAD_PAGES_RE.fullmatch(pages) or any(
+                    part[:1].isdigit() and "-" in part and part.split("-")[1] and int(part.split("-")[1]) < int(part.split("-")[0])
+                    for part in pages.split(",")):
+                raise SimpError("Thread pages look like 1-3, 1,3,4, 10- or last 5.")
+            if any(int(n) < 1 for n in re.findall(r"\d+", pages)):
+                raise SimpError("Thread pages start at 1.")
+            options["threadPages"] = pages
+        only = payload.get("only") or ""
+        if only not in ("", "images", "videos"):
+            raise SimpError("Type is photos, videos, or both.")
+        if only:
+            options["only"] = only
+        limit = payload.get("maxFiles") or 0
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 0 <= limit <= MAX_FILES:
+            raise SimpError(f"“At most” is a number of files from 0 (no limit) to {MAX_FILES}.")
+        if limit:
+            options["maxFiles"] = limit
+        order = payload.get("order") or "oldest"
+        if order not in ("oldest", "newest"):
+            raise SimpError("Order is oldest or newest first.")
+        if order == "newest":
+            options["order"] = "newest"
+        return options
+
+    # ---- settings per model ----
+
+    def rules(self, state: Optional[Path] = None) -> dict:
+        """model -> its saved settings (only what differs from the default,
+        plus "url" when saved from a thread link, and "updatedAt")."""
+        path = (state or self._paths()["state"]) / RULES_FILE
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return {model: rule for model, rule in saved.items() if valid_model(model) and isinstance(rule, dict)} \
+            if isinstance(saved, dict) else {}
+
+    def _write_rules(self, state: Path, rules: dict) -> None:
+        state.mkdir(parents=True, exist_ok=True)
+        tmp = state / (RULES_FILE + ".tmp")
+        tmp.write_text(json.dumps(rules, indent=1, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(state / RULES_FILE)
+
+    def save_rule(self, payload: dict) -> dict:
+        """Settings → per model: save one model's settings (or, with every
+        option at its default, forget them). The model is a folder name, or
+        comes from a thread link the way simp names the folder."""
+        url = None
+        if payload.get("url") is not None:
+            url = normalize_thread_url(payload.get("url"))
+            if url is None:
+                raise SimpError("Not a SimpCity thread link.")
+            model = thread_slug(url)
+        else:
+            model = payload.get("model")
+        if not valid_model(model):
+            raise SimpError("Pick a model.")
+        options = self.clean_options(payload)
+        state = self._paths()["state"]
+        with self.lock:
+            rules = self.rules(state)
+            if options:
+                if url is None and isinstance(rules.get(model), dict) and rules[model].get("url"):
+                    url = rules[model]["url"]  # keep the link a model was first saved with
+                rules[model] = {**options, **({"url": url} if url else {}), "updatedAt": utc_now_iso()}
+            else:
+                rules.pop(model, None)
+            self._write_rules(state, rules)
+        return {"model": model, "rule": rules.get(model), "rules": rules}
+
+    def _rule_words(self, models: list) -> list:
+        """A one-model job's label says that model's saved settings."""
+        if len(models) != 1:
+            return []
+        return self.option_words(self.rules().get(models[0], {}))
+
+    @staticmethod
     def _later_label(models: list) -> str:
         shown = ", ".join(models[:4]) + (f" and {len(models) - 4} more" if len(models) > 4 else "")
         return f"Bunkr files, last: {shown}" if shown else "Bunkr files, last"
@@ -395,9 +507,12 @@ class SimpJobs:
                         head = handle.read(4096).decode("utf-8", errors="replace")
                     found = re.search(r'"thread":\s*"([^"]+)"', head)
                     page = re.search(r'"last_page":\s*(\d+)', head)
+                    # Pages a run that took only some pages left unread.
+                    gaps = re.search(r'"gaps":\s*\[([\d,\s]*)\]', head)
                     url = normalize_thread_url(found.group(1)) if found else None
                     if url:
-                        entry = {"url": url, "lastPage": int(page.group(1)) if page else None}
+                        entry = {"url": url, "lastPage": int(page.group(1)) if page else None,
+                                 "unreadPages": len(re.findall(r"\d+", gaps.group(1))) if gaps else 0}
                 except OSError:
                     pass
                 cached = (key, entry)
@@ -520,7 +635,7 @@ class SimpJobs:
         The caller holds self.lock and has checked busy_for."""
         state = self._paths()["state"]
         removed = []
-        for path in (state / "later" / f"{model}.txt", state / "failed" / f"{model}.jsonl",
+        for path in (state / "later" / f"{model}.txt", state / "later" / f"{model}.only", state / "failed" / f"{model}.jsonl",
                      state / f"cdl_{model}.txt", state / f"cdl_{model}.jsonl"):
             if path.is_file():
                 path.unlink()
@@ -540,6 +655,10 @@ class SimpJobs:
                     path.unlink(missing_ok=True)
                     removed.append(path.name)
             cdl = self._cdl_rows(model, delete=True)
+            rules = self.rules(state)
+            if rules.pop(model, None) is not None:
+                self._write_rules(state, rules)
+                removed.append(f"{RULES_FILE} ({model})")
         # A waiting Bunkr job reads the lists when it starts; it just no longer names the model.
         for job in self.jobs:
             if job["action"] == "later" and job["status"] in ("queued", "held") and model in job.get("models", []):
@@ -581,6 +700,11 @@ class SimpJobs:
             "later": self.later_models(paths["state"]),
             "threads": [{"model": model, **entry} for model, entry in sorted(threads.items())],
             "progress": self.progress(),
+            # Thread pages, photos or videos, how many (simp --thread-pages, --only, ...).
+            "downloadOptions": True,
+            # ... saved for single models, applied to every download of them.
+            "modelRules": True,
+            "rules": self.rules(paths["state"]),
         }
 
     @staticmethod
@@ -827,13 +951,17 @@ class SimpJobs:
             if len(urls) > MAX_URLS:
                 raise SimpError(f"At most {MAX_URLS} threads per job.")
             models = [thread_slug(url) for url in urls]
-            args, label = ["thread", SLOW_LATER, *urls], "Download " + ", ".join(models)
+            flags, words = self.download_options(payload)
+            args, label = ["thread", SLOW_LATER, *flags, *urls], "Download " + ", ".join(models)
         elif action == "update":
             model = payload.get("model")
             entry = self.known_threads(paths["state"]).get(model) if isinstance(model, str) else None
             if entry is None:
                 raise SimpError("simp has no thread for this model yet. Download it once from its thread link.", 404)
-            args, label, models = ["thread", SLOW_LATER, entry["url"]], f"New posts: {model}", [model]
+            flags, words = self.download_options(payload)
+            # With thread pages chosen it is a download of those pages, not a check for new posts.
+            label = f"Download {model}" if any(f.startswith("--thread-pages") for f in flags) else f"New posts: {model}"
+            args, models = ["thread", SLOW_LATER, *flags, entry["url"]], [model]
         elif action == "bookmarks":
             pages = str(payload.get("pages") or "").replace(" ", "")
             limit = payload.get("limit") or 0
@@ -841,7 +969,8 @@ class SimpJobs:
                 raise SimpError("Pages look like 1, 2-4, 1,3,8 or all.")
             if not isinstance(limit, int) or isinstance(limit, bool) or not 0 <= limit <= 1000:
                 raise SimpError("The model limit is a number from 0 (no limit) to 1000.")
-            args = ["download", SLOW_LATER] + ([] if pages == "all" else ["--pages", pages]) + (["--limit", str(limit)] if limit else [])
+            flags, words = self.download_options(payload)
+            args = ["download", SLOW_LATER] + ([] if pages == "all" else ["--pages", pages]) + (["--limit", str(limit)] if limit else []) + flags
             label = ("All bookmarks" if pages == "all" else f"Bookmarks page {pages}") + (f", first {limit}" if limit else "")
             models = []
         elif action == "retry":
@@ -860,6 +989,11 @@ class SimpJobs:
             args, label = ["later"], self._later_label(models)
         else:
             raise SimpError("Unknown download action.")
+        if action in ("thread", "update"):
+            # What the job asked for, then what the model's settings add.
+            words += [word for word in self._rule_words(models) if word not in words]
+        if action in ("thread", "update", "bookmarks") and words:
+            label += " · " + " · ".join(words)
 
         if action in DRIVE_ACTIONS:
             free, reserve = self._space()

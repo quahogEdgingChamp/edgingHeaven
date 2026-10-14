@@ -58,19 +58,19 @@ def test_incremental_crawl(cfg):
     forum = Forum(pages=3)
     with forum.client() as c:
         assert _pages(crawl_thread(c, THREAD, cfg)) == [1, 2, 3]
-    assert forum.hits == [1, 2, 3]
+    assert sorted(forum.hits) == [1, 2, 3]  # two at a time: any order
 
     # Two new pages appear: only the old last page and the new ones are fetched.
     forum.pages, forum.hits = 5, []
     with forum.client() as c:
         assert _pages(crawl_thread(c, THREAD, cfg)) == [1, 2, 3, 4, 5]
-    assert forum.hits == [3, 4, 5]
+    assert sorted(forum.hits) == [3, 4, 5]
 
     # --full-crawl starts over.
     forum.hits = []
     with forum.client() as c:
         crawl_thread(c, THREAD, cfg, full=True)
-    assert forum.hits == [1, 2, 3, 4, 5]
+    assert sorted(forum.hits) == [1, 2, 3, 4, 5]
 
 
 def test_failed_page_is_skipped_then_retried(cfg):

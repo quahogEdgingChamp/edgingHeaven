@@ -258,7 +258,7 @@ class JobTests(SimpCase):
         # The rescan put the new file in the library.
         self.wait(lambda: any(item["path"] == "new-model/new.jpg" for item in self.call("/api/state")[1]["library"]["images"]))
         status = self.call("/api/simp/status")[1]
-        self.assertEqual(status["threads"], [{"model": "new-model", "url": "https://simpcity.cr/threads/new-model.123/", "lastPage": 7}])
+        self.assertEqual(status["threads"], [{"model": "new-model", "url": "https://simpcity.cr/threads/new-model.123/", "lastPage": 7, "unreadPages": 0}])
         self.assertTrue(status["auth"]["ok"])
         self.assertEqual(status["target"], str(self.media))
         self.assertIsNotNone(status["freeBytes"])
@@ -306,6 +306,93 @@ class JobTests(SimpCase):
         ):
             self.assertIn(self.call("/api/simp/jobs", payload)[0], (400, 404, 409), payload)
         self.assertEqual(self.calls(), [])
+
+    def test_download_options(self):
+        """Thread pages, photos or videos, how many and the order become simp
+        flags (only what differs from the default) and words in the label."""
+        self.cookies()
+        status = self.call("/api/simp/status")[1]
+        self.assertTrue(status["downloadOptions"])
+        url = "https://simpcity.cr/threads/opt-model.5/"
+        job = self.call("/api/simp/jobs", {"action": "thread", "urls": [url], "threadPages": "1-3, Last 2",
+                                            "only": "videos", "maxFiles": 40, "order": "newest"})[1]["job"]
+        self.assertEqual(job["args"], ["thread", "--slow-later", "--thread-pages=1-3,last 2", "--only=videos",
+                                       "--max-files=40", "--newest-first", url])
+        self.assertEqual(job["label"], "Download opt-model · pages 1-3, last 2 · videos · at most 40 · newest first")
+        self.finished(job["id"])
+        # Defaults send the old command line.
+        job = self.call("/api/simp/jobs", {"action": "thread", "urls": [url], "threadPages": "all", "only": "",
+                                            "maxFiles": 0, "order": "oldest"})[1]["job"]
+        self.assertEqual(job["args"], ["thread", "--slow-later", url])
+        self.finished(job["id"])
+        job = self.call("/api/simp/jobs", {"action": "update", "model": "opt-model", "threadPages": "4"})[1]["job"]
+        self.assertEqual((job["args"], job["label"]), (["thread", "--slow-later", "--thread-pages=4", url],
+                                                       "Download opt-model · pages 4"))
+        self.finished(job["id"])
+        job = self.call("/api/simp/jobs", {"action": "update", "model": "opt-model", "only": "images"})[1]["job"]
+        self.assertEqual(job["label"], "New posts: opt-model · photos")
+        self.finished(job["id"])
+        job = self.call("/api/simp/jobs", {"action": "bookmarks", "pages": "1", "threadPages": "last 1", "maxFiles": 5})[1]["job"]
+        self.assertEqual(job["args"], ["download", "--slow-later", "--pages", "1", "--thread-pages=last 1", "--max-files=5"])
+        self.finished(job["id"])
+        before = len(self.calls())
+        for bad in ({"threadPages": "0"}, {"threadPages": "3-1"}, {"threadPages": "1;rm"}, {"threadPages": "--x"},
+                    {"only": "gifs"}, {"maxFiles": -1}, {"maxFiles": "5"}, {"maxFiles": True}, {"maxFiles": 100001},
+                    {"order": "random"}):
+            self.assertEqual(self.call("/api/simp/jobs", {"action": "thread", "urls": [url], **bad})[0], 400, bad)
+        self.assertEqual(len(self.calls()), before)
+
+    def test_settings_per_model(self):
+        """One model's saved settings: kept in simp's state folder (simp applies
+        them), shown in the status and in that model's job labels."""
+        self.cookies()
+        status, body = self.call("/api/simp/rules", {"model": "anna", "only": "videos", "threadPages": "1-3"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual({k: v for k, v in body["rule"].items() if k != "updatedAt"}, {"only": "videos", "threadPages": "1-3"})
+        saved = json.loads((self.root / "state" / "model-rules.json").read_text())
+        self.assertEqual(saved["anna"]["only"], "videos")
+        # From a thread link: the model is the folder simp makes for it; the link is kept.
+        body = self.call("/api/simp/rules", {"url": "https://simpcity.cr/threads/new-girl.77/page-3", "maxFiles": 20})[1]
+        self.assertEqual(body["model"], "new-girl")
+        self.assertEqual(body["rule"]["url"], "https://simpcity.cr/threads/new-girl.77/")
+        # Saving again by name keeps that link.
+        body = self.call("/api/simp/rules", {"model": "new-girl", "maxFiles": 30, "order": "newest"})[1]
+        self.assertEqual((body["rule"]["maxFiles"], body["rule"]["url"]), (30, "https://simpcity.cr/threads/new-girl.77/"))
+        status = self.call("/api/simp/status")[1]
+        self.assertTrue(status["modelRules"])
+        self.assertEqual(sorted(status["rules"]), ["anna", "new-girl"])
+
+        # Her downloads say what they take; the command line stays plain (simp reads the file).
+        job = self.call("/api/simp/jobs", {"action": "thread", "urls": ["https://simpcity.cr/threads/anna.5/"]})[1]["job"]
+        self.assertEqual(job["args"], ["thread", "--slow-later", "https://simpcity.cr/threads/anna.5/"])
+        self.assertEqual(job["label"], "Download anna · pages 1-3 · videos")
+        self.finished(job["id"])
+        job = self.call("/api/simp/jobs", {"action": "update", "model": "anna"})[1]["job"]
+        self.assertEqual(job["label"], "New posts: anna · pages 1-3 · videos")
+        self.finished(job["id"])
+        two = self.call("/api/simp/jobs", {"action": "thread", "urls": ["https://simpcity.cr/threads/anna.5/",
+                                                                        "https://simpcity.cr/threads/bob.6/"]})[1]["job"]
+        self.assertEqual(two["label"], "Download anna, bob")
+        self.finished(two["id"])
+
+        # Everything back to the default forgets them.
+        body = self.call("/api/simp/rules", {"model": "anna", "threadPages": "all", "only": "", "maxFiles": 0})[1]
+        self.assertIsNone(body["rule"])
+        self.assertNotIn("anna", self.call("/api/simp/status")[1]["rules"])
+        for bad in ({"model": "../x", "only": "videos"}, {"model": ".hidden", "only": "videos"}, {"only": "videos"},
+                    {"url": "https://evil.com/threads/a.1/", "only": "videos"}, {"model": "anna", "threadPages": "0"},
+                    {"model": "anna", "only": "gifs"}, {"model": "anna", "maxFiles": "5"}):
+            self.assertEqual(self.call("/api/simp/rules", bad)[0], 400, bad)
+
+    def test_a_full_reset_forgets_the_settings(self):
+        self.call("/api/simp/rules", {"model": "old-model", "only": "images"})
+        self.call("/api/simp/rules", {"model": "keep-me", "only": "images"})
+        with self.jobs.lock:
+            self.jobs.forget_model("old-model", full=False)
+        self.assertIn("old-model", self.jobs.rules())
+        with self.jobs.lock:
+            self.jobs.forget_model("old-model", full=True)
+        self.assertEqual(sorted(self.jobs.rules()), ["keep-me"])
 
     def test_bookmarks_and_retry(self):
         self.cookies()

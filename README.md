@@ -278,6 +278,31 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   posts**, which reads a known thread from the last page simp saw. **New posts**
   is also on a model's page in Collection, once simp has downloaded that model
   from its thread link
+- **Settings per model:** pick a model (from your library, your bookmarks, or by
+  pasting its thread link) and save what to download *for that model only*: only
+  some **thread pages** (`1-3`, `1,3,4`, `10-` to the end, `last 5` for the newest
+  five), **photos or videos only**, **at most N new files** per download, **newest
+  posts first**. Every download of that model then follows them: New posts, Check
+  all, bookmark downloads, a pasted link. Other models are not affected. Set them in
+  Downloads → **Settings per model**, **Download settings** on a model page, or
+  **Settings** on a bookmark; a line on each of those says what is set, and the
+  model's jobs carry it in their names. Details:
+  - Saved in `<data dir>/scrprsimp/state/model-rules.json`; simp reads it for each
+    model it downloads (`simp thread` / `simp download` flags still win for a run)
+  - Pages read before come from simp's crawl cache; pages never read are noted, so
+    a later whole-thread download reads them instead of taking them for done
+  - Photos/videos: a link whose type shows in its address is left out up front;
+    albums (Bunkr, GoFile, …) are sorted by cyberdrop-dl (`--no-videos` /
+    `--no-images`). What is left out is not recorded anywhere, so clearing the
+    settings later still gets it
+  - "At most N" counts only files that are new to the library (already there,
+    deleted or duplicates don't count), and it is exact. For album hosts
+    cyberdrop-dl fetches no more at once than may still come and is stopped when
+    there are enough; files it finished beyond that wait in simp's staging folder
+    and come in first with that model's next download. With a limit, Bunkr links
+    download in the same job instead of last
+  - Files you deleted stay deleted either way: settings only ever download less
+  - **Remove a model → Full reset** also forgets its settings
 - One job runs at a time; the rest wait. The running job's output streams on the
   page; **Cancel** stops simp and cyberdrop-dl together
 - **Use it while it downloads:** every ~10 s the server adds the files that have

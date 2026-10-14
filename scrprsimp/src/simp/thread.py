@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup, Tag
 from rich.console import Console
 
 from .config import Config
+from .filters import PageSpec, describe_pages
 from .hosts import (
     MediaLink,
     classify_url,
@@ -212,8 +213,14 @@ def _load_crawl_cache(path: Path, cfg: Config) -> dict | None:
 
 
 def _save_crawl_cache(
-    path: Path, thread_url: str, last_page: int, failed: list[int], links: list[MediaLink]
+    path: Path,
+    thread_url: str,
+    last_page: int,
+    failed: list[int],
+    links: list[MediaLink],
+    gaps: list[int] = (),
 ) -> None:
+    # "thread" and "last_page" first: Edging Heaven reads only the file's head.
     ensure_dir(path.parent)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(
@@ -221,7 +228,10 @@ def _save_crawl_cache(
             {
                 "thread": thread_url,
                 "last_page": last_page,
-                "failed_pages": failed,
+                "failed_pages": sorted(failed),
+                # Pages up to last_page never read (a run that took only some
+                # pages): the next whole-thread run reads them.
+                "gaps": sorted(gaps),
                 "links": [link_to_dict(l) for l in links],
             },
             ensure_ascii=False,
@@ -231,36 +241,86 @@ def _save_crawl_cache(
     tmp.replace(path)
 
 
+def _fetch_pages(
+    client: httpx.Client, thread_url: str, cfg: Config, todo: list[int]
+) -> tuple[dict[int, list[MediaLink]], list[int]]:
+    """Read these thread pages, a few at a time: ({page: links}, failed pages)."""
+
+    def paced_pages():
+        for page in todo:
+            polite_sleep(cfg.scrape.delay_min, cfg.scrape.delay_max)
+            yield page
+
+    def fetch_page(page):
+        r = get_retry(client, _page_url(thread_url, page))
+        if r is None or looks_like_login_page(r.text) or "/login" in str(r.url):
+            return None
+        return extract_media_from_html(r.text, str(r.url), cfg, thread_page=page)
+
+    workers = max(1, min(cfg.scrape.page_concurrency, 4))
+    pages: dict[int, list[MediaLink]] = {}
+    failed: list[int] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for page, links in bounded_results(pool, fetch_page, paced_pages(), workers):
+            if links is None:
+                console.print(f"    [yellow]skipping page {page} — will retry next crawl[/]")
+                failed.append(page)
+            else:
+                pages[page] = links
+    return pages, failed
+
+
+def _unique(links: list[MediaLink]) -> list[MediaLink]:
+    seen: set[str] = set()
+    unique: list[MediaLink] = []
+    for link in links:
+        if link.url not in seen:
+            seen.add(link.url)
+            unique.append(link)
+    return unique
+
+
+def _usable(response: httpx.Response | None) -> bool:
+    return not (response is None or looks_like_login_page(response.text) or "/login" in str(response.url))
+
+
 def crawl_thread(
     client: httpx.Client,
     thread_url: str,
     cfg: Config,
     *,
     full: bool = False,
+    pages: PageSpec | None = None,
 ) -> CrawlLinks:
     """
     Collect media links and report pages that could not be fetched.
 
     Links found earlier are cached in state/crawl/; a later crawl resumes at the
     last page it saw (new posts only ever land there or after), plus any pages
-    that failed. full=True ignores the cache and starts from page 1.
+    that failed or were never read. full=True ignores the cache and starts from
+    page 1. pages= reads only those pages (see crawl_pages).
     """
+    if pages is not None:
+        return crawl_pages(client, thread_url, cfg, pages, full=full)
     cache_file = crawl_cache_path(cfg, thread_url)
     cached = None if full else _load_crawl_cache(cache_file, cfg)
     old_links: list[MediaLink] = cached["links"] if cached else []
     start = int(cached.get("last_page") or 1) if cached else 1
     retry_pages = {int(p) for p in cached.get("failed_pages", [])} if cached else set()
+    gaps = {int(p) for p in cached.get("gaps", [])} if cached else set()
 
     if cached:
         console.print(
             f"  crawling [cyan]{thread_url}[/] from page {start} "
-            f"({len(old_links)} links cached)"
+            f"({len(old_links)} links cached"
+            + (f", {len(gaps)} pages never read" if gaps else "")
+            + ")"
         )
     else:
         console.print(f"  crawling [cyan]{thread_url}[/]")
 
     first = get_retry(client, _page_url(thread_url, start))
-    if first is None or looks_like_login_page(first.text) or "/login" in str(first.url):
+    if not _usable(first):
         if cached:
             console.print("    [yellow]thread unreachable — using cached links[/]")
             return CrawlLinks(old_links, failed_pages=retry_pages | {start})
@@ -270,44 +330,14 @@ def crawl_thread(
     last_page = max(_max_thread_page(BeautifulSoup(first.text, "lxml")), start)
 
     fresh = extract_media_from_html(first.text, str(first.url), cfg, thread_page=start)
-    failed: list[int] = []
     todo = sorted(
-        (set(range(start + 1, last_page + 1)) | retry_pages) - {start}
+        p for p in (set(range(start + 1, last_page + 1)) | retry_pages | gaps) - {start} if p <= last_page
     )
+    found, failed = _fetch_pages(client, thread_url, cfg, todo)
+    for page in sorted(found):
+        fresh.extend(found[page])
 
-    def paced_pages():
-        for page in todo:
-            if page <= last_page:
-                polite_sleep(cfg.scrape.delay_min, cfg.scrape.delay_max)
-                yield page
-
-    def fetch_page(page):
-        r = get_retry(client, _page_url(thread_url, page))
-        if r is None or looks_like_login_page(r.text) or "/login" in str(r.url):
-            return None
-        return extract_media_from_html(r.text, str(r.url), cfg, thread_page=page)
-
-    workers = max(1, min(cfg.scrape.page_concurrency, 4))
-    pages = {}
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for page, links in bounded_results(pool, fetch_page, paced_pages(), workers):
-            if links is None:
-                console.print(f"    [yellow]skipping page {page} — will retry next crawl[/]")
-                failed.append(page)
-            else:
-                pages[page] = links
-    for page in sorted(pages):
-        fresh.extend(pages[page])
-
-    # De-dupe preserving order
-    seen: set[str] = set()
-    unique: list[MediaLink] = []
-    for link in old_links + fresh:
-        if link.url in seen:
-            continue
-        seen.add(link.url)
-        unique.append(link)
-
+    unique = _unique(old_links + fresh)
     _save_crawl_cache(cache_file, thread_url, last_page, failed, unique)
     new = len(unique) - len(old_links)
     console.print(
@@ -315,3 +345,77 @@ def crawl_thread(
         f"page{'s' if last_page != 1 else ''})"
     )
     return CrawlLinks(unique, failed_pages=failed)
+
+
+# Asks XenForo for the last page: a page past the end redirects there.
+_PAST_THE_END = 10**6
+
+
+def crawl_pages(
+    client: httpx.Client,
+    thread_url: str,
+    cfg: Config,
+    spec: PageSpec,
+    *,
+    full: bool = False,
+) -> CrawlLinks:
+    """Links on the chosen thread pages only.
+
+    Pages the cache already covers come from it; the rest, and the cached last
+    page (new posts land there), are read. The cache keeps everything found,
+    and pages it has never read are saved as gaps, so a later whole-thread run
+    reads them instead of taking them for done."""
+    cache_file = crawl_cache_path(cfg, thread_url)
+    cached = None if full else _load_crawl_cache(cache_file, cfg)
+    old_links: list[MediaLink] = cached["links"] if cached else []
+    old_last = int(cached.get("last_page") or 0) if cached else 0
+    old_failed = {int(p) for p in cached.get("failed_pages", [])} if cached else set()
+    old_gaps = {int(p) for p in cached.get("gaps", [])} if cached else set()
+    # Read before and complete: everything below the cached last page.
+    covered = set(range(1, old_last)) - old_failed - old_gaps
+
+    console.print(f"  crawling [cyan]{thread_url}[/], thread pages {spec.text}")
+    if not spec.needs_end and spec.fixed() <= covered:
+        # All of them read before, and none can have changed: no request.
+        chosen = spec.fixed()
+        links = [l for l in old_links if l.thread_page in chosen]
+        console.print(f"    → {len(links)} media URLs on pages {describe_pages(chosen)} (all cached)")
+        return CrawlLinks(links)
+
+    uncovered = sorted(spec.fixed() - covered)
+    probe = uncovered[0] if uncovered else _PAST_THE_END
+    first = get_retry(client, _page_url(thread_url, probe))
+    if not _usable(first):
+        if cached:
+            console.print("    [yellow]thread unreachable — using cached links[/]")
+            chosen = spec.resolve(max(old_last, 1)) if spec.needs_end else spec.fixed()
+            links = [l for l in old_links if l.thread_page in chosen]
+            return CrawlLinks(links, failed_pages=(chosen - covered) or {probe})
+        raise RuntimeError(f"could not load {thread_url}")
+    landed = _page_of(str(first.url))
+    last_page = max(_max_thread_page(BeautifulSoup(first.text, "lxml")), landed)
+    chosen = spec.resolve(last_page)
+    if not chosen:
+        console.print(f"    [yellow]the thread has {last_page} pages: none of {spec.text} exist[/]")
+
+    # The page it landed on is kept even when not chosen: it was read.
+    found = {landed: extract_media_from_html(first.text, str(first.url), cfg, thread_page=landed)}
+    todo = sorted(chosen - covered - {landed})
+    more, failed = _fetch_pages(client, thread_url, cfg, todo)
+    found.update(more)
+
+    fresh = [link for page in sorted(found) for link in found[page]]
+    read = set(found)
+    new_last = max(old_last, last_page)
+    unread = set(range(max(old_last, 1), new_last + 1)) if last_page > old_last else set()
+    gaps = (old_gaps | unread) - read - set(failed)
+    failed_pages = (old_failed - read) | set(failed)
+    unique = _unique(old_links + fresh)
+    _save_crawl_cache(cache_file, thread_url, new_last, sorted(failed_pages), unique, sorted(gaps))
+
+    links = [l for l in unique if l.thread_page in chosen]
+    console.print(
+        f"    → {len(links)} media URLs on pages {describe_pages(chosen) or 'none'} "
+        f"of {last_page} ({len(read)} read, {len(chosen & covered)} cached)"
+    )
+    return CrawlLinks(links, failed_pages=failed)

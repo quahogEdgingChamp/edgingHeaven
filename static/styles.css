@@ -2120,6 +2120,44 @@ body.panic .shell, body.panic .drawer, body.panic .workspace-toast { visibility:
   resize: vertical;
 }
 .dl-cards textarea:focus { border-color: var(--accent); outline: none; }
+/* Settings per model: what to take from one model's thread, saved on the
+   server. The editor under Settings per model, and the Download settings
+   sheet (the mode launcher's sheet, narrower). */
+.dl-rule-card { max-width: 760px; }
+.dl-rule-card #dlRuleHint:empty { display: none; }
+.dl-rule-card #dlRuleHint.is-error { color: var(--danger); }
+.dl-rule-editor { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); min-width: 0; }
+.dl-rule-editor[hidden] { display: none; }
+.dl-rule-head { display: grid; gap: 2px; min-width: 0; }
+.dl-rule-head strong { font-size: 1rem; font-weight: 650; overflow-wrap: anywhere; }
+.dl-rule-head strong:focus { outline: none; }
+.dl-rule-head strong:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.dl-rule-head .subtle:empty { display: none; }
+.dl-rule-remove { color: var(--danger); }
+/* "Downloads: videos only · pages 1–3": a model whose downloads are limited. */
+.dl-rule-brief, .bm-rule, .model-rule {
+  justify-self: start; width: fit-content; max-width: 100%; margin: 0; padding: 2px 9px;
+  border-radius: var(--r-full); background: var(--accent-soft); color: var(--text);
+  font-size: 0.75rem; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere;
+}
+.model-rule { margin-top: -10px; }
+.bm-rule { margin-top: 2px; }
+.dl-options { display: grid; gap: 12px; min-width: 0; }
+.dl-options-hint { font-size: 0.75rem; line-height: 1.45; }
+/* Thread pages and Max new files side by side (.setup-path spans every column elsewhere). */
+.dl-options .dl-fields > .setup-path { grid-column: auto; min-width: 0; }
+.dl-options .segment { line-height: 1.2; }
+.dl-options input[aria-invalid="true"] { border-color: var(--danger); }
+.dl-options-foot { display: flex; align-items: flex-start; gap: 6px; }
+.dl-options-readback { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.dl-options-readback.is-error { background: var(--danger-soft); color: var(--danger); }
+.dl-options-readback.is-error::before { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 25%, transparent); }
+.dl-sheet { z-index: 46; }
+.dl-sheet .launcher-sheet { max-width: 480px; }
+.dl-sheet .launcher-head h2 { font-size: 1.25rem; overflow-wrap: anywhere; }
+.dl-sheet .launcher-head p { margin-top: 4px; }
+.dl-sheet-note { margin: 0; }
+.dl-sheet-actions .primary-button { flex: 1 1 auto; }
 #dlAuth.is-error { color: var(--danger); }
 /* A fixed height: sized to its text, the box grew with every poll and fell
    back to the minimum whenever another job's output replaced it. svh does not

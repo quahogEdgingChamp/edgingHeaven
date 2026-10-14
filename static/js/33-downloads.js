@@ -3,8 +3,11 @@
 
    Paste SimpCity thread links, pull pages of your bookmarks, retry what
    failed, and check a model's thread for new posts (here, or with New posts
-   on its model page). The server runs simp one job at a time (simpjobs.py);
-   this page starts jobs, follows the running one's output and cancels.
+   on its model page). Settings per model pick what to take from one model's
+   thread (which pages, photos or videos, how many new files, newest first);
+   the server keeps them and applies them to every download of that model.
+   The server runs simp one job at a time (simpjobs.py); this page starts
+   jobs, follows the running one's output and cancels.
    Finished jobs rescan the library, and the page's usual library check picks
    the new files up.
 
@@ -125,7 +128,7 @@ function renderDownloads() {
   el("dlForms").hidden = !usable;
   el("dlStats").hidden = !usable;
   if (!status) {
-    ["dlNow", "dlLaterSection", "dlFailedSection", "dlThreadsSection"].forEach((id) => { el(id).hidden = true; });
+    ["dlNow", "dlLaterSection", "dlFailedSection", "dlThreadsSection", "dlRulesSection"].forEach((id) => { el(id).hidden = true; });
     el("dlJobs").replaceChildren();
     el("dlJobsEmpty").hidden = !state.features.has("simp");
     return;
@@ -169,6 +172,7 @@ function renderDownloads() {
   renderDownloadLater(status.later || [], jobs);
   renderDownloadFailed(status.failed || []);
   renderDownloadThreads(status.threads || []);
+  renderModelRules();
   syncDownloadNow();
 }
 
@@ -299,9 +303,22 @@ function renderDownloadThreads(threads) {
     meta.className = "subtle dl-url";
     meta.textContent = thread.lastPage ? `read to page ${thread.lastPage} · ${thread.url}` : thread.url;
     text.append(name, meta);
+    const brief = ruleBrief(modelRule(thread.model));
+    if (brief) {
+      const rule = document.createElement("span");
+      rule.className = "dl-rule-brief";
+      rule.textContent = `Downloads: ${brief}`;
+      text.append(rule);
+    }
     const actions = document.createElement("div");
     actions.className = "dl-row-actions";
     actions.append(downloadButton("New posts", () => submitDownload({ action: "update", model: thread.model })));
+    if (modelRulesReady()) {
+      actions.append(ruleSettingsButton(thread.model, thread.model, () => openRuleDialog({
+        target: { model: thread.model, url: thread.url, byUrl: false },
+        go: () => submitDownload({ action: "update", model: thread.model }),
+      })));
+    }
     item.append(text, actions);
     return item;
   }));
@@ -836,6 +853,575 @@ function showDownloadLog(jobId) {
   el("dlNow").scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
+/* ---- settings per model ----
+   What to take from one model's SimpCity thread: which of its pages (pages
+   of the thread, not of the bookmark list), photos or videos only, at most so
+   many new files, newest posts first. Saved on the server for that model
+   (POST /api/simp/rules), and the server applies them by itself to every
+   download of it: New posts, Check all, bookmark downloads, one-tap
+   Download, pasted links. Jobs carry no options. Edited here under Settings
+   per model, and in the sheet behind Download settings on a model page,
+   Settings on a bookmark and on a known thread. A server from before this
+   (no status.modelRules) would ignore them, so there every control stays
+   hidden: "pages 1-3" must never look applied when it is not. */
+
+const DOWNLOAD_OPTION_DEFAULTS = Object.freeze({ threadPages: "", only: "", maxFiles: "", order: "oldest" });
+const DOWNLOAD_ONLY = [["", "Photos and videos"], ["images", "Photos"], ["videos", "Videos"]];
+const DOWNLOAD_MAX_FILES = 100000;
+const DOWNLOAD_PAGES_HINT = "1-3, 1,3,4, 10- or last 5";
+// A thread link as the server takes it (simpjobs.py THREAD_URL_RE).
+const SIMPCITY_THREAD_RE = /^https:\/\/simpcity\.[a-z]{2,12}\/threads\/[^/\s?#]+\.\d+\/$/;
+// The sheet: its options control, the model it edits and how to download it.
+const downloadDialog = { control: null, opener: null, openerModel: "", target: null, go: null };
+// The Downloads page's editor; the signatures spare rebuilding unchanged lists.
+const ruleEditor = { target: null, control: null, listSignature: "", choicesSignature: "", bookmarksAsked: false };
+
+function modelRulesReady(status = downloads.status) {
+  return status?.modelRules === true;
+}
+
+function modelRule(model) {
+  return (modelRulesReady() && model && downloads.status?.rules?.[model]) || null;
+}
+
+// A saved rule as a control's fields (text, as typed); defaults for none.
+function ruleValues(rule) {
+  return {
+    threadPages: typeof rule?.threadPages === "string" ? rule.threadPages : "",
+    only: rule?.only === "images" || rule?.only === "videos" ? rule.only : "",
+    maxFiles: rule?.maxFiles > 0 ? String(rule.maxFiles) : "",
+    order: rule?.order === "newest" ? "newest" : "oldest",
+  };
+}
+
+function lowerFirst(text) {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+function upperFirst(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// "videos only · pages 1–3": a saved rule in a few words, "" for none.
+function ruleBrief(rule) {
+  if (!rule) return "";
+  const pages = parseThreadPages(rule.threadPages);
+  return [
+    rule.only === "images" ? "photos only" : rule.only === "videos" ? "videos only" : "",
+    pages?.parts.length ? lowerFirst(threadPagesWords(pages.parts)) : !pages ? `pages ${rule.threadPages}` : "",
+    rule.maxFiles > 0 ? `at most ${plural(rule.maxFiles, "new file", "new files")}` : "",
+    rule.order === "newest" ? "newest posts first" : "",
+  ].filter(Boolean).join(" · ");
+}
+
+// "1-3", "1,3,4", "10-", "last 5", "1-2,last 3": the list the server takes.
+// Gives the parts and the list cleaned up ("" for every page), or null when
+// it is not one.
+function parseThreadPages(typed) {
+  const clean = String(typed || "").trim().toLowerCase().replace(/[–—]/g, "-");
+  if (!clean || clean === "all") return { text: "", parts: [] };
+  const parts = [];
+  for (const piece of clean.split(",").map((part) => part.trim()).filter(Boolean)) {
+    let match;
+    if ((match = /^(\d+)$/.exec(piece))) parts.push({ from: Number(match[1]), to: Number(match[1]) });
+    else if ((match = /^(\d+)\s*-\s*(\d*)$/.exec(piece))) parts.push({ from: Number(match[1]), to: match[2] ? Number(match[2]) : null });
+    else if ((match = /^last\s*(\d+)$/.exec(piece))) parts.push({ last: Number(match[1]) });
+    else return null;
+    const part = parts[parts.length - 1];
+    if (part.last === 0 || part.from === 0 || (part.to != null && part.to < part.from)) return null;
+  }
+  if (!parts.length) return null;
+  const text = parts.map((part) => (part.last ? `last ${part.last}`
+    : part.to == null ? `${part.from}-` : part.to === part.from ? `${part.from}` : `${part.from}-${part.to}`)).join(",");
+  return { text, parts };
+}
+
+// "Pages 1–3, the last 2", "Page 10 to the end", "The last 5 pages".
+function threadPagesWords(parts) {
+  if (parts.length === 1 && parts[0].last) return parts[0].last === 1 ? "The last page" : `The last ${parts[0].last} pages`;
+  const words = parts.map((part) => (part.last ? `the last${part.last === 1 ? "" : ` ${part.last}`}`
+    : part.to == null ? `${part.from} to the end` : part.to === part.from ? `${part.from}` : `${part.from}–${part.to}`));
+  const many = parts.length > 1 || (parts[0].to != null && parts[0].to !== parts[0].from);
+  return `${many ? "Pages" : "Page"} ${words.join(", ")}`;
+}
+
+// What a control's fields ask for: the rule fields to save (only those that
+// are not the default), the sentence that says it, or what is wrong.
+function downloadOptionsRequest(values) {
+  const pages = parseThreadPages(values.threadPages);
+  const maxText = String(values.maxFiles ?? "").trim();
+  const maxFiles = maxText === "" ? 0 : Number(maxText);
+  let error = "";
+  if (!pages) error = `Thread pages “${values.threadPages.trim()}” is not a page list. Try ${DOWNLOAD_PAGES_HINT}.`;
+  else if (!Number.isInteger(maxFiles) || maxFiles < 0 || maxFiles > DOWNLOAD_MAX_FILES) {
+    error = `Max new files takes a whole number up to ${DOWNLOAD_MAX_FILES.toLocaleString()}; leave it empty for all of them.`;
+  }
+  const fields = {};
+  if (pages?.text) fields.threadPages = pages.text;
+  if (values.only === "images" || values.only === "videos") fields.only = values.only;
+  if (maxFiles > 0 && !error) fields.maxFiles = maxFiles;
+  if (values.order === "newest") fields.order = "newest";
+  const words = error || (!Object.keys(fields).length ? "Everything in the thread" : [
+    pages.parts.length ? threadPagesWords(pages.parts) : "All pages",
+    fields.only === "images" ? "photos only" : fields.only === "videos" ? "videos only" : "",
+    fields.maxFiles ? `at most ${plural(fields.maxFiles, "new file", "new files")}` : "",
+    fields.order ? "newest posts first" : "",
+  ].filter(Boolean).join(" · "));
+  return { fields, words, error, pagesBad: !pages };
+}
+
+// The control itself. `prefix` keeps its ids apart from the other copy.
+function buildDownloadOptions(prefix) {
+  const box = document.createElement("div");
+  box.className = "dl-options";
+  box.innerHTML = `
+    <div class="dl-fields">
+      <label class="setup-path"><span>Thread pages</span><input id="${prefix}Pages" type="text" placeholder="all" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="${prefix}Hint" /></label>
+      <label class="setup-path"><span>Max new files</span><input id="${prefix}Max" type="number" min="0" max="${DOWNLOAD_MAX_FILES}" step="1" placeholder="all" inputmode="numeric" aria-describedby="${prefix}Hint" /></label>
+    </div>
+    <p id="${prefix}Hint" class="subtle dl-options-hint">Pages: ${DOWNLOAD_PAGES_HINT} (the newest five). Max counts only files that are new here, per download.</p>
+    <div class="setup-path">
+      <span id="${prefix}OnlyLabel">Type</span>
+      <div class="segmented" role="group" aria-labelledby="${prefix}OnlyLabel">
+        ${DOWNLOAD_ONLY.map(([value, label]) => `<button type="button" class="segment" data-only="${value}" aria-pressed="false">${label}</button>`).join("")}
+      </div>
+    </div>
+    <button type="button" class="switch-row" role="switch" aria-checked="false"><span>Newest posts first</span><i aria-hidden="true"></i></button>
+    <div class="dl-options-foot">
+      <p class="drawer-summary dl-options-readback" aria-live="polite"></p>
+      <button type="button" class="text-button small-button">Reset</button>
+    </div>`;
+  const pages = box.querySelector(`#${prefix}Pages`);
+  const max = box.querySelector(`#${prefix}Max`);
+  const order = box.querySelector(".switch-row");
+  const control = { box, pages, values: { ...DOWNLOAD_OPTION_DEFAULTS } };
+
+  control.request = () => downloadOptionsRequest(control.values);
+  control.sync = () => {
+    const { values } = control;
+    box.querySelectorAll("[data-only]").forEach((button) => {
+      const on = button.dataset.only === values.only;
+      button.classList.toggle("active", on);
+      button.setAttribute("aria-pressed", String(on));
+    });
+    order.setAttribute("aria-checked", String(values.order === "newest"));
+    const request = control.request();
+    const readback = box.querySelector(".dl-options-readback");
+    readback.textContent = request.words;
+    readback.classList.toggle("is-error", !!request.error);
+    pages.setAttribute("aria-invalid", String(request.pagesBad));
+    max.setAttribute("aria-invalid", String(!!request.error && !request.pagesBad));
+  };
+  control.set = (values) => {
+    control.values = { ...values };
+    pages.value = values.threadPages;
+    max.value = values.maxFiles;
+    control.sync();
+  };
+  const change = (patch) => {
+    Object.assign(control.values, patch);
+    control.sync();
+  };
+
+  pages.addEventListener("input", () => change({ threadPages: pages.value }));
+  // A number field reads "" while what is typed is not a number yet.
+  max.addEventListener("input", () => change({ maxFiles: max.value }));
+  box.querySelector(".segmented").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-only]");
+    if (button) change({ only: button.dataset.only });
+  });
+  order.addEventListener("click", () => change({ order: control.values.order === "newest" ? "oldest" : "newest" }));
+  box.querySelector(".dl-options-foot .text-button").addEventListener("click", () => control.set(DOWNLOAD_OPTION_DEFAULTS));
+  control.set(control.values);
+  return control;
+}
+
+// unreadPages: pages up to lastPage that a run taking only some pages skipped.
+function threadReadWords(thread) {
+  if (!thread?.lastPage) return "simp has not read this thread yet.";
+  const unread = thread.unreadPages || 0;
+  return unread > 0
+    ? `simp knows ${plural(thread.lastPage, "page", "pages")} of this thread; ${unread.toLocaleString()} of them not read yet.`
+    : `simp has read ${plural(thread.lastPage, "page", "pages")} of this thread.`;
+}
+
+function knownThread(model) {
+  return (downloads.status?.threads || []).find((thread) => thread.model === model) || null;
+}
+
+function bookmarkFor(model) {
+  return (bookmarkPage.data?.bookmarks || []).find((row) => row.model === model) || null;
+}
+
+// Where a model downloads from: its known thread, the link its settings were
+// saved from, or its bookmark.
+function modelThreadUrl(model) {
+  return knownThread(model)?.url || downloads.status?.rules?.[model]?.url || bookmarkFor(model)?.url || "";
+}
+
+// New posts for a model simp knows; its whole thread (as its settings allow)
+// for one it does not. null when there is no link to download from.
+function downloadModelPayload(model, url = modelThreadUrl(model)) {
+  if (knownThread(model)) return { action: "update", model };
+  return url ? { action: "thread", urls: [url] } : null;
+}
+
+// A pasted thread link: the folder it downloads into, as the server names it
+// (simpjobs.py normalize_thread_url and thread_slug). The server's answer
+// to a save says the name for certain.
+function threadLinkTarget(text) {
+  let url = String(text || "").trim().split("#", 1)[0].split("?", 1)[0].replace(/\/(?:page|post)-\d+\/?$/, "/");
+  if (!url.endsWith("/")) url += "/";
+  if (!SIMPCITY_THREAD_RE.test(url)) return null;
+  let part = url.slice(0, -1).split("/").pop();
+  try {
+    part = decodeURIComponent(part);
+  } catch (error) {
+    /* a stray % stays as it is */
+  }
+  const model = part.replace(/\.\d+$/, "").replace(/\s+/g, " ").replace(/[<>:"/\\|?*\x00-\x1f]+/g, "_").replace(/^[ ._]+|[ ._]+$/g, "") || "untitled";
+  return { model, url, byUrl: true };
+}
+
+// Saves `values` as the target's settings (clear: none, which deletes them),
+// then, with go, starts its download: go(model) resolves to the job or null.
+// Resolves to the server's answer plus the job, or null when the save failed
+// (a toast says why).
+async function saveModelRule(target, values, { clear = false, go = null } = {}) {
+  let fields = {};
+  if (!clear) {
+    const request = downloadOptionsRequest(values);
+    if (request.error) {
+      toast(request.error);
+      return null;
+    }
+    fields = request.fields;
+  }
+  let result;
+  try {
+    result = await postJson("/api/simp/rules", { ...(target.byUrl ? { url: target.url } : { model: target.model }), ...fields });
+  } catch (error) {
+    if (!error.locked) toast(error.message);
+    return null;
+  }
+  const model = result.model || target.model;
+  applyModelRules(result.rules, model);
+  if (go) return { ...result, model, job: await go(model) };
+  toast(result.rule ? `Saved for ${folderLabel(model)}: ${ruleBrief(result.rule)}.` : `No settings for ${folderLabel(model)}: its downloads take everything again.`);
+  return { ...result, model, job: null };
+}
+
+// The server's rules after a save, shown everywhere they appear.
+function applyModelRules(rules, changed) {
+  if (downloads.status && rules && typeof rules === "object") downloads.status.rules = rules;
+  // The editor holding that model shows what is saved now.
+  if (changed && ruleEditor.target?.model === changed) ruleEditor.control.set(ruleValues(modelRule(changed)));
+  if (state.currentMode === "downloads" && downloads.status) {
+    renderDownloadThreads(downloads.status.threads || []);
+    renderModelRules();
+  }
+  if (state.currentMode === "ranked" && state.ranked.model) syncModelRule(state.ranked.model);
+  if (state.currentMode === "bookmarks") renderBookmarks();
+}
+
+/* ---- Settings per model, on the Downloads page ---- */
+
+// Model → what the suggestion says about it: models with settings, with a
+// known thread, and bookmarked.
+function ruleChoices() {
+  const choices = new Map();
+  const add = (model, label) => {
+    if (model && !choices.has(model)) choices.set(model, label);
+  };
+  Object.keys(downloads.status?.rules || {}).forEach((model) => add(model, "has settings"));
+  (downloads.status?.threads || []).forEach((thread) => add(thread.model, "known thread"));
+  (bookmarkPage.data?.bookmarks || []).forEach((row) => add(row.model, row.title && row.title !== row.model ? row.title : "bookmarked"));
+  return choices;
+}
+
+function renderRuleChoices() {
+  const choices = [...ruleChoices()].sort(([a], [b]) => a.localeCompare(b));
+  const signature = JSON.stringify(choices);
+  if (signature === ruleEditor.choicesSignature) return;
+  ruleEditor.choicesSignature = signature;
+  el("dlRuleModelList").replaceChildren(...choices.map(([model, label]) => {
+    const option = document.createElement("option");
+    option.value = model;
+    option.label = label;
+    return option;
+  }));
+}
+
+// The bookmark list only loads once the chooser is used.
+async function loadRuleChoices() {
+  if (bookmarkPage.data || !state.features.has("bookmarks")) return;
+  await loadBookmarks();
+  renderRuleChoices();
+  if (!ruleEditor.target && el("dlRuleModel").value.trim()) chooseRuleTarget(false);
+}
+
+// What the chooser holds: a thread link, a model name or a bookmark's title.
+function resolveRuleTarget(typed) {
+  if (!typed) return null;
+  const link = threadLinkTarget(typed);
+  if (link) return link;
+  const needle = typed.toLowerCase();
+  const model = [...ruleChoices().keys()].find((name) => name.toLowerCase() === needle)
+    || (bookmarkPage.data?.bookmarks || []).find((row) => row.title?.toLowerCase() === needle)?.model;
+  return model ? { model, url: modelThreadUrl(model), byUrl: false } : null;
+}
+
+// final: the field was left or Enter pressed, so a name that matches
+// nothing is said to; while typing it only hides the editor.
+function chooseRuleTarget(final) {
+  const typed = el("dlRuleModel").value.trim();
+  const target = resolveRuleTarget(typed);
+  const hint = el("dlRuleHint");
+  const current = ruleEditor.target;
+  hint.classList.toggle("is-error", !target && !!typed && final);
+  hint.textContent = !target && typed && final ? "No model by that name. Pick one from the list, or paste its SimpCity thread link." : "";
+  if (!target) {
+    ruleEditor.target = null;
+    el("dlRuleEditor").hidden = true;
+    return;
+  }
+  if (current && current.model === target.model && current.byUrl === target.byUrl && current.url === target.url) return;
+  showRuleEditor(target);
+}
+
+function showRuleEditor(target) {
+  ruleEditor.target = target;
+  el("dlRuleEditor").hidden = false;
+  ruleEditor.control.set(ruleValues(modelRule(target.model)));
+  syncRuleEditor();
+}
+
+function syncRuleEditor() {
+  const { target } = ruleEditor;
+  if (!target) return;
+  const rule = modelRule(target.model);
+  el("dlRuleName").textContent = folderLabel(target.model);
+  el("dlRuleMeta").textContent = [target.byUrl ? "From the thread link." : "", threadReadWords(knownThread(target.model))].filter(Boolean).join(" ");
+  el("dlRuleSaved").textContent = rule ? `Saved: ${ruleBrief(rule)}.` : "Nothing saved yet: its downloads take everything.";
+  el("dlRuleClear").hidden = !rule;
+  el("dlRuleGo").hidden = !downloadModelPayload(target.model, target.url);
+}
+
+async function saveRuleEditor({ download = false, clear = false } = {}) {
+  const { target, control } = ruleEditor;
+  if (!target) return;
+  if (!clear && control.request().error) {
+    toast(control.request().error);
+    control.pages.focus();
+    return;
+  }
+  const buttons = ["dlRuleSave", "dlRuleGo", "dlRuleClear"].map(el);
+  buttons.forEach((button) => { button.disabled = true; });
+  const url = target.url;
+  const result = await saveModelRule(target, control.values, {
+    clear,
+    go: download ? (model) => submitDownload(downloadModelPayload(model, url)) : null,
+  });
+  buttons.forEach((button) => { button.disabled = false; });
+  // A link names its model for certain only once the server has read it.
+  if (result && ruleEditor.target === target && result.model !== target.model) {
+    target.model = result.model;
+    ruleEditor.control.set(ruleValues(modelRule(result.model)));
+  }
+  syncRuleEditor();
+}
+
+function editModelRule(model) {
+  el("dlRuleModel").value = model;
+  el("dlRuleHint").textContent = "";
+  showRuleEditor({ model, url: modelThreadUrl(model), byUrl: false });
+  el("dlRulesSection").scrollIntoView({ block: "start", behavior: "smooth" });
+  el("dlRuleName").focus({ preventScroll: true });
+}
+
+function renderModelRules() {
+  const status = downloads.status;
+  const ready = modelRulesReady(status) && !!(status.installed && status.configured);
+  el("dlRulesSection").hidden = !ready;
+  if (!ready) return;
+  renderRuleChoices();
+  syncRuleEditor();
+  const rules = Object.entries(status.rules || {}).sort(([a], [b]) => a.localeCompare(b));
+  el("dlRulesEmpty").hidden = rules.length > 0;
+  // A model saved by name with no thread yet downloads from its bookmark: load them, once.
+  if (!bookmarkPage.data && !ruleEditor.bookmarksAsked && state.features.has("bookmarks")
+    && rules.some(([model]) => !downloadModelPayload(model))) {
+    ruleEditor.bookmarksAsked = true;
+    loadBookmarks().then(() => bookmarkPage.data && state.currentMode === "downloads" && renderModelRules());
+  }
+  const signature = JSON.stringify([rules, (status.threads || []).map((thread) => thread.model), !!bookmarkPage.data]);
+  if (signature === ruleEditor.listSignature) return;
+  ruleEditor.listSignature = signature;
+  el("dlRules").replaceChildren(...rules.map(([model, rule]) => {
+    const item = document.createElement("li");
+    const text = document.createElement("div");
+    text.className = "dl-row-text";
+    const name = document.createElement("strong");
+    name.textContent = folderLabel(model);
+    const meta = document.createElement("span");
+    meta.className = "subtle";
+    meta.textContent = [upperFirst(ruleBrief(rule)), knownThread(model) ? "" : "not downloaded yet"].filter(Boolean).join(" · ");
+    text.append(name, meta);
+    const actions = document.createElement("div");
+    actions.className = "dl-row-actions";
+    const edit = downloadButton("Edit", () => editModelRule(model));
+    edit.setAttribute("aria-label", `Edit the settings for ${folderLabel(model)}`);
+    actions.append(edit);
+    const payload = downloadModelPayload(model);
+    if (payload) {
+      const go = downloadButton("Download", () => submitDownload(downloadModelPayload(model) || payload));
+      go.setAttribute("aria-label", `Download ${folderLabel(model)}`);
+      actions.append(go);
+    }
+    const remove = downloadButton("Remove", () => saveModelRule({ model, byUrl: false }, null, { clear: true }), "text-button small-button dl-rule-remove");
+    remove.setAttribute("aria-label", `Remove the settings for ${folderLabel(model)}`);
+    actions.append(remove);
+    item.append(text, actions);
+    return item;
+  }));
+}
+
+function bindRuleEditor() {
+  ruleEditor.control = buildDownloadOptions("dlRuleOpt");
+  el("dlRuleOptions").append(ruleEditor.control.box);
+  const input = el("dlRuleModel");
+  input.addEventListener("focus", loadRuleChoices);
+  input.addEventListener("input", () => chooseRuleTarget(false));
+  input.addEventListener("change", () => chooseRuleTarget(true));
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    chooseRuleTarget(true);
+  });
+  el("dlRuleOptions").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.target.tagName !== "INPUT") return;
+    event.preventDefault();
+    saveRuleEditor();
+  });
+  el("dlRuleSave").addEventListener("click", () => saveRuleEditor());
+  el("dlRuleGo").addEventListener("click", () => saveRuleEditor({ download: true }));
+  el("dlRuleClear").addEventListener("click", () => saveRuleEditor({ clear: true }));
+}
+
+/* ---- the Download settings sheet (model page, bookmarks, known threads) ---- */
+
+// target: { model, url, byUrl }; go(model) starts its download (Save and
+// download), resolving to the job or null; without go that button is hidden.
+function openRuleDialog({ title, target, go = null }) {
+  const dialog = el("dlDialog");
+  if (!downloadDialog.control) {
+    downloadDialog.control = buildDownloadOptions("dlDialogOpt");
+    el("dlDialogBody").append(downloadDialog.control.box);
+  }
+  downloadDialog.target = target;
+  downloadDialog.go = go;
+  downloadDialog.control.set(ruleValues(modelRule(target.model)));
+  downloadDialog.opener = document.activeElement;
+  downloadDialog.openerModel = document.activeElement?.dataset?.ruleModel || "";
+  el("dlDialogTitle").textContent = title || folderLabel(target.model);
+  syncRuleDialog();
+  dialog.hidden = false;
+  window.requestAnimationFrame(() => dialog.classList.add("open"));
+  // Not the page field: on a phone that pops the keyboard over the sheet.
+  el("dlDialogClose").focus({ preventScroll: true });
+}
+
+function syncRuleDialog() {
+  const { target, go } = downloadDialog;
+  const rule = modelRule(target.model);
+  el("dlDialogMeta").textContent = [threadReadWords(knownThread(target.model)),
+    rule ? `Saved: ${ruleBrief(rule)}.` : "Nothing saved yet: its downloads take everything."].join(" ");
+  el("dlDialogClear").hidden = !rule;
+  el("dlDialogGo").hidden = !go;
+}
+
+function closeDownloadDialog() {
+  const dialog = el("dlDialog");
+  if (dialog.hidden) return;
+  dialog.classList.remove("open");
+  downloadDialog.go = null;
+  // A list re-rendered after the save replaced the button that opened it: its twin.
+  let opener = downloadDialog.opener;
+  if (!opener?.isConnected && downloadDialog.openerModel) {
+    opener = [...document.querySelectorAll("[data-rule-model]")].find((node) => node.dataset.ruleModel === downloadDialog.openerModel);
+  }
+  if (opener?.getClientRects().length) opener.focus({ preventScroll: true });
+  window.setTimeout(() => {
+    if (!dialog.classList.contains("open")) dialog.hidden = true;
+  }, 180);
+}
+
+// action: "save", "go" (save and download) or "clear".
+async function submitRuleDialog(action) {
+  const { control, target, go } = downloadDialog;
+  if (!target || el("dlDialog").hidden || el("dlDialogSave").disabled) return;
+  if (action !== "clear" && control.request().error) {
+    toast(control.request().error);
+    control.pages.focus();
+    return;
+  }
+  const buttons = ["dlDialogSave", "dlDialogGo", "dlDialogClear"].map(el);
+  buttons.forEach((button) => { button.disabled = true; });
+  const result = await saveModelRule(target, control.values, { clear: action === "clear", go: action === "go" ? go : null });
+  buttons.forEach((button) => { button.disabled = false; });
+  if (result && (action !== "go" || result.job)) {
+    closeDownloadDialog();
+  } else if (result) {
+    syncRuleDialog(); // saved, but the download did not start: stay, say what is saved
+  }
+}
+
+function bindDownloadDialog() {
+  const dialog = el("dlDialog");
+  el("dlDialogClose").addEventListener("click", closeDownloadDialog);
+  el("dlDialogCancel").addEventListener("click", closeDownloadDialog);
+  el("dlDialogSave").addEventListener("click", () => submitRuleDialog("save"));
+  el("dlDialogGo").addEventListener("click", () => submitRuleDialog("go"));
+  el("dlDialogClear").addEventListener("click", () => submitRuleDialog("clear"));
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) closeDownloadDialog();
+  });
+  // The sheet owns the keyboard while open: Esc closes it, Tab stays inside,
+  // and the page's own keys (mode shortcuts) wait. ` (panic) still works.
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "`") return;
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDownloadDialog();
+    } else if (event.key === "Tab") {
+      const focusable = [...dialog.querySelectorAll("button, input")].filter((node) => !node.disabled && node.getClientRects().length);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    } else if (event.key === "Enter" && event.target.tagName === "INPUT") {
+      event.preventDefault();
+      submitRuleDialog("save");
+    }
+  });
+}
+
+// A "Settings" button that opens the sheet for one model; data-rule-model
+// lets focus find its replacement after a re-render.
+function ruleSettingsButton(model, label, open) {
+  const button = downloadButton("Settings", open);
+  button.dataset.ruleModel = model;
+  button.setAttribute("aria-haspopup", "dialog");
+  button.setAttribute("aria-label", `Download settings for ${label}`);
+  return button;
+}
+
 /* ---- starting and stopping jobs ---- */
 
 async function submitDownload(payload, message) {
@@ -880,7 +1466,10 @@ async function uploadCookies(file) {
   }
 }
 
+
 function bindDownloads() {
+  bindRuleEditor();
+  bindDownloadDialog();
   el("dlThreadGo").addEventListener("click", async () => {
     const urls = el("dlUrls").value.split(/\s+/).filter(Boolean);
     if (!urls.length) {
@@ -893,7 +1482,9 @@ function bindDownloads() {
     const pages = el("dlPages").value.trim().toLowerCase() || "1";
     const limit = Math.max(0, Math.round(Number(el("dlLimit").value) || 0));
     const what = pages === "all" ? "every page of your bookmarks" : `bookmarks page ${pages}`;
-    if (!window.confirm(`Download ${limit ? `the first ${limit} models on ` : "every model on "}${what}? This can take hours.`)) return;
+    const ruled = modelRulesReady() && Object.keys(downloads.status?.rules || {}).length;
+    const rules = ruled ? `\nModels with download settings follow them (${plural(ruled, "model", "models")}).` : "";
+    if (!window.confirm(`Download ${limit ? `the first ${limit} models on ` : "every model on "}${what}? This can take hours.${rules}`)) return;
     submitDownload({ action: "bookmarks", pages, limit });
   });
   el("dlCheckAuth").addEventListener("click", () => submitDownload({ action: "check-auth" }, "Checking the SimpCity login…"));
@@ -919,17 +1510,37 @@ function bindDownloads() {
     const model = state.ranked.model;
     submitDownload({ action: "update", model }, `Checking ${folderLabel(model)} for new posts. Follow it in Downloads.`);
   });
+  el("modelDownload").addEventListener("click", () => {
+    const model = state.ranked.model;
+    openRuleDialog({
+      target: { model, url: modelThreadUrl(model), byUrl: false },
+      go: () => submitDownload({ action: "update", model }),
+    });
+  });
 }
 
-// Model page: New posts, when simp knows the model's thread.
+// Model page: New posts and Download settings when simp knows the model's
+// thread (Download settings only on a server that keeps them), and what its
+// downloads are limited to, so a filtered model looks filtered.
 async function syncModelUpdate(model) {
   const button = el("modelUpdate");
-  const known = () => (downloads.status?.threads || []).find((thread) => thread.model === model);
-  button.hidden = !known();
+  const sync = () => {
+    const thread = knownThread(model);
+    button.hidden = !thread;
+    el("modelDownload").hidden = !thread || !modelRulesReady();
+    syncModelRule(model);
+    return thread;
+  };
+  sync();
   if (!state.features.has("simp")) return;
   await loadDownloadStatus();
   if (state.ranked.model !== model) return;
-  const thread = known();
-  button.hidden = !thread;
+  const thread = sync();
   if (thread) button.title = `Download what is new in ${thread.url}`;
+}
+
+function syncModelRule(model) {
+  const brief = ruleBrief(modelRule(model));
+  el("modelRule").textContent = brief ? `Downloads: ${brief}` : "";
+  el("modelRule").hidden = !brief;
 }

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# WARNING: this RESETS Edging Heaven to an empty library (ratings, history, all of
+# simp's memory). It was the 2026-09-29 Lexar replacement. To move the library to
+# a new disk and keep everything, use move-library-to-new-disk.sh instead.
+#
 # Replaces the dead Lexar flash drive with a 200 GiB space on the SSD and
 # resets Edging Heaven to an empty library.
 #

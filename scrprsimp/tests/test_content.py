@@ -127,7 +127,7 @@ def test_cdl_verifies_against_existing_files_and_recovers_staging(tmp_path, monk
     (staging / "recovered.jpg").write_bytes(b"previous interrupted run")
     (staging / "unfinished.mp4.part").write_bytes(b"partial")
 
-    def run(cfg, urls, out):
+    def run(cfg, urls, out, **kw):
         assert not out.is_relative_to(cfg.models_root())
         assert (folder / "recovered.jpg").is_file()
         (out / "album").mkdir()
@@ -178,7 +178,7 @@ def test_cdl_complete_files_survive_interruption(tmp_path, monkeypatch):
     folder = cfg.models_root() / "model"
     folder.mkdir(parents=True)
 
-    def run(cfg, urls, out):
+    def run(cfg, urls, out, **kw):
         (out / "finished.mp4").write_bytes(b"complete")
         raise KeyboardInterrupt
 
@@ -218,7 +218,7 @@ def test_cdl_files_move_in_while_it_runs(tmp_path, monkeypatch):
     monkeypatch.setattr(download, "CDL_PUBLISH_EVERY", 0.05)
     monkeypatch.setattr(download, "CDL_SETTLED_SECONDS", 0.3)
 
-    def run(cfg, urls, out):
+    def run(cfg, urls, out, **kw):
         (out / "first.mp4").write_bytes(b"first video")
         deadline = time.time() + 5
         while not (folder / "first.mp4").exists() and time.time() < deadline:

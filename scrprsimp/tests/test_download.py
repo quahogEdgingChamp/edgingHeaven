@@ -248,12 +248,15 @@ def test_cyberdrop_command(cfg, tmp_path, monkeypatch, deduplicate):
     cfg.download.deduplicate = deduplicate
     calls = []
 
-    def fake_run(cmd, **kw):
-        calls.append((cmd, kw))
-        return subprocess.CompletedProcess(cmd, 0)
+    class FakePopen:
+        def __init__(self, cmd, **kw):
+            calls.append((cmd, kw))
+
+        def wait(self, timeout=None):
+            return 0
 
     monkeypatch.setattr(download.shutil, "which", lambda name: "/opt/cyberdrop-dl")
-    monkeypatch.setattr(download.subprocess, "run", fake_run)
+    monkeypatch.setattr(download.subprocess, "Popen", FakePopen)
     monkeypatch.delenv("CDL_APPDATA_FOLDER", raising=False)
     cfg.download.max_file_bytes = 4294967295
     cfg.download.min_free_bytes = 3221225472
@@ -358,7 +361,7 @@ def test_slow_later_leaves_bunkr_for_the_end(cfg, tmp_path, monkeypatch):
     runs = []
     exits = iter([0, 130, 0])
 
-    def fake_cdl(cfg, urls_file, dest):
+    def fake_cdl(cfg, urls_file, dest, **kw):
         runs.append(urls_file.read_text().split())
         return next(exits)
 
@@ -382,7 +385,7 @@ def test_slow_later_leaves_bunkr_for_the_end(cfg, tmp_path, monkeypatch):
 
 def test_a_run_without_slow_later_covers_the_saved_list(cfg, tmp_path, monkeypatch):
     runs = []
-    monkeypatch.setattr(download, "run_cyberdrop_dl", lambda cfg, urls_file, dest: runs.append(urls_file.read_text().split()) or 0)
+    monkeypatch.setattr(download, "run_cyberdrop_dl", lambda cfg, urls_file, dest, **kw: runs.append(urls_file.read_text().split()) or 0)
     later_path(cfg, "model").parent.mkdir(parents=True)
     later_path(cfg, "model").write_text("https://bunkr.cr/a/album\n")
     links = [MediaLink("https://bunkr.cr/a/album", MediaKind.VIDEO, "href", prefer_cdl=True)]
@@ -397,7 +400,7 @@ def test_exclude_urls_are_never_downloaded(cfg, tmp_path, monkeypatch):
     """download.exclude_urls: dropped from a new run, and from lists saved
     before the link was excluded (state/later/, a failed run's list)."""
     runs = []
-    monkeypatch.setattr(download, "run_cyberdrop_dl", lambda cfg, urls_file, dest: runs.append(urls_file.read_text().split()) or 0)
+    monkeypatch.setattr(download, "run_cyberdrop_dl", lambda cfg, urls_file, dest, **kw: runs.append(urls_file.read_text().split()) or 0)
     cfg.download.exclude_urls = ["https://bunkr.cr/a/huge"]
     thread = "https://simpcity.cr/threads/model.123/"
     links = [MediaLink(url, MediaKind.ALBUM, "href", prefer_cdl=True)
