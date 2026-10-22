@@ -1785,6 +1785,14 @@ class MediaLibrary:
 
 class AppServer(ThreadingHTTPServer):
     daemon_threads = True
+    # How many new connections the kernel holds until the server accepts
+    # them. socketserver's default is 5. A gallery page, a feed or a phone
+    # coming back to the tab opens dozens at once through `tailscale serve`;
+    # past five the kernel dropped the rest, and each retried a second or more
+    # later, which showed as "Loading media..." on files that were fine
+    # (`nstat -az TcpExtListenOverflows` counted 2,667 in six days). The
+    # kernel caps this at net.core.somaxconn (4096).
+    request_queue_size = 128
 
     def __init__(self, server_address, handler_class, library: MediaLibrary, simp: Optional[SimpJobs] = None):
         super().__init__(server_address, handler_class)

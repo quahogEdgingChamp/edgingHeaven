@@ -1,10 +1,13 @@
 import io
+import select
+import socket
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from server import RequestHandler, OPEN_RANGE_CHUNK
+from server import AppServer, MediaLibrary, RequestHandler, OPEN_RANGE_CHUNK
 
 
 class MediaHTTPTests(unittest.TestCase):
@@ -48,6 +51,38 @@ class MediaHTTPTests(unittest.TestCase):
             self.assertEqual(status, 206)
             self.assertEqual(len(body), OPEN_RANGE_CHUNK)
             self.assertEqual(int(headers["Content-Length"]), OPEN_RANGE_CHUNK)
+
+
+class ListenQueueTests(unittest.TestCase):
+    def test_a_burst_of_connections_is_held_not_dropped(self):
+        # The server is bound but not accepting, like one busy for a moment.
+        # With socketserver's default backlog of 5 the kernel completed only
+        # six of these handshakes and dropped the rest's SYNs (retried 1 s
+        # later); every one must complete at once.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "media").mkdir()
+            library = MediaLibrary(root / "media", root / "data" / "state.json")
+            server = AppServer(("127.0.0.1", 0), RequestHandler, library)
+            clients = []
+            try:
+                for _ in range(40):
+                    client = socket.socket()
+                    client.setblocking(False)
+                    client.connect_ex(server.server_address)
+                    clients.append(client)
+                deadline = time.monotonic() + 0.5
+                waiting = list(clients)
+                while waiting and time.monotonic() < deadline:
+                    _, writable, _ = select.select([], waiting, [], 0.05)
+                    waiting = [client for client in waiting if client not in writable]
+                self.assertEqual(len(waiting), 0, f"{len(waiting)} of 40 connections were not accepted")
+                for client in clients:
+                    self.assertEqual(client.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR), 0)
+            finally:
+                for client in clients:
+                    client.close()
+                server.server_close()
 
 
 if __name__ == "__main__":
