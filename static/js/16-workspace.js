@@ -143,7 +143,7 @@ function initWorkspace() {
       watchEndAll("left");
       flushWatch(true);
     }
-    if (!document.hidden && !state.panic && !state.locked && state.currentMode === "dangerous" && !el("dangerousVideo").hidden) {
+    if (!document.hidden && !state.locked && state.currentMode === "dangerous" && !el("dangerousVideo").hidden) {
       playWhenReady(el("dangerousVideo"), el("dangerousVideo").dataset.loadToken);
     }
     syncWakeLock();

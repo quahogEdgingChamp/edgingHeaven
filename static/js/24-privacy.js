@@ -1,21 +1,19 @@
 /* ==========================================================================
-   Privacy — panic cover, a plain tab title, and the PIN lock
+   Privacy — a plain tab title, and the PIN lock
 
-   Panic (` or a three-finger tap) silences every mode and covers the page
-   with a blank "notes" page; a double tap or ` again brings it back. The
-   PIN lock is enforced by the server (see server.py): while locked, every
+   The PIN lock is enforced by the server (see server.py): while locked, every
    API call and every media request answers 401, and this screen is all the
    page can show.
    ========================================================================== */
 
-Object.assign(MODE_DEFAULTS, { useMarks: true, neutralTitle: false, panicOnHide: false, toyAuto: false, toyMax: 0.7 });
+Object.assign(MODE_DEFAULTS, { useMarks: true, neutralTitle: false, toyAuto: false, toyMax: 0.7 });
 
 const NEUTRAL_TITLE = "Notes";
 const NEUTRAL_ICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e8e8e8'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='%23999' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E";
 let ownIcon = "";
 
 function syncDocumentTitle() {
-  const neutral = state.panic || state.settings.neutralTitle || state.locked;
+  const neutral = state.settings.neutralTitle || state.locked;
   const mode = state.currentMode;
   document.title = neutral ? NEUTRAL_TITLE : mode === "home" ? "Edging Heaven" : `${workspaceNames[mode]} · Heaven`;
   const icon = document.querySelector('link[rel="icon"]');
@@ -23,55 +21,6 @@ function syncDocumentTitle() {
     ownIcon ||= icon.getAttribute("href");
     icon.setAttribute("href", neutral ? NEUTRAL_ICON : ownIcon);
   }
-}
-
-/* ---- panic ---- */
-
-function setPanic(on) {
-  if (on === !!state.panic) return;
-  state.panic = on;
-  el("panicCover").hidden = !on;
-  document.body.classList.toggle("panic", on);
-  if (on) {
-    closeDrawers();
-    closeModeLauncher();
-    if (!controls.galleryLightbox.hidden) closeLightbox();
-    quietAllModes();
-    document.querySelectorAll("video").forEach((video) => {
-      video.muted = true;
-    });
-    el("panicCover").focus({ preventScroll: true });
-  } else {
-    resumeCurrentMode();
-  }
-  syncDocumentTitle();
-  syncWakeLock();
-}
-
-function bindPanic() {
-  const cover = el("panicCover");
-  // Our own double tap: iOS does not reliably send dblclick.
-  let lastTap = 0;
-  cover.addEventListener("pointerup", () => {
-    const now = performance.now();
-    if (now - lastTap < 350) {
-      lastTap = 0;
-      setPanic(false);
-    } else {
-      lastTap = now;
-    }
-  });
-  window.addEventListener("touchstart", (event) => {
-    if (event.touches.length >= 3 && !state.panic && state.libraryReady) {
-      setPanic(true);
-    }
-  }, { passive: true });
-  document.addEventListener("visibilitychange", () => {
-    // The app switcher shows a snapshot of the page; make it a blank one.
-    if (document.hidden && state.settings.panicOnHide && state.libraryReady) {
-      setPanic(true);
-    }
-  });
 }
 
 /* ---- PIN lock ---- */
@@ -157,7 +106,7 @@ async function submitPin() {
     hideLockScreen();
     await loadState({ rebuild: true });
     loadSeen();
-    if (!state.panic) resumeCurrentMode();
+    resumeCurrentMode();
   } catch (error) {
     syncLockPad("Could not reach the server.");
   } finally {
@@ -263,7 +212,6 @@ function bindPrivacyCards() {
     if (key === "showStreaks") thrillSettingChanged(key);
   }));
   bindToyPanel();
-  bindPanic();
   bindLockScreen();
 }
 
@@ -273,7 +221,7 @@ function syncPrivacyCards() {
   syncToyPanel();
 }
 
-// What coming back to a mode means, for visibility, panic and unlocking alike.
+// What coming back to a mode means, for visibility and unlocking alike.
 function resumeCurrentMode() {
   const mode = state.currentMode;
   if (mode === "escalation") {

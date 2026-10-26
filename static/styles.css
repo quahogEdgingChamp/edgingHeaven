@@ -2095,15 +2095,6 @@ body.immersive.idle .play-stage[data-hud="compact"] .play-hud { opacity: 0; }
 @keyframes lock-shake { 20%, 60% { transform: translateX(-10px); } 40%, 80% { transform: translateX(10px); } }
 body.locked .shell, body.locked .drawer { visibility: hidden; }
 
-/* ---------------------------------------------------------- panic cover -- */
-/* Plain on purpose: no theme, no brand, nothing that says what is behind it. */
-.panic-cover { position: fixed; inset: 0; z-index: 300; overflow: auto; background: #fff; color: #222; font-family: system-ui, sans-serif; outline: none; cursor: default; }
-.panic-page { max-width: 720px; margin: 0 auto; padding: max(40px, env(safe-area-inset-top)) 24px 40px; }
-.panic-page h1 { margin: 0 0 28px; font-size: 1.75rem; font-weight: 700; color: #222; }
-.panic-page i { display: block; height: 12px; margin: 18px 0; border-radius: 6px; background: #eee; }
-.panic-page i.short { width: 55%; }
-body.panic .shell, body.panic .drawer, body.panic .workspace-toast { visibility: hidden; }
-
 /* ---- Downloads (simp, run by the server) ---- */
 .dl-notice { margin: 0; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--surface-2); font-size: 0.875rem; overflow-wrap: anywhere; }
 .dl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; }

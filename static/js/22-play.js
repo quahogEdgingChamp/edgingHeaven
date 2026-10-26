@@ -63,7 +63,7 @@ const PLAY_SETTING_CHOICES = {
   spotlightOrder: ["random", "smart"], ladderRank: ["elo", "fair"],
 };
 const PLAY_SETTING_SWITCHES = ["beatVibrate", "redlightWarning", "redlightSound", "diceHolds", "diceSpeed", "diceEdges",
-  "useMarks", "neutralTitle", "panicOnHide", "toyAuto"];
+  "useMarks", "neutralTitle", "toyAuto"];
 
 function sanitizePlaySettings() {
   const settings = state.settings;

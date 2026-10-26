@@ -7,7 +7,7 @@
    through the server. The running mode says how strong (0–1) at any
    moment: Escalation from its ramp, Session and Red light from their phase,
    Beat pulses on every beat. "Max intensity" scales all of it, and leaving
-   a mode, hiding the tab or panicking stops everything.
+   a mode or hiding the tab stops everything.
    ========================================================================== */
 
 const toy = {

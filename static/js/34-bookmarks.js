@@ -76,7 +76,7 @@ function followBookmarkRefresh() {
   window.clearTimeout(bookmarkPage.timer);
   bookmarkPage.timer = window.setTimeout(async () => {
     if (state.currentMode !== "bookmarks") return;
-    if (!document.hidden && !state.panic && !state.locked) {
+    if (!document.hidden && !state.locked) {
       await Promise.all([loadDownloadStatus(), loadBookmarks()]);
       if (state.currentMode !== "bookmarks") return;
       renderBookmarks();

@@ -1,5 +1,5 @@
 """Browser checks for Love, marked moments, the six timed modes, model pages,
-session history, panic, the PIN lock, toy sync and Downloads.
+session history, the PIN lock, toy sync and Downloads.
 
 Uses only the test library, like browser_design.py: ratings, marks, sessions
 and the PIN go to a temporary data directory, trash/restore are blocked, and
@@ -364,15 +364,6 @@ with tempfile.TemporaryDirectory(prefix="heaven-features-") as tmp:
         page.click("#bmGrid .bm-card button:has-text('Open')")
         page.wait_for_function(f"state.currentMode === 'ranked' && state.ranked.model === {json.dumps(have_model)}", timeout=5000)
         check("Open goes to that model's page", True)
-
-        # ---- Panic
-        page.evaluate("() => setMode('escalation')")
-        page.wait_for_timeout(800)
-        page.keyboard.press("`")
-        state = page.evaluate("({cover: !el('panicCover').hidden, title: document.title, playing: [...document.querySelectorAll('video')].some(v => !v.paused)})")
-        check("panic covers, retitles and silences", state == {"cover": True, "title": "Notes", "playing": False}, state)
-        page.keyboard.press("`")
-        check("panic off", page.evaluate("el('panicCover').hidden && document.title.includes('Escalation')"))
 
         # ---- Toy: handshake, levels while Escalation runs, stop on leaving
         try:

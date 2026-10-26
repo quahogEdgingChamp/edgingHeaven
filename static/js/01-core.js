@@ -671,7 +671,7 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       quietAllModes();
-    } else if (!state.panic && !state.locked) {
+    } else if (!state.locked) {
       resumeCurrentMode();
     }
   });
@@ -709,18 +709,6 @@ function handleKeydown(event) {
   }
 
   if (state.locked) {
-    return;
-  }
-  if (state.panic) {
-    if (key === "`" || key === "Escape") {
-      event.preventDefault();
-      setPanic(false);
-    }
-    return;
-  }
-  if (key === "`" && !typing) {
-    event.preventDefault();
-    setPanic(true);
     return;
   }
 

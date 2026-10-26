@@ -178,9 +178,8 @@ DEFAULT_SETTINGS = {
     "rediscoverRatingFilter": "all",
     # Lean-back modes start a clip at one of its marked moments when it has any.
     "useMarks": True,
-    # Privacy: a plain tab title, and blanking the page when the tab is hidden.
+    # Privacy: a plain tab title.
     "neutralTitle": False,
-    "panicOnHide": False,
     # Toy sync through Intiface Central (Buttplug protocol, local websocket).
     "toyUrl": "ws://127.0.0.1:12345",
     "toyMax": 0.7,
