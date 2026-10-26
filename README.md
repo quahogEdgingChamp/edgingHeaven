@@ -481,6 +481,7 @@ The service must restart to load Python changes (`sudo systemctl restart edging-
 python3 -m unittest discover -s tests -v
 for f in static/js/*.js; do node --check "$f"; done
 node tests/smart_order_check.js      # smart order's maths, no browser
+node tests/freeze_watchdog_check.js # frozen-clip watchdog, no browser
 scrprsimp/.venv/bin/python -m pytest -q scrprsimp/tests   # simp itself
 ```
 
@@ -531,7 +532,7 @@ python3 tests/browser_features.py
 
 ## Notes
 
-- Ratings, duel rankings, marked moments, session history, settings and the PIN hash are stored in `data/state.json`; seen times in `data/seen.json`; smart order's watch signals and revisit schedule in `data/watch.json` and every duel in `data/duels.json` (deleting either only makes smart order start learning again); video stills in `data/thumbs/` (safe to delete — they are remade on demand).
+- Ratings, duel rankings, marked moments, session history, settings and the PIN hash are stored in `data/state.json`; seen times in `data/seen.json`; smart order's watch signals and revisit schedule in `data/watch.json` and every duel in `data/duels.json` (deleting either only makes smart order start learning again); video stills in `data/thumbs/` (safe to delete — they are remade on demand). Clips that freeze or fail on a phone are logged with what the browser reported in `data/playback.jsonl` (capped at 512 KB, safe to delete).
 - The page's code is split into ordered plain scripts in `static/js/` (no build step). They share one global scope, in file order, so the browser tests can call `setMode()`, `state`, etc. directly.
 - Forgot the PIN: stop the server, set `"lock": null` and `"lockTokens": {}` in `state.json`, start it again.
 - If you switch to a different media directory, saved ratings are cleared so the state matches the new library.

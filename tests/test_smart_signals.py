@@ -144,6 +144,28 @@ class HttpTests(LibraryCase):
         self.call("/api/duel-restore", {"ratings": {"a/one.jpg": None, "a/two.jpg": None}, "undo": ["a/one.jpg", "a/two.jpg"]})
         self.assertEqual(self.call("/api/duel-log")["log"], [])
 
+    def test_playback_reports_are_logged_flat_and_capped(self):
+        import server
+        self.assertTrue(self.call("/api/playback", {
+            "path": "a/one.mp4", "kind": "frozen", "time": 2.5, "buffered": [[0, 4.2], "junk", [1]],
+            "nested": {"x": 1}, "ua": "x" * 1000})["ok"])
+        self.assertFalse(self.call("/api/playback", {"kind": "frozen"})["ok"])
+        rows = [json.loads(line) for line in self.library.playback_log_path.read_text().splitlines()]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["kind"], rows[0]["time"], rows[0]["buffered"]), ("frozen", 2.5, [[0, 4.2]]))
+        self.assertNotIn("nested", rows[0])
+        self.assertEqual(len(rows[0]["ua"]), 300)
+        old_cap = server.PLAYBACK_LOG_MAX_BYTES
+        server.PLAYBACK_LOG_MAX_BYTES = 2000
+        try:
+            for index in range(60):
+                self.library.record_playback({"path": "a/one.mp4", "n": index})
+        finally:
+            server.PLAYBACK_LOG_MAX_BYTES = old_cap
+        lines = self.library.playback_log_path.read_text().splitlines()
+        self.assertLess(len(lines), 60)
+        self.assertEqual(json.loads(lines[-1])["n"], 59)
+
     def test_order_settings_save(self):
         self.assertEqual(DEFAULT_SETTINGS["feedOrder"], "random")
         settings = self.call("/api/settings", {"feedOrder": "smart", "ladderRank": "fair"})["settings"]
