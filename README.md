@@ -369,7 +369,8 @@ have its database open. Bookmarks (`bookmarks.json`) and their preview pictures 
 
 - **PIN lock** (off until you set one): 4–12 digits. The server then refuses
   every API and media request without an unlock cookie, so nothing loads before
-  the PIN. Each device stays unlocked for 30 days or until **Lock now**. The PIN
+  the PIN. It is asked every time: when the page opens, and whenever it was
+  hidden (another app or tab, the screen off), however briefly. The PIN
   is stored only as a salted PBKDF2 hash; wrong PINs back off (5 free, then 30 s
   doubling to 15 min). Changing or removing it needs the current PIN
 - **Plain tab title and icon**

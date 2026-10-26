@@ -3,7 +3,9 @@
 
    The PIN lock is enforced by the server (see server.py): while locked, every
    API call and every media request answers 401, and this screen is all the
-   page can show.
+   page can show. With a PIN set it is asked every time: when the page opens,
+   and whenever it was hidden (another app or tab, the screen off), for
+   however short a time.
    ========================================================================== */
 
 Object.assign(MODE_DEFAULTS, { useMarks: true, neutralTitle: false, toyAuto: false, toyMax: 0.7 });
@@ -25,7 +27,7 @@ function syncDocumentTitle() {
 
 /* ---- PIN lock ---- */
 
-const lockPad = { pin: "", busy: false, waitTimer: 0 };
+const lockPad = { pin: "", busy: false, waitTimer: 0, enabled: false };
 
 class LockedError extends Error {
   constructor() {
@@ -37,6 +39,7 @@ class LockedError extends Error {
 function showLockScreen() {
   if (state.locked) return;
   state.locked = true;
+  lockPad.enabled = true;
   quietAllModes();
   document.querySelectorAll("video").forEach((video) => releaseVideo(video));
   el("lockScreen").hidden = false;
@@ -45,6 +48,30 @@ function showLockScreen() {
   syncLockPad("Enter your PIN");
   syncDocumentTitle();
   fetchJson("/api/lock").then((status) => startLockWait(status.retryAfter)).catch(() => {});
+}
+
+// The server forgets this device's unlock first, so a reload or another tab
+// cannot skip the PIN either. sendBeacon still goes out while a phone puts
+// the browser in the background, which a plain fetch may not.
+function lockOnLeave() {
+  if (!lockPad.enabled || state.locked) return;
+  const body = new Blob(["{}"], { type: "application/json" });
+  if (!navigator.sendBeacon("/api/lock/logout", body)) {
+    fetch("/api/lock/logout", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+  }
+  showLockScreen();
+}
+
+// Opening the page asks too, however recently this device unlocked. Runs
+// before the library loads, which then meets the lock and shows the pad.
+async function requirePinOnOpen() {
+  try {
+    const status = await fetchJson("/api/lock");
+    lockPad.enabled = !!status.enabled;
+    if (status.enabled && status.unlocked) await postJson("/api/lock/logout", {});
+  } catch (error) {
+    /* an older server or no connection: loading the library finds out */
+  }
 }
 
 function hideLockScreen() {
@@ -132,6 +159,10 @@ function bindLockScreen() {
     const button = event.target.closest("[data-key]");
     if (button) pressLockKey(button.dataset.key);
   });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) lockOnLeave();
+  });
+  window.addEventListener("pagehide", lockOnLeave);
   window.addEventListener("keydown", (event) => {
     if (!state.locked) return;
     event.preventDefault();
@@ -159,8 +190,9 @@ async function syncPinCard() {
     /* shown as off */
   }
   card.dataset.pin = status.enabled ? "on" : "off";
+  lockPad.enabled = !!status.enabled;
   el("pinStatus").textContent = status.enabled
-    ? "PIN is on. Every device needs it once; each one then stays unlocked for 30 days or until you lock it."
+    ? "PIN is on. It is asked every time you open this page or come back to it from another app or tab."
     : "No PIN. Anyone who can open this page can use it.";
   el("pinCurrent").hidden = !status.enabled;
   el("pinSave").textContent = status.enabled ? "Change PIN" : "Set PIN";

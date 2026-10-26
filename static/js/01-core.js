@@ -155,7 +155,7 @@ document.addEventListener("DOMContentLoaded", () => {
   cacheDom();
   bindEvents();
   initWorkspace();
-  loadState().catch((error) => {
+  requirePinOnOpen().then(loadState).catch((error) => {
     // A PIN-locked server: the lock screen is already up and loads the
     // library itself once unlocked.
     if (error.locked) return;
