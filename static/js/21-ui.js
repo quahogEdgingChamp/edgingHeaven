@@ -43,7 +43,10 @@ function setupMediaFeedback() {
       overlay.hidden = false;
       overlay.querySelector('[role="status"]').textContent = "Loading media…";
       overlay.querySelector("div").hidden = true;
-      record.timer = setTimeout(() => stalled("Taking longer than usual. Retry or skip this file."), 8000);
+      record.timer = setTimeout(() => {
+        if (media.tagName === "VIDEO") reportPlayback(media, "slow-load");
+        stalled("Taking longer than usual. Retry or skip this file.");
+      }, 8000);
     };
     const stalled = message => {
       if (!media.getAttribute("src") || media.hidden) return;
@@ -72,9 +75,13 @@ function setupMediaFeedback() {
     });
     ["load", "loadeddata", "playing", "canplay"].forEach(event => media.addEventListener(event, done));
     media.addEventListener("waiting", pending);
-    media.addEventListener("error", () => stalled("This file could not be played. Retry or skip."));
+    media.addEventListener("error", () => {
+      if (media.tagName === "VIDEO" && media.error?.code !== 1) reportPlayback(media, "error");
+      stalled("This file could not be played. Retry or skip.");
+    });
     new MutationObserver(pending).observe(media, { attributes: true, attributeFilter: ["src"] });
     if (media.getAttribute("src")) pending();
+    if (media.tagName === "VIDEO") watchFreeze(media, stalled);
   }
   document.querySelectorAll("img,video").forEach(watch);
   new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => {
@@ -82,6 +89,92 @@ function setupMediaFeedback() {
     if (node.matches("img,video")) watch(node);
     node.querySelectorAll("img,video").forEach(watch);
   }))).observe(el("mainContent"), { childList: true, subtree: true });
+}
+
+/* ---- frozen clips ----
+
+   A clip can sit "playing" with its clock stopped and never fire `waiting`,
+   so the loading overlay never shows. Firefox on Android does this on some
+   files. Every second while a clip plays, check that its time moved. After
+   FREEZE_MS without movement: nudge it with a tiny seek (a seek restarts the
+   decoder from the last keyframe), then a jump of a second, then give up and
+   offer Retry/Skip. Each freeze is reported to the server with what the
+   element said, so the cause can be read back from playback.jsonl. */
+
+const FREEZE_MS = 3000;
+
+function playbackPath(media) {
+  if (media.dataset.path) return media.dataset.path;
+  try {
+    return new URL(media.currentSrc || media.src, location.href).searchParams.get("path") || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function reportPlayback(media, kind, extra = {}) {
+  const path = playbackPath(media);
+  if (!path) return;
+  const round = n => (Number.isFinite(n) ? Math.round(n * 100) / 100 : null);
+  const buffered = [];
+  for (let i = 0; i < media.buffered.length; i += 1) buffered.push([round(media.buffered.start(i)), round(media.buffered.end(i))]);
+  const quality = media.getVideoPlaybackQuality?.();
+  postJson("/api/playback", {
+    path, kind, mode: state.currentMode,
+    time: round(media.currentTime), duration: round(media.duration),
+    readyState: media.readyState, networkState: media.networkState, buffered,
+    width: media.videoWidth, height: media.videoHeight,
+    frames: quality?.totalVideoFrames ?? null, dropped: quality?.droppedVideoFrames ?? null,
+    rate: media.playbackRate, muted: media.muted,
+    error: media.error?.code ?? null, errorMessage: media.error?.message || null,
+    ua: navigator.userAgent,
+    ...extra,
+  }).catch(() => {});
+}
+
+function watchFreeze(media, stalled) {
+  // nudgedFrom: where the last nudge put the clip, until it has played a
+  // second past that (reported as "recovered") or the clip changes.
+  let timer = null, lastTime = -1, stillMs = 0, nudges = 0, nudgedFrom = null;
+  const stop = () => { clearInterval(timer); timer = null; stillMs = 0; };
+  const tick = () => {
+    if (media.paused || media.ended || media.seeking || document.hidden || !media.getAttribute("src")) {
+      stillMs = 0;
+      lastTime = media.currentTime;
+      return;
+    }
+    if (media.currentTime !== lastTime) {
+      lastTime = media.currentTime;
+      stillMs = 0;
+      if (nudgedFrom !== null && media.currentTime - nudgedFrom >= 1) {
+        reportPlayback(media, "recovered", { attempt: nudges });
+        nudgedFrom = null;
+      }
+      return;
+    }
+    stillMs += 1000;
+    if (stillMs < FREEZE_MS) return;
+    stillMs = 0;
+    nudges += 1;
+    reportPlayback(media, "frozen", { attempt: nudges });
+    if (nudges === 1) {
+      media.currentTime += 0.01;
+      nudgedFrom = media.currentTime;
+    } else if (nudges === 2 && media.currentTime + 1 < media.duration) {
+      media.currentTime += 1;
+      nudgedFrom = media.currentTime;
+    } else {
+      nudgedFrom = null;
+      stop();
+      stalled("This clip keeps freezing. Retry or skip.");
+    }
+  };
+  media.addEventListener("playing", () => {
+    if (!timer) { lastTime = media.currentTime; timer = setInterval(tick, 1000); }
+  });
+  ["pause", "ended", "emptied"].forEach(event => media.addEventListener(event, stop));
+  // A new file (or Retry) starts with a clean slate.
+  media.addEventListener("loadstart", () => { nudges = 0; nudgedFrom = null; });
 }
 
 function setupPanelAccessibility() {

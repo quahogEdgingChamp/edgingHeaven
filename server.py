@@ -273,6 +273,10 @@ SESSION_MODES = {"session", "beat", "redlight", "dice", "escalation", "ladder", 
 WATCH_BATCH_LIMIT = 200
 WATCH_MAX_SECONDS = 600
 WATCH_COMPLETE = 0.85
+# Playback problems the page reports (playback.jsonl): what the browser said
+# when a clip froze or failed. Kept small; the oldest half goes when full.
+PLAYBACK_LOG_MAX_BYTES = 512 * 1024
+PLAYBACK_EVENT_MAX_BYTES = 2048
 # Rediscover's revisit schedule: first interval, growth on a keep, floor.
 REVIEW_FIRST_DAYS = 7
 REVIEW_GROWTH = 2.5
@@ -413,6 +417,7 @@ class MediaLibrary:
         # schedule. Its own file for the same reason as seen.json.
         self.watch_path = state_path.parent / "watch.json"
         self.watch = self._load_watch()
+        self.playback_log_path = state_path.parent / "playback.jsonl"
         # Every duel as [winner, loser, epoch], so a ranking can be refitted
         # from all of them rather than only the running Elo score.
         self.duel_log_path = state_path.parent / "duels.json"
@@ -1160,6 +1165,41 @@ class MediaLibrary:
         with self.lock:
             known = self._catalog_paths()
             return {path: row for path, row in self.watch.items() if path in known}
+
+    def record_playback(self, event) -> bool:
+        """Append one report from the page's stall watchdog: the clip, where
+        it stopped, and what the element said about its buffer, decoder and
+        network. Only flat values are kept, so a report cannot grow the file
+        by more than a line."""
+        if not isinstance(event, dict) or not isinstance(event.get("path"), str):
+            return False
+        row = {"at": utc_now_iso()}
+        for key, value in list(event.items())[:40]:
+            if not isinstance(key, str) or len(key) > 40:
+                continue
+            if value is None or isinstance(value, (bool, int, float)):
+                row[key] = value
+            elif isinstance(value, str):
+                row[key] = value[:300]
+            elif isinstance(value, list):
+                # Buffered ranges: [[start, end], ...] in seconds.
+                row[key] = [pair for pair in value[:20] if isinstance(pair, list) and len(pair) == 2
+                            and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in pair)]
+        line = json.dumps(row, separators=(",", ":"))
+        if len(line) > PLAYBACK_EVENT_MAX_BYTES:
+            return False
+        with self.lock:
+            try:
+                if self.playback_log_path.stat().st_size > PLAYBACK_LOG_MAX_BYTES:
+                    lines = self.playback_log_path.read_text(encoding="utf-8").splitlines()
+                    temporary = self.playback_log_path.with_suffix(".tmp")
+                    temporary.write_text("".join(f"{kept}\n" for kept in lines[len(lines) // 2:]), encoding="utf-8")
+                    temporary.replace(self.playback_log_path)
+            except FileNotFoundError:
+                pass
+            with self.playback_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+        return True
 
     def record_watch(self, events) -> int:
         """One event per time a file was the one on screen in a deck, Feed
@@ -2285,6 +2325,10 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/watch":
             self._send_json({"ok": True, "stored": self.server.library.record_watch(payload.get("events"))})
+            return
+
+        if parsed.path == "/api/playback":
+            self._send_json({"ok": self.server.library.record_playback(payload)})
             return
 
         if parsed.path == "/api/duel":
