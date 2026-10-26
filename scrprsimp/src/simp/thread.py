@@ -11,6 +11,7 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 from rich.console import Console
 
+from .archives import link_excludes
 from .config import Config
 from .filters import PageSpec, describe_pages
 from .hosts import (
@@ -95,6 +96,7 @@ def extract_media_from_html(
     seen: set[str] = set()
     # Pictures that only preview a link cyberdrop-dl downloads (see below).
     previews: set[str] = set()
+    excludes = link_excludes(cfg)
 
     def normalize(raw_url: str) -> str:
         return _fullsize_image_url(_unwrap_redirect(absolute_url(page_url, raw_url)))
@@ -103,11 +105,9 @@ def extract_media_from_html(
         if not raw_url:
             return None
         url = normalize(raw_url)
-        if url in previews or is_excluded_ext(url, cfg.download.exclude_extensions):
+        if url in previews or is_excluded_ext(url, excludes):
             return None
-        link = classify_url(
-            url, source=source, exclude_extensions=cfg.download.exclude_extensions
-        )
+        link = classify_url(url, source=source, exclude_extensions=excludes)
         if not link or not is_wanted(link, cfg.download.images, cfg.download.videos):
             return None
         return link
@@ -203,9 +203,7 @@ def _load_crawl_cache(path: Path, cfg: Config) -> dict | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except ValueError:
         return None
-    links = links_from_rows(
-        data.get("links", []), exclude_extensions=cfg.download.exclude_extensions
-    )
+    links = links_from_rows(data.get("links", []), exclude_extensions=link_excludes(cfg))
     data["links"] = [
         l for l in links if is_wanted(l, cfg.download.images, cfg.download.videos)
     ]

@@ -9,6 +9,7 @@ import httpx
 from rich.console import Console
 from rich.table import Table
 
+from .archives import link_excludes
 from .auth import assert_logged_in, build_client
 from .bookmarks import Bookmark, collect_targets
 from .config import Config, load_config
@@ -429,9 +430,7 @@ def cmd_download(args: argparse.Namespace, cfg: Config) -> int:
                 continue
             row = json.loads(line)
             bm = Bookmark(url=row["thread"], title=row.get("title") or "")
-            links = links_from_rows(
-                row.get("media", []), exclude_extensions=cfg.download.exclude_extensions
-            )
+            links = links_from_rows(row.get("media", []), exclude_extensions=link_excludes(cfg))
             pages = filter_for(bm.url).pages
             if pages:
                 chosen = pages.resolve(max((l.thread_page or 0 for l in links), default=0))

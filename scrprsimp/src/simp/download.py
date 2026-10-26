@@ -20,6 +20,7 @@ from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
+from . import archives
 from .config import Config
 from .content import ContentIndex, complete_files
 from .filters import Budget, RunFilter
@@ -178,6 +179,9 @@ def direct_download_one(
                 name = _filename_from_response(target, r)
                 if any(name.lower().endswith(ext) for ext in blocked):
                     return _report(label, link, "skip", f"{name} (excluded)")
+                if cfg.archives.unpack and archives.is_archive(name):
+                    # Unpacked only from cyberdrop-dl's staging folder, never here.
+                    return _report(label, link, "skip", f"{name} (archive from a direct link)")
                 if RunFilter(only=only).wrong_file(name):
                     return _report(label, link, "skip", f"{name} (not {only})")
 
@@ -388,13 +392,34 @@ def cdl_paths(cfg: Config) -> dict[str, Path]:
     }
 
 
-def cdl_exclude_regex(exclude: list[str] | None) -> str | None:
-    """cyberdrop-dl --filename-regex-exclude for the configured extensions (None = keep all)."""
-    exts = sorted(e.lstrip(".") for e in blocked_extensions(exclude))
-    if not exts:
-        return None
-    # (\.|$) also catches split archives like .7z.001
-    return r"(?i)\.(" + "|".join(re.escape(e) for e in exts) + r")(\.|$)"
+# What cyberdrop-dl counts as media (constants.FileExt.MEDIA in 10.x), plus
+# .avif and .bmp, photos it files under "other". With archives on, its
+# --no-non-media is off, so the regex below keeps everything else out.
+CDL_MEDIA_EXT = frozenset({
+    ".gif", ".gifv", ".heic", ".jfif", ".jif", ".jpe", ".jpeg", ".jpg", ".jxl", ".png", ".svg", ".tif",
+    ".tiff", ".webp", ".avif", ".bmp",
+    ".3gp", ".avchd", ".avi", ".f4v", ".flv", ".m2ts", ".m4p", ".m4v", ".mkv", ".mov", ".mp2", ".mp4",
+    ".mpe", ".mpeg", ".mpg", ".mpv", ".mts", ".ogg", ".ogv", ".qt", ".swf", ".ts", ".webm", ".wmv",
+    ".flac", ".m4a", ".mka", ".mp3", ".wav",
+})
+
+
+def cdl_exclude_regex(exclude: list[str] | None, keep_archives: frozenset[str] = frozenset()) -> str | None:
+    """cyberdrop-dl --filename-regex-exclude for the configured extensions (None = keep all).
+
+    keep_archives: archive extensions this run unpacks. They are let through,
+    and so that nothing else that is not media comes with them, so is only
+    a name ending in media or one of them. Multi-part RARs never are."""
+    exts = sorted(e.lstrip(".") for e in blocked_extensions(exclude) - keep_archives)
+    parts = []
+    if exts:
+        # (\.|$) also catches split archives like .7z.001
+        parts.append(r"\.(" + "|".join(re.escape(e) for e in exts) + r")(\.|$)")
+    if keep_archives:
+        allowed = sorted(e.lstrip(".") for e in CDL_MEDIA_EXT | keep_archives)
+        parts.append(r"^(?!.*\.(" + "|".join(re.escape(e) for e in allowed) + r")$)")
+        parts.append(r"\.part\d+\.rar$")
+    return "(?i)" + "|".join(parts) if parts else None
 
 
 def run_cyberdrop_dl(
@@ -405,8 +430,12 @@ def run_cyberdrop_dl(
     only: str = "",
     stop: threading.Event | None = None,
     parallel: int = 0,
+    staging: bool = False,
 ) -> int:
     """Invoke cyberdrop-dl on a URL list. Returns process exit code.
+
+    staging: download_dir is the staging folder, so archives may come too
+    (see archives.py); straight into a model folder they never do.
 
     only= "images" / "videos" skips the other type inside albums (it is not
     marked done, so a later run gets it). Setting stop ends the run early, as
@@ -472,8 +501,6 @@ def run_cyberdrop_dl(
         "--ui",
         "disabled",
         "--subfolders.no-create",
-        # Skip archives / non-media inside host albums
-        "--no-non-media",
         "--logs.console-level",
         "WARNING",
         "--logs.level",
@@ -484,13 +511,17 @@ def run_cyberdrop_dl(
     # models; its redundant hashes are turned off in paths["config"] (URL
     # history is independent).
     cmd.append("--no-auto-dedupe")
+    keep_archives = archives.supported(cfg) if staging else frozenset()
+    if not keep_archives:
+        # Skip archives / non-media inside host albums
+        cmd.append("--no-non-media")
     if parallel:
         cmd.extend(["--downloads", str(min(parallel, CDL_PARALLEL))])
     if only == "images":
         cmd.append("--no-videos")
     elif only == "videos":
         cmd.append("--no-images")
-    exclude = cdl_exclude_regex(cfg.download.exclude_extensions)
+    exclude = cdl_exclude_regex(cfg.download.exclude_extensions, keep_archives)
     if exclude:
         cmd.extend(["--filename-regex-exclude", exclude])
     if cfg.download.min_free_bytes:
@@ -803,9 +834,15 @@ def _run_cdl(
 
         cap = budget.left if budget is not None else None
         before = result.ok
+        unpack_work = staging_root / ".unpack" / result.slug
 
         def publish(settled: float = 0.0):
+            # Archives turn into the photos and videos in them first; one
+            # that is still here waits for space or to settle.
+            archives.unpack_waiting(cfg, staging, unpack_work, only=only, settled=settled)
             for incoming in complete_files(staging):
+                if archives.is_archive(incoming):
+                    continue
                 if cap is not None and result.ok - before >= cap:
                     return
                 try:
@@ -845,7 +882,7 @@ def _run_cdl(
         mover.start()
         try:
             extra = {"stop": enough, "parallel": budget.left} if budget is not None else {}
-            result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, staging, only=only, **extra)
+            result.cdl_exit = run_cyberdrop_dl(cfg, urls_file, staging, only=only, staging=True, **extra)
         finally:
             stop.set()
             mover.join()

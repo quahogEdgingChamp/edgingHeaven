@@ -27,7 +27,9 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   your bookmarks, **New posts** on a model page, retry failures, follow the live
   output and cancel. The server runs [simp](scrprsimp/README.md) (in `scrprsimp/`)
   one job at a time and rescans when a job ends. **Bookmarks** shows every SimpCity
-  bookmark with three pictures (your own photos for models you already have)
+  bookmark with three pictures (your own photos for models you already have).
+  `.zip` / `.rar` / `.7z` archives from file hosts are unpacked in a sandbox and
+  only their photos and videos kept (see "Archives" in the simp README)
 - **Toy sync** through Intiface Central (Buttplug protocol) — the running mode
   drives the intensity; holds and stops turn it off
 - Crossfades between pictures in Escalation, Session and the timed modes

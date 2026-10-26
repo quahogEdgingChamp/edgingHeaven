@@ -86,12 +86,31 @@ class DownloadConfig:
 
 
 @dataclass
+class ArchivesConfig:
+    # Download .zip (and .rar/.7z with libarchive) from cyberdrop-dl hosts and
+    # keep only the photos and videos inside (see archives.py). Off: archives
+    # are skipped like any file in download.exclude_extensions.
+    unpack: bool = False
+    # Unpack inside bwrap (no network, sees only the archive). Without bwrap
+    # nothing is unpacked; false runs the unpacker unsandboxed instead.
+    sandbox: bool = True
+    # Per archive: photos and videos taken, bytes unpacked, unpacked bytes per
+    # archive byte (media barely compresses; a zip bomb is mostly zeros), and
+    # time allowed. Hitting one keeps what came out before it.
+    max_files: int = 5000
+    max_unpacked_bytes: int = 64 * 1024**3
+    max_ratio: float = 20.0
+    timeout_seconds: int = 3600
+
+
+@dataclass
 class Config:
     site: SiteConfig = field(default_factory=SiteConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     scrape: ScrapeConfig = field(default_factory=ScrapeConfig)
     download: DownloadConfig = field(default_factory=DownloadConfig)
+    archives: ArchivesConfig = field(default_factory=ArchivesConfig)
     root: Path = field(default_factory=Path.cwd)
 
     def resolve(self, path: str | Path) -> Path:
@@ -174,5 +193,6 @@ def load_config(path: Path | None = None) -> Config:
     paths = PathsConfig(**{k: v for k, v in _section(data, "paths").items() if k in PathsConfig.__dataclass_fields__})
     scrape = ScrapeConfig(**{k: v for k, v in _section(data, "scrape").items() if k in ScrapeConfig.__dataclass_fields__})
     download = DownloadConfig(**{k: v for k, v in _section(data, "download").items() if k in DownloadConfig.__dataclass_fields__})
+    archives = ArchivesConfig(**{k: v for k, v in _section(data, "archives").items() if k in ArchivesConfig.__dataclass_fields__})
 
-    return Config(site=site, auth=auth, paths=paths, scrape=scrape, download=download, root=root)
+    return Config(site=site, auth=auth, paths=paths, scrape=scrape, download=download, archives=archives, root=root)

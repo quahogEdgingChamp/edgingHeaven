@@ -226,7 +226,7 @@ def test_cyberdrop_dl_stops_once_enough_files_landed(cfg, tmp_path, monkeypatch)
     folder.mkdir(parents=True)
     calls = []
 
-    def run(cfg, urls, out, only="", stop=None, parallel=0):
+    def run(cfg, urls, out, only="", stop=None, parallel=0, **kw):
         calls.append((only, parallel))
         for n in range(20):
             if stop.is_set():
