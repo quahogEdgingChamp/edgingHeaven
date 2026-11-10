@@ -19,6 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 cdl = ["cyberdrop-dl-patched>=6.0"]
+# .rar and .7z archives (needs the system libarchive: apt install libarchive13t64)
+archives = ["libarchive-c>=5.1"]
 
 [project.scripts]
 simp = "simp.cli:main"

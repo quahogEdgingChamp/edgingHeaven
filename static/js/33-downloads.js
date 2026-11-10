@@ -101,7 +101,7 @@ async function refreshDownloads() {
   // Quick while something runs, slow otherwise; never while hidden or locked.
   downloads.timer = window.setTimeout(() => {
     if (state.currentMode !== "downloads") return;
-    if (document.hidden || state.panic || state.locked) {
+    if (document.hidden || state.locked) {
       downloads.timer = window.setTimeout(() => refreshDownloads(), 2000);
       return;
     }
@@ -1387,9 +1387,8 @@ function bindDownloadDialog() {
     if (event.target === dialog) closeDownloadDialog();
   });
   // The sheet owns the keyboard while open: Esc closes it, Tab stays inside,
-  // and the page's own keys (mode shortcuts) wait. ` (panic) still works.
+  // and the page's own keys (mode shortcuts) wait.
   dialog.addEventListener("keydown", (event) => {
-    if (event.key === "`") return;
     event.stopPropagation();
     if (event.key === "Escape") {
       event.preventDefault();

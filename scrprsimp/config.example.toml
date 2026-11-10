@@ -83,3 +83,18 @@ max_file_bytes = 0
 # many bytes free (0 = no reserve). A job that reaches it stops cleanly (exit 3,
 # nothing half-written kept) and the next run continues. The server keeps 3 GiB.
 min_free_bytes = 0
+
+[archives]
+# Download .zip archives from cyberdrop-dl hosts (and .rar/.7z with libarchive:
+# apt install libarchive13t64, pip install libarchive-c) and keep only the photos
+# and videos inside. Overrides exclude_extensions for those three. Links straight
+# from posts (forum attachments) never bring an archive. See README "Archives".
+unpack = false
+# Unpack inside bwrap: no network, no view of the home folder or the library.
+# Without a working bwrap no archive is downloaded; false unpacks unsandboxed.
+sandbox = true
+# Per archive. Reaching one keeps what was unpacked before it.
+max_files = 5000                     # photos and videos taken
+max_unpacked_bytes = 68719476736     # 64 GiB unpacked
+max_ratio = 20.0                     # unpacked bytes per archive byte (zip bombs)
+timeout_seconds = 3600

@@ -174,6 +174,49 @@ original command (or submit the same download in the app) to retry missing
 pages; `simp retry` only retries recorded download failures. Reusing an
 incomplete export with `--skip-crawl` still reports failure.
 
+### Archives (`[archives]` in `config.toml`)
+
+With `unpack = true`, `.zip` archives (and `.rar` / `.7z` when libarchive is
+installed) are downloaded from cyberdrop-dl hosts and replaced by the photos and
+videos inside them, named `<archive name> - <file name>`. Nothing else in an
+archive is ever kept. Archives only ever arrive in cyberdrop-dl's staging folder;
+a link straight from a post (forum attachment) that turns out to be an archive is
+skipped.
+
+| Type | Needs |
+|---|---|
+| `.zip` | nothing (Python's `zipfile`) |
+| `.rar` (RAR 4 and 5), `.7z` | `sudo apt install libarchive13t64` and `.venv/bin/pip install libarchive-c` |
+
+Without libarchive, `.rar` and `.7z` stay excluded (not downloaded) and each run
+says so. Multi-part RARs (`.part2.rar`) and split `.7z.001` are never downloaded.
+
+How an archive is opened (`src/simp/archives.py`, `src/simp/unpack_worker.py`):
+
+1. A separate process parses it, inside **bwrap**: no network, its own empty root
+   with only `/usr`, the archive read-only, one empty folder to write to. Your home
+   folder (cookies), the library and the rest of the drive do not exist in there.
+   Kernel limits cap the size of any file it writes, its memory (2 GiB), CPU time
+   and open files. If bwrap cannot run, no archive is downloaded at all.
+2. It writes only entries whose name ends in a photo/video type **and** whose first
+   bytes match it (an `.exe` renamed `.jpg` is dropped). Folders in names are
+   dropped (`../../x.jpg` becomes `x.jpg`); links, devices, password-protected
+   entries and archives inside archives are skipped.
+3. Zip bombs: an entry compressed more than 100× is skipped; the whole archive stops
+   at `max_ratio` × its own size, `max_unpacked_bytes`, `max_files` or
+   `timeout_seconds`. What was unpacked before that is kept.
+4. simp watches it from outside: it kills it at the time limit, when its folder
+   grows past `max_unpacked_bytes`, or when the drive reaches `min_free_bytes` (the
+   archive then waits for the next run).
+5. Every file it left is checked again outside the sandbox, as if the unpacker had
+   been taken over: plain file, one link, safe name, photo/video type and first
+   bytes, size and count. The rest is deleted.
+6. The survivors join the staging folder like any finished download (content
+   dedupe, `--max-files`, then the library), and the archive is deleted.
+
+Work folder: `<staging>/.unpack/<model>/`, emptied after every archive. With
+`only=images` / `videos` the other type is dropped from archives too.
+
 ### Only some pages, photos or videos, how many (per model or per run)
 
 Saved per model in `state/model-rules.json` (Edging Heaven's "Settings per model"
@@ -387,7 +430,7 @@ Direct files log like:
 - Re-export cookies when `check-auth` fails.
 - Domain mirrors rotate; set `site.base_url` in `config.toml`.
 - Photos → direct downloader; most videos → cyberdrop-dl (`state/cdl_*.txt`). If you only see photos, check `state/cdl/logs/downloader.log`.
-- Archives skipped by default: `.zip` `.rar` `.7z` `.tar` `.gz` … (`exclude_extensions` in `config.toml`; `[]` keeps everything, though cyberdrop-dl's `--no-non-media` still drops archives inside albums).
+- Archives skipped by default: `.zip` `.rar` `.7z` `.tar` `.gz` … (`exclude_extensions` in `config.toml`; `[]` keeps everything, though cyberdrop-dl's `--no-non-media` still drops archives inside albums). `[archives] unpack = true` downloads `.zip`/`.rar`/`.7z` and keeps only the photos and videos inside: see "Archives".
 - Image-host viewer pages (e.g. `jpg5.su/img/…`) are opened and the full image on them is downloaded; a page with no image (dead/parked host) is reported as failed instead of being saved as a fake `.jpg`.
 - If `whereto.txt` points at an unmounted drive, `download` / `thread` / `retry` stop with “is the drive mounted?” rather than writing anywhere else.
 - `redownload_missing = false` (the server's setting): a direct download whose file was
@@ -427,7 +470,10 @@ From `scrprsimp/`:
 The tests use simulated forum responses and temporary local image servers.
 They cover concurrent crawling, incremental retries, streamed size limits,
 filename collisions, deleted files, and the web job queue running the real CLI
-against a simulated forum. They do not use your cookies or media library.
+against a simulated forum. `tests/test_archives.py` builds hostile archives
+(path escapes, links, zip bombs, fakes, damage; RAR by hand) and unpacks them in
+and out of the sandbox; the `.rar`/`.7z` tests need libarchive (`LIBARCHIVE=` may
+point at a `libarchive.so.13`), the `.7z` one also a `7z` program (`SEVENZIP=`). They do not use your cookies or media library.
 The web app's HTTP integration tests run from the repository root:
 
 ```bash

@@ -205,7 +205,7 @@ const WAKE_MODES = ["escalation", "session", "mosaic", "feed", "toktinder", "bea
 let wakeLock = null;
 
 async function syncWakeLock() {
-  const wanted = WAKE_MODES.includes(state.currentMode) && !document.hidden && state.libraryReady && !state.panic && !state.locked;
+  const wanted = WAKE_MODES.includes(state.currentMode) && !document.hidden && state.libraryReady && !state.locked;
   try {
     if (wanted && !wakeLock && navigator.wakeLock) {
       wakeLock = await navigator.wakeLock.request("screen");

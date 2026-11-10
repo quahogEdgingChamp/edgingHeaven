@@ -22,14 +22,14 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
 - **Session history** in Collection (every Session / Beat / Red light / Dice /
   Ladder / Spotlight run of a minute or more), and a **page per model**
   (top-level folder) with its best files and one-tap Spotlight / Ladder / Duel
-- **Privacy:** an optional server-enforced **PIN lock**, a **panic key** (`` ` ``
-  or a three-finger tap) that silences everything behind a blank page, a plain
-  tab title, and blanking the page when you switch away
+- **Privacy:** an optional server-enforced **PIN lock** and a plain tab title
 - **Downloads** from SimpCity on the server: paste thread links, pull pages of
   your bookmarks, **New posts** on a model page, retry failures, follow the live
   output and cancel. The server runs [simp](scrprsimp/README.md) (in `scrprsimp/`)
   one job at a time and rescans when a job ends. **Bookmarks** shows every SimpCity
-  bookmark with three pictures (your own photos for models you already have)
+  bookmark with three pictures (your own photos for models you already have).
+  `.zip` / `.rar` / `.7z` archives from file hosts are unpacked in a sandbox and
+  only their photos and videos kept (see "Archives" in the simp README)
 - **Toy sync** through Intiface Central (Buttplug protocol) — the running mode
   drives the intensity; holds and stops turn it off
 - Crossfades between pictures in Escalation, Session and the timed modes
@@ -158,7 +158,6 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   - Session, Beat, Red light, Dice: `Space` start/stop, `E` edge
   - Ladder, Highlights: `Space` pause, `←` `→` step; Spotlight `N` another model; Dice `D` draw now
   - `L` in any timed mode loves what is on screen
-  - `` ` ``: panic (again, or a double tap, to come back)
   - Mosaic: `Space` pause/resume the wall; Video deck: `Space` play/pause
 
 ### Photo deck / Video deck
@@ -372,20 +371,18 @@ have its database open. Bookmarks (`bookmarks.json`) and their preview pictures 
 
 - **PIN lock** (off until you set one): 4–12 digits. The server then refuses
   every API and media request without an unlock cookie, so nothing loads before
-  the PIN. Each device stays unlocked for 30 days or until **Lock now**. The PIN
+  the PIN. It is asked every time: when the page opens, and whenever it was
+  hidden (another app or tab, the screen off), however briefly. The PIN
   is stored only as a salted PBKDF2 hash; wrong PINs back off (5 free, then 30 s
   doubling to 15 min). Changing or removing it needs the current PIN
-- **Panic**: `` ` `` or a three-finger tap stops every mode, turns the toy off
-  and covers the page with a blank "Notes" page; double-tap or `` ` `` to return
-- **Plain tab title and icon**, and **Blank the page when I switch away** (so the
-  phone's app switcher shows the blank page)
+- **Plain tab title and icon**
 
 ### Toy (Settings)
 
 - Start Intiface Central (free) on the device next to the toy, pair the toy
   there, then **Connect** here (default `ws://127.0.0.1:12345`). Escalation,
   Session, Beat, Red light, Dice, Ladder, Spotlight and Highlights set the
-  intensity; holds, stops, leaving the mode and panic turn it off. **Max
+  intensity; holds, stops, and leaving the mode turn it off. **Max
   intensity** scales everything
 
 ### Dangerous
@@ -452,7 +449,7 @@ and has Undo; nothing is erased until you empty the trash.
     and each keep brings it down; `Keeps` the other way round; `Off` leaves it.
     Step 5–25%. **Toy stops if you wait more than 3 s** makes it stop between
     decisions; the next one picks up at half. A reward ramps the toy from 35% to
-    full, then hands it back. Leaving the mode, hiding the tab or panic stop it
+    full, then hands it back. Leaving the mode or hiding the tab stops it
 - **Look-alikes fingerprints in the browser**: the server has no image decoder,
   so the page reads each photo once, shrinks it to 9×8 greys and keeps a 64-bit
   difference hash (clips use their saved still). Fingerprints are stored in
@@ -522,7 +519,7 @@ switch hiding on an older server: `python3 tests/browser_smart.py`.
 
 `tests/browser_features.py` drives Love, marking, Highlights, Session clip
 playback, Beat, Red light, Dice, Ladder, Spotlight, crossfades, session history,
-model pages, panic, toy sync (against a mock Intiface server), the PIN lock and
+model pages, toy sync (against a mock Intiface server), the PIN lock and
 the Downloads page (stand-in simp writing only to a temporary folder) in Chromium, with the same rules as the design check below (testing library
 only, temporary data, trash blocked). It needs Playwright and `websockets`.
 

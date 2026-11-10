@@ -280,7 +280,7 @@ function buzz(pattern) {
 }
 
 function thrillAudio() {
-  return state.settings.thrillSound === "off" || state.panic ? null : audioContext();
+  return state.settings.thrillSound === "off" ? null : audioContext();
 }
 
 // Heavier when a whole page or folder goes at once.
@@ -341,7 +341,7 @@ function thrillEnter() {
   syncRewardReady();
 }
 
-// Leaving, hiding the tab or panicking: everything stops (quietAllModes).
+// Leaving or hiding the tab: everything stops (quietAllModes).
 function thrillQuiet() {
   window.clearTimeout(thrill.hurryTimer);
   window.clearTimeout(thrill.autoTimer);
@@ -406,7 +406,7 @@ function syncRewardReady() {
 }
 
 function playReward(auto) {
-  if (thrill.reward || !thrill.banked || !DANGEROUS_MODES.includes(state.currentMode) || state.panic || state.locked || document.hidden) return;
+  if (thrill.reward || !thrill.banked || !DANGEROUS_MODES.includes(state.currentMode) || state.locked || document.hidden) return;
   if (blitz.running) {
     // A Blitz round is on the clock; its reward waits for the end.
     if (!auto) toast("Your reward waits until the Blitz is over.");
@@ -505,7 +505,7 @@ function endReward() {
   el("rewardOverlay").hidden = true;
   releaseVideo(el("rewardVideo"));
   el("rewardImage").removeAttribute("src");
-  if (DANGEROUS_MODES.includes(state.currentMode) && !document.hidden && !state.panic) {
+  if (DANGEROUS_MODES.includes(state.currentMode) && !document.hidden) {
     reward.paused.forEach((video) => video.isConnected && video.getAttribute("src") && video.play().catch(() => {}));
     if (state.settings.toyCleanup !== "off") {
       // Back to where cleaning had it.
@@ -519,9 +519,8 @@ function endReward() {
 }
 
 // While a reward plays it owns the keyboard, so an arrow meant to end it
-// never deletes the file underneath. The panic key still goes through.
+// never deletes the file underneath.
 function rewardKeys(event) {
-  if (event.key === "`") return;
   if (thrill.reward) {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -547,7 +546,7 @@ document.addEventListener("DOMContentLoaded", () => {
   el("rewardVideo").addEventListener("timeupdate", rewardVideoTime);
   el("rewardVideo").addEventListener("ended", () => thrill.reward && nextRewardEntry());
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && !state.panic && !state.locked) thrillEnter();
+    if (!document.hidden && !state.locked) thrillEnter();
   });
   syncThrillNotes();
 });

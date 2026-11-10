@@ -155,7 +155,7 @@ document.addEventListener("DOMContentLoaded", () => {
   cacheDom();
   bindEvents();
   initWorkspace();
-  loadState().catch((error) => {
+  requirePinOnOpen().then(() => loadState({ opening: true })).catch((error) => {
     // A PIN-locked server: the lock screen is already up and loads the
     // library itself once unlocked.
     if (error.locked) return;
@@ -671,7 +671,7 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       quietAllModes();
-    } else if (!state.panic && !state.locked) {
+    } else if (!state.locked) {
       resumeCurrentMode();
     }
   });
@@ -709,18 +709,6 @@ function handleKeydown(event) {
   }
 
   if (state.locked) {
-    return;
-  }
-  if (state.panic) {
-    if (key === "`" || key === "Escape") {
-      event.preventDefault();
-      setPanic(false);
-    }
-    return;
-  }
-  if (key === "`" && !typing) {
-    event.preventDefault();
-    setPanic(true);
     return;
   }
 
@@ -953,7 +941,8 @@ function bindRangeSetting(element, settingKey, formatValue, onChange) {
 // five-second connection poll calls loadState() without it: a drive that
 // re-mounts re-scans and lands here, and reshuffling the deck or the feed
 // underneath someone mid-browse is not a refresh, it is losing their place.
-async function loadState({ rebuild = false } = {}) {
+// `opening: true` is the app being opened or unlocked (see hideKeptOnOpen).
+async function loadState({ rebuild = false, opening = false } = {}) {
   const payload = await fetchJson("/api/state");
   state.library = payload.library || { images: [], videos: [], folders: [], counts: {} };
   hydrateLibraryNames(state.library);
@@ -992,6 +981,7 @@ async function loadState({ rebuild = false } = {}) {
   state.brokenCount = Number(payload.brokenCount || 0);
   invalidateMediaPools();
   sanitizeModeSettings();
+  if (opening) hideKeptOnOpen();
   state.settings.escalationBaseInterval = clampNumber(Number(state.settings.escalationBaseInterval ?? 12), 3, 60);
   state.settings.escalationMinInterval = clampNumber(Number(state.settings.escalationMinInterval ?? 2), 1, 8);
   state.settings.escalationRampSeconds = clampNumber(Number(state.settings.escalationRampSeconds ?? 90), 20, 240);

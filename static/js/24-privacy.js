@@ -1,21 +1,21 @@
 /* ==========================================================================
-   Privacy — panic cover, a plain tab title, and the PIN lock
+   Privacy — a plain tab title, and the PIN lock
 
-   Panic (` or a three-finger tap) silences every mode and covers the page
-   with a blank "notes" page; a double tap or ` again brings it back. The
-   PIN lock is enforced by the server (see server.py): while locked, every
+   The PIN lock is enforced by the server (see server.py): while locked, every
    API call and every media request answers 401, and this screen is all the
-   page can show.
+   page can show. With a PIN set it is asked every time: when the page opens,
+   and whenever it was hidden (another app or tab, the screen off), for
+   however short a time.
    ========================================================================== */
 
-Object.assign(MODE_DEFAULTS, { useMarks: true, neutralTitle: false, panicOnHide: false, toyAuto: false, toyMax: 0.7 });
+Object.assign(MODE_DEFAULTS, { useMarks: true, neutralTitle: false, toyAuto: false, toyMax: 0.7 });
 
 const NEUTRAL_TITLE = "Notes";
 const NEUTRAL_ICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e8e8e8'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='%23999' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E";
 let ownIcon = "";
 
 function syncDocumentTitle() {
-  const neutral = state.panic || state.settings.neutralTitle || state.locked;
+  const neutral = state.settings.neutralTitle || state.locked;
   const mode = state.currentMode;
   document.title = neutral ? NEUTRAL_TITLE : mode === "home" ? "Edging Heaven" : `${workspaceNames[mode]} · Heaven`;
   const icon = document.querySelector('link[rel="icon"]');
@@ -25,58 +25,9 @@ function syncDocumentTitle() {
   }
 }
 
-/* ---- panic ---- */
-
-function setPanic(on) {
-  if (on === !!state.panic) return;
-  state.panic = on;
-  el("panicCover").hidden = !on;
-  document.body.classList.toggle("panic", on);
-  if (on) {
-    closeDrawers();
-    closeModeLauncher();
-    if (!controls.galleryLightbox.hidden) closeLightbox();
-    quietAllModes();
-    document.querySelectorAll("video").forEach((video) => {
-      video.muted = true;
-    });
-    el("panicCover").focus({ preventScroll: true });
-  } else {
-    resumeCurrentMode();
-  }
-  syncDocumentTitle();
-  syncWakeLock();
-}
-
-function bindPanic() {
-  const cover = el("panicCover");
-  // Our own double tap: iOS does not reliably send dblclick.
-  let lastTap = 0;
-  cover.addEventListener("pointerup", () => {
-    const now = performance.now();
-    if (now - lastTap < 350) {
-      lastTap = 0;
-      setPanic(false);
-    } else {
-      lastTap = now;
-    }
-  });
-  window.addEventListener("touchstart", (event) => {
-    if (event.touches.length >= 3 && !state.panic && state.libraryReady) {
-      setPanic(true);
-    }
-  }, { passive: true });
-  document.addEventListener("visibilitychange", () => {
-    // The app switcher shows a snapshot of the page; make it a blank one.
-    if (document.hidden && state.settings.panicOnHide && state.libraryReady) {
-      setPanic(true);
-    }
-  });
-}
-
 /* ---- PIN lock ---- */
 
-const lockPad = { pin: "", busy: false, waitTimer: 0 };
+const lockPad = { pin: "", busy: false, waitTimer: 0, enabled: false };
 
 class LockedError extends Error {
   constructor() {
@@ -88,6 +39,7 @@ class LockedError extends Error {
 function showLockScreen() {
   if (state.locked) return;
   state.locked = true;
+  lockPad.enabled = true;
   quietAllModes();
   document.querySelectorAll("video").forEach((video) => releaseVideo(video));
   el("lockScreen").hidden = false;
@@ -96,6 +48,30 @@ function showLockScreen() {
   syncLockPad("Enter your PIN");
   syncDocumentTitle();
   fetchJson("/api/lock").then((status) => startLockWait(status.retryAfter)).catch(() => {});
+}
+
+// The server forgets this device's unlock first, so a reload or another tab
+// cannot skip the PIN either. sendBeacon still goes out while a phone puts
+// the browser in the background, which a plain fetch may not.
+function lockOnLeave() {
+  if (!lockPad.enabled || state.locked) return;
+  const body = new Blob(["{}"], { type: "application/json" });
+  if (!navigator.sendBeacon("/api/lock/logout", body)) {
+    fetch("/api/lock/logout", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+  }
+  showLockScreen();
+}
+
+// Opening the page asks too, however recently this device unlocked. Runs
+// before the library loads, which then meets the lock and shows the pad.
+async function requirePinOnOpen() {
+  try {
+    const status = await fetchJson("/api/lock");
+    lockPad.enabled = !!status.enabled;
+    if (status.enabled && status.unlocked) await postJson("/api/lock/logout", {});
+  } catch (error) {
+    /* an older server or no connection: loading the library finds out */
+  }
 }
 
 function hideLockScreen() {
@@ -155,9 +131,9 @@ async function submitPin() {
       return;
     }
     hideLockScreen();
-    await loadState({ rebuild: true });
+    await loadState({ rebuild: true, opening: true });
     loadSeen();
-    if (!state.panic) resumeCurrentMode();
+    resumeCurrentMode();
   } catch (error) {
     syncLockPad("Could not reach the server.");
   } finally {
@@ -183,6 +159,10 @@ function bindLockScreen() {
     const button = event.target.closest("[data-key]");
     if (button) pressLockKey(button.dataset.key);
   });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) lockOnLeave();
+  });
+  window.addEventListener("pagehide", lockOnLeave);
   window.addEventListener("keydown", (event) => {
     if (!state.locked) return;
     event.preventDefault();
@@ -210,8 +190,9 @@ async function syncPinCard() {
     /* shown as off */
   }
   card.dataset.pin = status.enabled ? "on" : "off";
+  lockPad.enabled = !!status.enabled;
   el("pinStatus").textContent = status.enabled
-    ? "PIN is on. Every device needs it once; each one then stays unlocked for 30 days or until you lock it."
+    ? "PIN is on. It is asked every time you open this page or come back to it from another app or tab."
     : "No PIN. Anyone who can open this page can use it.";
   el("pinCurrent").hidden = !status.enabled;
   el("pinSave").textContent = status.enabled ? "Change PIN" : "Set PIN";
@@ -263,7 +244,6 @@ function bindPrivacyCards() {
     if (key === "showStreaks") thrillSettingChanged(key);
   }));
   bindToyPanel();
-  bindPanic();
   bindLockScreen();
 }
 
@@ -273,7 +253,7 @@ function syncPrivacyCards() {
   syncToyPanel();
 }
 
-// What coming back to a mode means, for visibility, panic and unlocking alike.
+// What coming back to a mode means, for visibility and unlocking alike.
 function resumeCurrentMode() {
   const mode = state.currentMode;
   if (mode === "escalation") {
