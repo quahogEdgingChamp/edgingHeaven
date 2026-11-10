@@ -114,7 +114,11 @@ function startDangerous(rebuild = false) {
     }
   }
   if (rebuild || !dangerous.items.length) {
-    dangerous.items = orderCleanupItems(dangerousPool(), state.settings.dangerousOrder);
+    // With "Hide files I already kept here" off, kept files are dealt too,
+    // but after the ones not decided yet, so a new deal (reopening the app,
+    // say) starts on files you have not been through.
+    const ordered = orderCleanupItems(dangerousPool(), state.settings.dangerousOrder);
+    dangerous.items = [...ordered.filter(item => !keptHere(item)), ...ordered.filter(keptHere)];
     dangerous.index = 0;
   }
   syncSegmented(el("dangerousKind"), "dangerousKind", state.settings.dangerousKind || "all");
@@ -123,6 +127,14 @@ function startDangerous(rebuild = false) {
   el("dangerousHideKept").setAttribute("aria-checked", String(!!state.settings.dangerousHideKept));
   syncDrawerSummaries();
   renderDangerous();
+}
+
+// The switch in Adjust and the "Hide kept files" button under the toolbar.
+function setDangerousHideKept(on) {
+  state.settings.dangerousHideKept = on;
+  el("dangerousHideKept").setAttribute("aria-checked", String(on));
+  queueSettingsSave();
+  startDangerous(true);
 }
 
 function renderDangerous() {
@@ -158,6 +170,11 @@ function renderDangerous() {
   el("dangerousName").textContent = item?.name || "";
   el("dangerousFolder").textContent = item ? (item.folder || "Library root") : "";
   el("dangerousType").textContent = item ? (isVideo ? "VIDEO" : "PHOTO") : "DONE";
+  // Only possible with hiding switched off: say so, or kept files coming
+  // back look like lost swipes.
+  const keptAgain = !!item && !state.settings.dangerousHideKept && keptHere(item);
+  el("dangerousKeptTag").textContent = keptAgain ? "KEPT" : "";
+  el("dangerousKeptNote").hidden = !keptAgain;
   el("dangerousProgress").textContent = item ? `${(dangerous.index + 1).toLocaleString()} / ${dangerous.items.length.toLocaleString()}` : "Deck complete";
   // Tune's "… files left in this deck" follows every swipe, not just a new deal.
   if (controls.dangerousSummary) controls.dangerousSummary.textContent = DRAWER_SUMMARIES.dangerous();

@@ -240,7 +240,7 @@ const DRAWER_SUMMARIES = {
   },
   dangerous: () => {
     const kind = state.settings.dangerousKind === "photo" ? "photos" : state.settings.dangerousKind === "video" ? "videos" : "photos and videos";
-    const which = state.settings.dangerousHideKept ? `${kind} you have not kept here yet` : kind;
+    const which = state.settings.dangerousHideKept ? `${kind} you have not kept here yet` : `${kind}, kept ones too (after the rest)`;
     const left = Math.max(0, dangerous.items.length - dangerous.index);
     // "Does it go through everything?" answered: kept so far of all it takes
     // in, and what Media or folders leave out.

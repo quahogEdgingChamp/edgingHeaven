@@ -92,11 +92,10 @@ function initWorkspace() {
     queueSettingsSave();
     startDangerous(true);
   });
-  el("dangerousHideKept").addEventListener("click", () => {
-    state.settings.dangerousHideKept = !state.settings.dangerousHideKept;
-    el("dangerousHideKept").setAttribute("aria-checked", String(state.settings.dangerousHideKept));
-    queueSettingsSave();
-    startDangerous(true);
+  el("dangerousHideKept").addEventListener("click", () => setDangerousHideKept(!state.settings.dangerousHideKept));
+  el("dangerousKeptHide").addEventListener("click", () => {
+    setDangerousHideKept(true);
+    toast("Files you already kept are hidden again.");
   });
   el("dangerousVideo").addEventListener("loadedmetadata", () => {
     if (state.currentMode === "dangerous") playWhenReady(el("dangerousVideo"), el("dangerousVideo").dataset.loadToken);

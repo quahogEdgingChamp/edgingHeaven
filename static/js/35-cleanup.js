@@ -118,6 +118,24 @@ function keptHere(item) {
   return state.features.has("dangerousKept") ? dangerousKept.paths.has(item.path) : !!item.rating;
 }
 
+// "Hide files I already kept here" comes back on every time the app is
+// opened, or unlocked after coming back to it, in each Dangerous mode that
+// has the switch; switching it off lasts for that visit. Survivor has none
+// on purpose (it cuts a whole folder down, kept or not), and Look-alikes
+// always leaves out sets you kept whole.
+const HIDE_KEPT_MODES = ["dangerous", "dgrid", "djunk", "dfolders"];
+
+function hideKeptOnOpen() {
+  const off = HIDE_KEPT_MODES.filter((mode) => state.settings[`${mode}HideKept`] === false);
+  if (!off.length) return;
+  off.forEach((mode) => { state.settings[`${mode}HideKept`] = true; });
+  // Pages and folder lists dealt with kept files in them are dealt again.
+  // (Swipe drops them from what is left of its deal by itself.)
+  ["dgrid", "djunk"].filter((mode) => off.includes(mode)).forEach((mode) => { sweepState(mode).built = false; });
+  if (off.includes("dfolders")) folderSweep.built = false;
+  postJson("/api/settings", Object.fromEntries(off.map((mode) => [`${mode}HideKept`, true]))).catch((error) => console.error(error));
+}
+
 function cleanupItems(mode, kind = "all", hideKept = false) {
   const selected = normalizedFolderSelection(`${mode}Folders`);
   const items = [];

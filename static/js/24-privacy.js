@@ -131,7 +131,7 @@ async function submitPin() {
       return;
     }
     hideLockScreen();
-    await loadState({ rebuild: true });
+    await loadState({ rebuild: true, opening: true });
     loadSeen();
     resumeCurrentMode();
   } catch (error) {

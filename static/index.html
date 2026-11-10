@@ -1245,6 +1245,7 @@
               <button id="dangerousDrawerToggle" class="tool-button drawer-toggle" aria-label="Controls"><svg aria-hidden="true"><use href="#i-adjust" /></svg><span class="label">Adjust</span></button>
             </div>
             <p id="dangerousReadOnly" class="readonly-note" hidden>This drive is read-only. Keep and Skip work; deletion needs a writable media folder.</p>
+            <p id="dangerousKeptNote" class="readonly-note kept-note" hidden><span>You already kept this one. It shows because "Hide files I already kept here" is off until you next open the app.</span><button id="dangerousKeptHide" type="button" class="ghost-button">Hide kept files</button></p>
             <div id="dangerousCard" class="dangerous-card">
               <span class="danger-stamp delete-stamp">Delete</span><span class="danger-stamp keep-stamp">Keep</span>
               <span id="dangerousBlitz" class="blitz-pill" role="timer" hidden></span>
@@ -1264,6 +1265,7 @@
               </div>
               <div class="dangerous-caption">
                 <span id="dangerousType" class="outline-tag"></span>
+                <span id="dangerousKeptTag" class="outline-tag"></span>
                 <div><strong id="dangerousName"></strong><span id="dangerousFolder"></span></div>
               </div>
             </div>
@@ -1292,6 +1294,7 @@
                     <button type="button" class="segment" data-dangerous-kind="video">Videos</button>
                   </div>
                   <button id="dangerousHideKept" class="switch-row" role="switch" aria-checked="true"><span>Hide files I already kept here</span><i aria-hidden="true"></i></button>
+                  <p class="subtle">Back on by itself every time you open the app.</p>
                 </section>
                 <section class="cc-section">
                   <h3>Order</h3>
@@ -1450,6 +1453,7 @@
                   <h3>Media</h3>
                   <div class="segmented" role="group" aria-label="Which media" data-setting="dgridKind"><button type="button" class="segment" data-value="all">Both</button><button type="button" class="segment" data-value="photos">Photos</button><button type="button" class="segment" data-value="videos">Videos</button></div>
                   <button class="switch-row" role="switch" aria-checked="true" data-setting="dgridHideKept"><span>Hide files I already kept here</span><i aria-hidden="true"></i></button>
+                  <p class="subtle">Back on by itself every time you open the app.</p>
                 </section>
                 <section class="cc-section">
                   <h3>Order</h3>
@@ -1509,6 +1513,7 @@
                   <h3>Media</h3>
                   <div class="segmented" role="group" aria-label="Which media" data-setting="djunkKind"><button type="button" class="segment" data-value="all">Both</button><button type="button" class="segment" data-value="photos">Photos</button><button type="button" class="segment" data-value="videos">Videos</button></div>
                   <button class="switch-row" role="switch" aria-checked="true" data-setting="djunkHideKept"><span>Hide files I already kept here</span><i aria-hidden="true"></i></button>
+                  <p class="subtle">Back on by itself every time you open the app.</p>
                   <p class="subtle">Suspects: photos under 80 KB, photos under 480 px (once Look-alikes has read them), clips under 4 MB, and names like screenshot, avatar, preview or a promo handle. Names only suggest: many real packs are named after a channel.</p>
                 </section>
                 <section class="cc-section">
@@ -1628,6 +1633,7 @@
                 <section class="cc-section">
                   <h3>Folders</h3>
                   <button class="switch-row" role="switch" aria-checked="true" data-setting="dfoldersHideKept"><span>Hide folders I already kept whole</span><i aria-hidden="true"></i></button>
+                  <p class="subtle">Back on by itself every time you open the app.</p>
                   <p class="subtle">Every subfolder is its own decision: a model's “Loose Files (Bunkr)” is separate from the model's main folder.</p>
                 </section>
                 <section class="cc-section">
