@@ -27,7 +27,7 @@ PLAY_SETTING_SWITCHES.push("survivorLovedSafe");
 registerModeUI("survivor", {
   card: {
     name: "Survivor",
-    blurb: "Two files from one folder: tap the one that stays, the other goes to the trash. Until only the best are left.",
+    blurb: "Two files from one folder: tap the one that stays, the other goes to the trash.",
     icon: "M4 18h16M5 18 3.5 8l4.5 3.5L12 5l4 6.5L20.5 8 19 18",
     stat: () => (survivor.built && survivor.arena.length > survivor.target ? `${survivor.arena.length.toLocaleString()} left` : "loser goes"),
   },

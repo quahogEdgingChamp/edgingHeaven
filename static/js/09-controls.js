@@ -301,14 +301,14 @@ const MODE_CARDS = [
   {
     mode: "swipe",
     name: "Photo deck",
-    blurb: "Slow down. Discover your photos, one at a time.",
+    blurb: "Photos one at a time. Pass, keep or love.",
     icon: "M4 5h16v11H4zM4 19h10",
     stat: () => `${countOf("images").toLocaleString()} photos`,
   },
   {
     mode: "toktinder",
     name: "Video deck",
-    blurb: "Give every clip its moment. Watch, skip, or keep.",
+    blurb: "Clips one at a time. Watch, skip or keep.",
     icon: "M4 5h16v14H4zM10 9l5 3-5 3z",
     stat: () => `${countOf("videos").toLocaleString()} clips`,
   },
@@ -329,7 +329,7 @@ const MODE_CARDS = [
   {
     mode: "gallery",
     name: "Gallery",
-    blurb: "Your whole library, ready to search and explore.",
+    blurb: "Search and browse the whole library.",
     icon: "M4 5h6v6H4zM14 5h6v6h-6zM4 13h6v6H4zM14 13h6v6h-6z",
     stat: () => `${(countOf("images") + countOf("videos")).toLocaleString()} files`,
   },

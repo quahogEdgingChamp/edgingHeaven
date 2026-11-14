@@ -41,7 +41,7 @@ const ARRIVALS_SHOWN = 48;
 MODE_CARDS.push({
   mode: "downloads",
   name: "Downloads",
-  blurb: "New models and new posts from SimpCity, straight onto the drive.",
+  blurb: "New models and new posts from SimpCity, downloaded to the drive.",
   icon: "M12 4v11M7 10l5 5 5-5M5 20h14",
   stat: () => {
     if (!state.features.has("simp")) return "needs server update";

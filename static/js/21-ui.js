@@ -307,7 +307,7 @@ function syncOverview() {
   el("continueButton").insertAdjacentHTML("beforeend", '<svg aria-hidden="true"><use href="#i-right"/></svg>');
   el("homeGreeting").textContent = greeting();
   const percent = total ? Math.round((rated / total) * 100) : 0;
-  el("homeHeadline").textContent = !total ? "Your library is empty." : rated === 0 ? "Fresh library. Start sorting." : percent >= 100 ? "Everything is sorted." : "Pick up where you left off.";
+  el("homeHeadline").textContent = !total ? "Your library is empty." : rated === 0 ? "Nothing rated yet." : percent >= 100 ? "Everything is sorted." : "Continue sorting.";
   el("homeSubline").textContent = total
     ? `${total.toLocaleString()} files · ${countOf("liked").toLocaleString()} kept · ${Math.max(0, total - rated).toLocaleString()} still to rate`
     : "Choose a folder in Settings to begin.";

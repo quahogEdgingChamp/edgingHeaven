@@ -4,7 +4,7 @@ const dangerous = { items: [], index: 0, library: "", history: [], busy: false,
   kept: 0, deleted: 0, drag: null, preloader: null };
 const el = id => document.getElementById(id);
 MODE_CARDS.push({ mode: "duel", name: "Duel",
-  blurb: "Two at a time — pick the better one. Builds a real ranking of your favorites.",
+  blurb: "Two at a time: pick the better one. Builds a ranking of your favorites.",
   icon: "M4 5h7v14H4zM13 5h7v14h-7z", stat: () => (duel.ratings ? `${Object.keys(duel.ratings).length.toLocaleString()} ranked` : "rank your keeps") });
 MODE_CARDS.push({ mode: "rediscover", name: "Rediscover",
   blurb: "Never-seen files first, then whatever you have not looked at for longest.",
