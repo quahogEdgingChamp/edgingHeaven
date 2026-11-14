@@ -3,8 +3,9 @@
    own posts (photos, videos or both, at most so many new files) into the
    model's Twitter folder (`simp twitter`, scrprsimp/src/simp/twitter.py).
    Saved on the server (POST /api/simp/twitter); a download is a job
-   {action: "twitter", models}. Edited in one sheet, opened from the
-   Downloads page (Add, Edit) and the model page (Twitter / X). A server from
+   {action: "twitter", models}. Edited in one sheet, opened from Bookmarks
+   (Per model → Twitter / X: Add, Edit; and each bookmark's Twitter) and the
+   model page (Twitter / X). A server from
    before this (no status.twitter) hides every part of it. */
 
 const TWITTER_HOSTS = ["x.com", "twitter.com", "fxtwitter.com", "vxtwitter.com", "fixupx.com", "fixvx.com", "nitter.net"];
@@ -66,7 +67,7 @@ function downloadTwitter(model) {
   return submitDownload({ action: "twitter", models: [model] }, `Downloading ${folderLabel(model)} from Twitter. Follow it in Downloads.`);
 }
 
-/* ---- the Downloads page section ---- */
+/* ---- Bookmarks → Per model: the Twitter / X section ---- */
 
 function renderTwitterAccounts() {
   const ready = twitterReady();
@@ -214,7 +215,8 @@ function closeTwitterSheet() {
   // A list re-rendered after the save replaced the button that opened it: its twin.
   let opener = twitterSheet.opener;
   if (!opener?.isConnected) {
-    opener = [...document.querySelectorAll("[data-twitter-model]")].find((node) => node.dataset.twitterModel === twitterSheet.model);
+    opener = [...document.querySelectorAll("[data-twitter-model]")]
+      .find((node) => node.dataset.twitterModel === twitterSheet.model && node.getClientRects().length);
   }
   if (opener?.getClientRects().length) opener.focus({ preventScroll: true });
   window.setTimeout(() => {
@@ -247,7 +249,7 @@ async function submitTwitterSheet(action) {
   if (!result) return;
   if (downloads.status) downloads.status.twitterAccounts = result.accounts || {};
   twitterSheet.listSignature = "";
-  if (state.currentMode === "downloads") renderTwitterAccounts();
+  if (state.currentMode === "bookmarks") renderBookmarks();
   if (state.currentMode === "ranked" && state.ranked.model) syncModelTwitter(state.ranked.model);
   if (twitterSheet.fromAdd && result.account) {
     el("twAddModel").value = "";

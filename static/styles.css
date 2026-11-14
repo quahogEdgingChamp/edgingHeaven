@@ -2234,6 +2234,13 @@ body.locked .shell, body.locked .drawer { visibility: hidden; }
 }
 
 /* ---- Bookmarks (SimpCity bookmarks with previews) ---- */
+/* Bookmarks has three tabs: the list, settings per model, adding and the login. */
+.bm-tabs { align-self: flex-start; max-width: 100%; }
+.bm-panel { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.bm-panel[hidden] { display: none; }
+.dl-where { margin: 0; }
+.inline-link { display: inline; min-height: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.bm-twitter { margin-top: 2px; }
 .bm-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
 .bm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; }
 .bm-card { display: grid; grid-template-rows: auto 1fr; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }

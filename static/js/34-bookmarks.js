@@ -9,16 +9,23 @@
    Download takes the thread, as that model's download settings allow;
    Settings next to it edits them (thread pages, photos or videos, how many),
    on a server that keeps them, and a card says when a model has some.
+   Twitter edits the model's Twitter / X account (43-twitter.js).
+
+   This page is where every "what to download, from where" lives, in three
+   tabs: Bookmarks (the cards), Per model (Settings per model, Twitter / X,
+   known threads with New posts) and Add & login (thread links, pages of
+   the bookmark list, the SimpCity login). The Downloads page only reports.
    ========================================================================== */
 
 const BOOKMARK_BATCH = 48;
 const bookmarkPage = { data: null, loading: null, error: "", filter: "all", search: "", shown: BOOKMARK_BATCH,
-  timer: 0, searchTimer: 0, signature: "" };
+  timer: 0, searchTimer: 0, signature: "", tab: "list" };
+const BOOKMARK_TABS = { list: "bmPanelList", models: "bmPanelModels", add: "bmPanelAdd" };
 
 MODE_CARDS.push({
   mode: "bookmarks",
   name: "Bookmarks",
-  blurb: "Your SimpCity bookmarks with previews, and which models you already have.",
+  blurb: "Your SimpCity bookmarks, and what to download for each model: SimpCity, Twitter / X.",
   icon: "M7 4h10v16l-5-4-5 4z",
   stat: () => {
     if (!state.features.has("bookmarks")) return "needs server update";
@@ -68,20 +75,23 @@ async function enterBookmarks() {
   await Promise.all([loadBookmarks(), loadDownloadStatus()]);
   if (state.currentMode !== "bookmarks") return;
   renderBookmarks();
-  if (bookmarkRefreshJob()) followBookmarkRefresh();
+  if (downloadsActive()) followBookmarkRefresh();
 }
 
-// While a refresh runs, simp saves the list every ten models: show it grow.
+// While jobs run, keep what this page shows current: a bookmark refresh
+// saves the list every ten models (show it grow); a login check, a Twitter
+// download or New posts change the login line, last downloads, known threads.
 function followBookmarkRefresh() {
   window.clearTimeout(bookmarkPage.timer);
   bookmarkPage.timer = window.setTimeout(async () => {
     if (state.currentMode !== "bookmarks") return;
     if (!document.hidden && !state.locked) {
-      await Promise.all([loadDownloadStatus(), loadBookmarks()]);
+      const listing = bookmarkRefreshJob();
+      await Promise.all([loadDownloadStatus(), listing ? loadBookmarks() : null]);
       if (state.currentMode !== "bookmarks") return;
       renderBookmarks();
     }
-    if (bookmarkRefreshJob() || document.hidden) followBookmarkRefresh();
+    if (downloadsActive() || bookmarkRefreshJob() || document.hidden) followBookmarkRefresh();
   }, 4000);
 }
 
@@ -164,6 +174,7 @@ function renderBookmarks(force = false) {
     data?.updatedAt && !data.complete && !refreshing ? "The last refresh stopped early, so some bookmarks may be missing." : "",
     refreshing ? `Reading your bookmarks from SimpCity (${DOWNLOAD_STATUS[refreshing.status].toLowerCase()}). The list fills in as it goes; follow it in Downloads.` : "",
   ].filter(Boolean).join(" ");
+  renderModelSettings();
 
   const rows = bookmarkRows(models);
   el("bmEmpty").hidden = rows.length > 0 || !state.features.has("bookmarks");
@@ -173,7 +184,8 @@ function renderBookmarks(force = false) {
 
   // Only rebuild the grid when what it shows changed: rebuilding reloads every picture.
   const signature = [data?.updatedAt, all.length, bookmarkPage.filter, bookmarkPage.search, bookmarkPage.shown, have, state.library.updatedAt,
-    modelRulesReady(), JSON.stringify(modelRulesReady() ? status?.rules || {} : {})].join("|");
+    modelRulesReady(), JSON.stringify(modelRulesReady() ? status?.rules || {} : {}),
+    twitterReady(), JSON.stringify(twitterReady() ? status?.twitterAccounts || {} : {})].join("|");
   if (!force && signature === bookmarkPage.signature && el("bmGrid").childElementCount) return;
   bookmarkPage.signature = signature;
   el("bmGrid").replaceChildren(...rows.slice(0, bookmarkPage.shown).map((row) => bookmarkCard(row, models.get(row.model))));
@@ -222,6 +234,13 @@ function bookmarkCard(row, info) {
     rule.textContent = `Downloads: ${brief}`;
     body.append(rule);
   }
+  const account = twitterAccount(row.model);
+  if (account) {
+    const line = document.createElement("span");
+    line.className = "bm-rule bm-twitter";
+    line.textContent = `Twitter: ${twitterBrief(account)}`;
+    body.append(line);
+  }
   const actions = document.createElement("div");
   actions.className = "bm-actions";
   if (row.url) {
@@ -235,6 +254,13 @@ function bookmarkCard(row, info) {
       target: { model: row.model, url: row.url || modelThreadUrl(row.model), byUrl: false },
       go: row.url ? () => submitDownload({ action: "thread", urls: [row.url] }, `Queued: ${row.title}. Follow it in Downloads.`) : null,
     })));
+  }
+  if (twitterReady()) {
+    const twitterButton = downloadButton("Twitter", () => openTwitterSheet(row.model));
+    twitterButton.dataset.twitterModel = row.model;
+    twitterButton.setAttribute("aria-haspopup", "dialog");
+    twitterButton.setAttribute("aria-label", `Twitter / X for ${row.title}`);
+    actions.append(twitterButton);
   }
   if (info) {
     actions.append(downloadButton("Open", () => {
@@ -281,7 +307,37 @@ async function downloadMissingBookmarks() {
   }
 }
 
+// Bookmarks / Per model / Add & login.
+function showBookmarkTab(tab) {
+  if (!BOOKMARK_TABS[tab]) return;
+  bookmarkPage.tab = tab;
+  el("bmTabs").querySelectorAll("[data-bm-tab]").forEach((button) => {
+    const on = button.dataset.bmTab === tab;
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-selected", String(on));
+    button.tabIndex = on ? 0 : -1;
+  });
+  Object.entries(BOOKMARK_TABS).forEach(([name, id]) => { el(id).hidden = name !== tab; });
+}
+
 function bindBookmarks() {
+  showBookmarkTab(bookmarkPage.tab);
+  el("bmTabs").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-bm-tab]");
+    if (button) showBookmarkTab(button.dataset.bmTab);
+  });
+  // Arrow keys move between the tabs (the tab pattern).
+  el("bmTabs").addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const names = Object.keys(BOOKMARK_TABS);
+    const at = names.indexOf(bookmarkPage.tab);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? names.length - 1
+      : (at + (event.key === "ArrowRight" ? 1 : names.length - 1)) % names.length;
+    showBookmarkTab(names[next]);
+    el("bmTabs").querySelector(`[data-bm-tab="${names[next]}"]`).focus();
+  });
   syncSegmented(el("bmFilter"), "bmFilter", bookmarkPage.filter);
   bindSegmented(el("bmFilter"), "bmFilter", (value) => {
     bookmarkPage.filter = value;

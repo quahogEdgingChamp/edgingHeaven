@@ -1,13 +1,17 @@
 /* ==========================================================================
    Downloads — simp, run by the server
 
-   Paste SimpCity thread links, pull pages of your bookmarks, retry what
-   failed, and check a model's thread for new posts (here, or with New posts
-   on its model page). Settings per model pick what to take from one model's
-   thread (which pages, photos or videos, how many new files, newest first);
-   the server keeps them and applies them to every download of that model.
-   The server runs simp one job at a time (simpjobs.py); this page starts
-   jobs, follows the running one's output and cancels.
+   The Downloads page is information: what is downloading (its output and
+   progress), what arrived, what waits for space or for last (Bunkr), what
+   failed (Retry), and every job. What to download and from where is chosen
+   in Bookmarks: its Per model tab (Settings per model, Twitter / X, known
+   threads with New posts) and its Add & login tab (thread links, pages of
+   your bookmarks, the SimpCity login). Those parts live in this file too,
+   rendered by renderModelSettings() for the Bookmarks page.
+   Settings per model pick what to take from one model's thread (which
+   pages, photos or videos, how many new files, newest first); the server
+   keeps them and applies them to every download of that model.
+   The server runs simp one job at a time (simpjobs.py).
    Finished jobs rescan the library, and the page's usual library check picks
    the new files up.
 
@@ -41,7 +45,7 @@ const ARRIVALS_SHOWN = 48;
 MODE_CARDS.push({
   mode: "downloads",
   name: "Downloads",
-  blurb: "New models and new posts from SimpCity, downloaded to the drive.",
+  blurb: "What is downloading, what arrived and what failed.",
   icon: "M12 4v11M7 10l5 5 5-5M5 20h14",
   stat: () => {
     if (!state.features.has("simp")) return "needs server update";
@@ -125,10 +129,10 @@ function renderDownloads() {
   el("dlNotice").textContent = notice;
   el("dlNotice").hidden = !notice;
   const usable = !!(status?.installed && status?.configured && state.features.has("simp"));
-  el("dlForms").hidden = !usable;
   el("dlStats").hidden = !usable;
+  el("dlWhere").hidden = !usable;
   if (!status) {
-    ["dlNow", "dlLaterSection", "dlFailedSection", "dlThreadsSection", "dlRulesSection", "dlTwitterSection"].forEach((id) => { el(id).hidden = true; });
+    ["dlNow", "dlLaterSection", "dlFailedSection"].forEach((id) => { el(id).hidden = true; });
     el("dlJobs").replaceChildren();
     el("dlJobsEmpty").hidden = !state.features.has("simp");
     return;
@@ -154,6 +158,26 @@ function renderDownloads() {
   ];
   el("dlStats").replaceChildren(...downloadTiles(tiles));
 
+  el("dlTarget").textContent = status.target ? `into ${status.target}` : "";
+
+  renderDownloadHeld(status, jobs.filter((job) => job.status === "held"));
+  renderDownloadJobs(jobs);
+  renderDownloadLater(status.later || [], jobs);
+  renderDownloadFailed(status.failed || []);
+  syncDownloadNow();
+}
+
+// Bookmarks → Per model and Add & login: what to download, per model and
+// from where, and the SimpCity login.
+function renderModelSettings() {
+  const status = downloads.status;
+  const usable = !!(status?.installed && status?.configured && state.features.has("simp"));
+  el("dlForms").hidden = !usable;
+  if (!status) {
+    ["dlThreadsSection", "dlRulesSection", "dlTwitterSection"].forEach((id) => { el(id).hidden = true; });
+    return;
+  }
+  const auth = status.auth || {};
   const cookies = status.cookies || {};
   const expires = Date.parse(cookies.loginExpiresAt);
   const daysLeft = expires ? Math.floor((expires - Date.now()) / 86400000) : null;
@@ -165,16 +189,9 @@ function renderDownloads() {
     auth.ok === true ? "The login worked." : auth.ok === false ? `The login failed: ${auth.message || "upload new cookies."}` : auth.message || "",
   ].filter(Boolean).join(" ");
   el("dlAuth").classList.toggle("is-error", auth.ok === false || (daysLeft != null && daysLeft <= 14));
-  el("dlTarget").textContent = status.target ? `into ${status.target}` : "";
-
-  renderDownloadHeld(status, jobs.filter((job) => job.status === "held"));
-  renderDownloadJobs(jobs);
-  renderDownloadLater(status.later || [], jobs);
-  renderDownloadFailed(status.failed || []);
   renderDownloadThreads(status.threads || []);
   renderModelRules();
   renderTwitterAccounts();
-  syncDownloadNow();
 }
 
 function downloadTiles(tiles) {
@@ -292,8 +309,13 @@ function renderDownloadLater(later, jobs) {
   }));
 }
 
+let downloadThreadsSignature = "";
+
 function renderDownloadThreads(threads) {
   el("dlThreadsSection").hidden = !threads.length;
+  const signature = JSON.stringify([threads, modelRulesReady() ? downloads.status?.rules || {} : null]);
+  if (signature === downloadThreadsSignature && el("dlThreads").childElementCount === threads.length) return;
+  downloadThreadsSignature = signature;
   el("dlThreads").replaceChildren(...threads.map((thread) => {
     const item = document.createElement("li");
     const text = document.createElement("div");
@@ -1117,7 +1139,7 @@ function applyModelRules(rules, changed) {
   if (downloads.status && rules && typeof rules === "object") downloads.status.rules = rules;
   // The editor holding that model shows what is saved now.
   if (changed && ruleEditor.target?.model === changed) ruleEditor.control.set(ruleValues(modelRule(changed)));
-  if (state.currentMode === "downloads" && downloads.status) {
+  if (state.currentMode === "bookmarks" && downloads.status) {
     renderDownloadThreads(downloads.status.threads || []);
     renderModelRules();
   }
@@ -1233,6 +1255,7 @@ async function saveRuleEditor({ download = false, clear = false } = {}) {
 }
 
 function editModelRule(model) {
+  showBookmarkTab("models");
   el("dlRuleModel").value = model;
   el("dlRuleHint").textContent = "";
   showRuleEditor({ model, url: modelThreadUrl(model), byUrl: false });
@@ -1253,7 +1276,7 @@ function renderModelRules() {
   if (!bookmarkPage.data && !ruleEditor.bookmarksAsked && state.features.has("bookmarks")
     && rules.some(([model]) => !downloadModelPayload(model))) {
     ruleEditor.bookmarksAsked = true;
-    loadBookmarks().then(() => bookmarkPage.data && state.currentMode === "downloads" && renderModelRules());
+    loadBookmarks().then(() => bookmarkPage.data && state.currentMode === "bookmarks" && renderModelRules());
   }
   const signature = JSON.stringify([rules, (status.threads || []).map((thread) => thread.model), !!bookmarkPage.data]);
   if (signature === ruleEditor.listSignature) return;
@@ -1349,7 +1372,8 @@ function closeDownloadDialog() {
   // A list re-rendered after the save replaced the button that opened it: its twin.
   let opener = downloadDialog.opener;
   if (!opener?.isConnected && downloadDialog.openerModel) {
-    opener = [...document.querySelectorAll("[data-rule-model]")].find((node) => node.dataset.ruleModel === downloadDialog.openerModel);
+    opener = [...document.querySelectorAll("[data-rule-model]")]
+      .find((node) => node.dataset.ruleModel === downloadDialog.openerModel && node.getClientRects().length);
   }
   if (opener?.getClientRects().length) opener.focus({ preventScroll: true });
   window.setTimeout(() => {
@@ -1431,6 +1455,12 @@ async function submitDownload(payload, message) {
     toast(message || `Queued: ${job.label}.`);
     if (state.currentMode === "downloads") {
       await refreshDownloads();
+    } else if (state.currentMode === "bookmarks") {
+      await loadDownloadStatus();
+      if (state.currentMode === "bookmarks") {
+        renderBookmarks();
+        followBookmarkRefresh(); // its result (login, new posts, Twitter) shows here as it ends
+      }
     } else {
       loadDownloadStatus();
     }
@@ -1507,6 +1537,7 @@ function bindDownloads() {
         `Checking ${plural(urls.length, "thread", "threads")} for new posts.`);
     }
   });
+  el("dlToBookmarks").addEventListener("click", () => setMode("bookmarks"));
   el("modelUpdate").addEventListener("click", () => {
     const model = state.ranked.model;
     submitDownload({ action: "update", model }, `Checking ${folderLabel(model)} for new posts. Follow it in Downloads.`);

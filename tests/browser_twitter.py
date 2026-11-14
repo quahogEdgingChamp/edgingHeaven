@@ -1,5 +1,6 @@
-"""Browser checks for Twitter / X accounts per model: the Twitter section on
-the Downloads page (Add, Edit, Download, Download all), the sheet that edits
+"""Browser checks for Twitter / X accounts per model: the Twitter section in
+Bookmarks → Per model (Add, Edit, Download, Download all), Twitter on each
+bookmark card, the sheet that edits
 one model's account (photos and videos / photos / videos, at most N, reposts,
 Remove), and the Twitter buttons on a model page. Only shown when the server
 says it has them (status.twitter).
@@ -68,7 +69,9 @@ def route_simp(route):
     if path == "/api/simp/status":
         body = status
     elif path == "/api/simp/bookmarks":
-        body = {"bookmarks": [], "complete": True}
+        body = {"bookmarks": [{"model": "delta", "title": "Delta", "url": "https://simpcity.cr/threads/delta.4/", "previews": []},
+                              {"model": "gamma", "title": "Gamma", "url": "https://simpcity.cr/threads/gamma.5/", "previews": []}],
+                "complete": True, "updatedAt": "2026-11-14T08:00:00Z"}
     elif path == "/api/simp/twitter" and request.method == "POST":
         payload = json.loads(request.post_data)
         account_posts.append(payload)
@@ -133,9 +136,10 @@ with tempfile.TemporaryDirectory(prefix="heaven-twitter-") as tmp:
                 page.goto(url)
                 page.wait_for_function("() => state.libraryReady && state.features.has('simp')")
 
-            def downloads_page():
-                page.evaluate("() => setMode('downloads')")
-                page.wait_for_selector("#dlForms:not([hidden])")
+            def models_tab():
+                page.evaluate("() => setMode('bookmarks')")
+                page.click("#bmTabModels")
+                page.wait_for_selector("#bmPanelModels:not([hidden])")
 
             def wait_new(log, count_before):
                 for _ in range(60):
@@ -160,16 +164,25 @@ with tempfile.TemporaryDirectory(prefix="heaven-twitter-") as tmp:
 
             # ---------- an old server: nothing of it shows ----------
             load(False)
-            downloads_page()
+            models_tab()
             page.wait_for_timeout(300)
             check("Old server: no Twitter section", page.is_hidden("#dlTwitterSection"))
+            page.click("#bmTabList")
+            page.wait_for_selector("#bmGrid .bm-card")
+            check("Old server: no Twitter on bookmark cards", page.locator("#bmGrid button", has_text="Twitter").count() == 0)
             model_page("delta")
             check("Old server: no Twitter buttons on a model page",
                   page.is_hidden("#modelTwitter") and page.is_hidden("#modelTwitterGo") and page.is_hidden("#modelTwitterLine"))
 
-            # ---------- the Downloads page ----------
+            # ---------- Bookmarks → Per model ----------
             load(True)
-            downloads_page()
+            page.evaluate("() => setMode('downloads')")
+            page.wait_for_timeout(300)
+            check("Downloads has no Twitter settings and points to Bookmarks",
+                  page.locator("#downloadsMode #dlTwitterSection, #downloadsMode #twAddGo").count() == 0 and page.is_visible("#dlToBookmarks"))
+            page.click("#dlToBookmarks")
+            page.wait_for_function("state.currentMode === 'bookmarks'")
+            models_tab()
             page.wait_for_selector("#dlTwitterSection:not([hidden])")
             check("Twitter section shown, saved account listed with what it takes",
                   row("delta").locator(".dl-rule-brief").text_content() == "@Delta_X · videos only · at most 40 new files")
@@ -255,6 +268,21 @@ with tempfile.TemporaryDirectory(prefix="heaven-twitter-") as tmp:
             sheet_closed()
             check("Esc closes the sheet", page.is_hidden("#twDialog"))
 
+            # ---------- a bookmark card ----------
+            page.click("#bmTabList")
+            card = page.locator("#bmGrid .bm-card", has=page.locator(".bm-title", has_text="Delta"))
+            card.wait_for()
+            check("A bookmark shows its Twitter account", card.locator(".bm-twitter").text_content() == "Twitter: @Delta_X · with reposts",
+                  card.locator(".bm-twitter").all_text_contents())
+            card.locator("button", has_text="Twitter").click()
+            sheet_open()
+            check("Twitter on a bookmark opens that model's sheet", page.text_content("#twDialogTitle") == "delta")
+            page.keyboard.press("Escape")
+            sheet_closed()
+            other = page.locator("#bmGrid .bm-card", has=page.locator(".bm-title", has_text="Gamma"))
+            check("A bookmark without an account: Twitter button, no line",
+                  other.locator(".bm-twitter").count() == 0 and other.locator("button", has_text="Twitter").count() == 1)
+
             # ---------- the model page ----------
             model_page("delta")
             check("Model page: Twitter posts and the account line",
@@ -283,7 +311,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-twitter-") as tmp:
             small.route("**/api/simp/**", route_simp)
             small.goto(url)
             small.wait_for_function("() => state.libraryReady && state.features.has('simp')")
-            small.evaluate("() => setMode('downloads')")
+            small.evaluate("() => { setMode('bookmarks'); showBookmarkTab('models'); }")
             small.wait_for_selector("#dlTwitterSection:not([hidden])")
             small.locator("#dlTwitterSection").scroll_into_view_if_needed()
             small.wait_for_timeout(200)

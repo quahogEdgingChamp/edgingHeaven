@@ -1,8 +1,8 @@
 """Browser checks for download settings per model: which pages of one
 model's thread, photos or videos, at most how many new files, newest first,
 saved on the server for that model (POST /api/simp/rules) and applied by the
-server to every download of it. Edited under Settings per model on the
-Downloads page, and in the sheet behind Download settings on a model page,
+server to every download of it. Edited under Settings per model in
+Bookmarks → Per model, and in the sheet behind Download settings on a model page,
 Settings on a bookmark and on a known thread. Only shown when the server says
 it keeps them (status.modelRules); jobs never carry option fields.
 
@@ -164,9 +164,11 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
                 page.goto(url)
                 page.wait_for_function("() => state.libraryReady && state.features.has('simp')")
 
-            def downloads_page():
-                page.evaluate("() => setMode('downloads')")
-                page.wait_for_selector("#dlForms:not([hidden])")
+            def settings_page(tab, pg=None):
+                """Bookmarks, on one of its tabs: list, models (Per model) or add (Add & login)."""
+                pg = pg or page
+                pg.evaluate(f"() => {{ setMode('bookmarks'); showBookmarkTab('{tab}'); }}")
+                pg.wait_for_selector({"list": "#bmPanelList", "models": "#bmPanelModels", "add": "#bmPanelAdd"}[tab] + ":not([hidden])")
 
             def wait_new(log, count_before):
                 for _ in range(60):
@@ -192,11 +194,13 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
 
             # ---------- an old server: no modelRules, nothing shown, nothing extra sent ----------
             load(False)
-            downloads_page()
+            settings_page("models")
             check("Old server: no Settings per model", page.is_hidden("#dlRulesSection"))
             check("The per-job Options disclosures are gone", page.locator("#dlThreadMore, #dlBookmarksMore, details.dl-more").count() == 0)
             check("Old server: no Settings or readback on known threads",
                   page.locator("#dlThreads button", has_text="Settings").count() == 0 and page.locator("#dlThreads .dl-rule-brief").count() == 0)
+            settings_page("add")
+            page.wait_for_selector("#dlForms:not([hidden])")
             page.fill("#dlUrls", ALPHA)
             n = len(posted)
             page.click("#dlThreadGo")
@@ -209,20 +213,24 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
             page.wait_for_selector("#modelUpdate:not([hidden])")
             check("Old server: New posts shown; Download settings and the rule line hidden",
                   page.is_hidden("#modelDownload") and page.is_hidden("#modelRule"))
-            page.evaluate("() => setMode('bookmarks')")
+            settings_page("list")
             page.wait_for_selector("#bmGrid .bm-card")
             labels = texts("#bmGrid .bm-actions button")
             check("Old server: bookmarks have no Settings and no badge",
                   "Settings" not in labels and "Download" in labels and page.locator(".bm-rule").count() == 0, labels)
 
-            # ---------- a server that keeps settings: the Downloads page ----------
+            # ---------- a server that keeps settings: Bookmarks → Per model ----------
             load(True)
             fetched.clear()
-            downloads_page()
+            page.evaluate("() => setMode('downloads')")
+            page.wait_for_selector("#dlStats:not([hidden])")
+            check("Downloads only reports: no forms, settings or known threads there",
+                  page.locator("#downloadsMode #dlForms, #downloadsMode #dlRulesSection, #downloadsMode #dlThreadsSection").count() == 0
+                  and page.is_visible("#dlToBookmarks"))
+            settings_page("models")
             page.wait_for_selector("#dlRulesSection:not([hidden])")
-            check("Settings per model shown, right after the forms",
-                  page.evaluate("() => el('dlForms').nextElementSibling.id") == "dlRulesSection")
-            check("The bookmark list is not loaded until the chooser is used", "/api/simp/bookmarks" not in fetched, fetched)
+            check("Settings per model comes first in Per model",
+                  page.evaluate("() => el('bmPanelModels').firstElementChild.id") == "dlRulesSection")
             check("Saved settings listed with a readback",
                   [rule_row(m).locator(".subtle").text_content() for m in ("delta", "zeta")]
                   == ["Videos only · pages 1–3", "Photos only · not downloaded yet"])
@@ -238,6 +246,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
             check("Empty state explains settings per model", empty[0] and "Every download of that model then follows them" in empty[1] and empty[2] == 0, empty)
 
             # Jobs carry no options any more.
+            settings_page("add")
             page.fill("#dlUrls", f"{ALPHA}\n{BETA}")
             n = len(posted)
             page.click("#dlThreadGo")
@@ -250,6 +259,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
             check("The confirm says models with settings follow them", "Models with download settings follow them (2 models)." in confirms[-1], confirms[-1])
 
             # ---------- the chooser ----------
+            settings_page("models")
             page.focus("#dlRuleModel")
             page.wait_for_function("() => [...el('dlRuleModelList').options].some((o) => o.value === 'gamma-ray')")
             check("Focusing the chooser loads bookmarks", "/api/simp/bookmarks" in fetched)
@@ -475,7 +485,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
             check("New posts stays one tap", wait_new(posted, n) == {"action": "update", "model": "alpha"}, posted[n:])
 
             # ---------- bookmarks page: Settings ----------
-            page.evaluate("() => setMode('bookmarks')")
+            settings_page("list")
             page.wait_for_selector("#bmGrid .bm-card")
             gamma = page.locator(".bm-card", has_text="Gamma Ray")
             delta = page.locator(".bm-card", has_text="Delta")
@@ -540,7 +550,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
                     page.screenshot(path=str(SHOTS / f"desktop-{name}-sheet.png"))
                 page.keyboard.press("Escape")
                 dialog_closed()
-                downloads_page()
+                settings_page("models")
                 page.fill("#dlRuleModel", "delta")
                 page.wait_for_selector("#dlRuleEditor:not([hidden])")
                 if os.environ.get("AXE_SCRIPT"):
@@ -549,7 +559,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
                         check(f"{selector} passes axe in {name}", not violations, violations)
                 if name != "velvet":
                     page.locator("#dlRulesSection").screenshot(path=str(SHOTS / f"desktop-{name}-rules.png"))
-                page.evaluate("() => setMode('bookmarks')")
+                settings_page("list")
                 page.wait_for_selector(".bm-rule")
                 if os.environ.get("AXE_SCRIPT"):
                     violations = axe("#bmGrid")
@@ -564,7 +574,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
             mobile.goto(url)
             mobile.wait_for_function("() => state.libraryReady && state.features.has('simp')")
             for name in ["dark", "light"]:
-                mobile.evaluate(f"() => {{ state.settings.theme = '{name}'; applyTheme(); setMode('downloads'); }}")
+                mobile.evaluate(f"() => {{ state.settings.theme = '{name}'; applyTheme(); setMode('bookmarks'); showBookmarkTab('models'); }}")
                 mobile.wait_for_selector("#dlRulesSection:not([hidden])")
                 # gamma-ray was saved by name and has no known thread: its link is its bookmark's.
                 mobile.wait_for_function("() => [...document.querySelectorAll('#dlRules li')].some((li) => li.querySelector('strong').textContent === 'gamma-ray'"
@@ -591,7 +601,7 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
                 mobile.screenshot(path=str(SHOTS / f"phone-{name}-sheet.png"))
                 mobile.keyboard.press("Escape")
                 mobile.wait_for_function("() => el('dlDialog').hidden")
-                mobile.evaluate("() => setMode('bookmarks')")
+                settings_page("list", mobile)
                 mobile.wait_for_selector(".bm-rule")
                 mobile.evaluate("() => document.querySelector('.bm-rule').closest('.bm-card').scrollIntoView({block: 'center'})")
                 mobile.wait_for_timeout(200)
@@ -608,10 +618,17 @@ with tempfile.TemporaryDirectory(prefix="heaven-downloads-") as tmp:
             overflow = small.evaluate("() => [...document.querySelectorAll('#dlDialog *')].filter(n => n.getBoundingClientRect().right > 360.5).map(n => n.className || n.tagName)")
             check("360 px: nothing in the sheet sticks out", not overflow, overflow)
             small.keyboard.press("Escape")
-            small.evaluate("() => setMode('downloads')")
+            small.evaluate("() => { setMode('bookmarks'); showBookmarkTab('models'); }")
             small.wait_for_selector("#dlRulesSection:not([hidden])")
             small.fill("#dlRuleModel", "delta")
             small.wait_for_selector("#dlRuleEditor:not([hidden])")
+            overflow = small.evaluate("() => [...document.querySelectorAll('#bookmarksMode *')].filter(n => n.getClientRects().length && n.getBoundingClientRect().right > 360.5).map(n => n.id || n.className || n.tagName)")
+            check("360 px: nothing in Bookmarks → Per model sticks out", not overflow, overflow)
+            small.evaluate("() => showBookmarkTab('add')")
+            overflow = small.evaluate("() => [...document.querySelectorAll('#bookmarksMode *')].filter(n => n.getClientRects().length && n.getBoundingClientRect().right > 360.5).map(n => n.id || n.className || n.tagName)")
+            check("360 px: nothing in Bookmarks → Add & login sticks out", not overflow, overflow)
+            small.evaluate("() => setMode('downloads')")
+            small.wait_for_timeout(200)
             overflow = small.evaluate("() => [...document.querySelectorAll('#downloadsMode *')].filter(n => n.getClientRects().length && n.getBoundingClientRect().right > 360.5).map(n => n.id || n.className || n.tagName)")
             check("360 px: nothing on the Downloads page sticks out", not overflow, overflow)
             browser.close()
