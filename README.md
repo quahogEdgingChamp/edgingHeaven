@@ -30,6 +30,12 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   bookmark with three pictures (your own photos for models you already have).
   `.zip` / `.rar` / `.7z` archives from file hosts are unpacked in a sandbox and
   only their photos and videos kept (see "Archives" in the simp README)
+- **Twitter / X per model:** give a model its account (Downloads → Twitter / X,
+  or **Twitter / X** on its model page) and choose photos and videos, only photos
+  or only videos, at most N new files, reposts or not. **Twitter posts** downloads
+  what is new into the model's `Twitter` folder; deleted files stay deleted. No
+  login: simp reads the public FxTwitter API (see "Twitter / X accounts" in the
+  simp README)
 - **Toy sync** through Intiface Central (Buttplug protocol) — the running mode
   drives the intensity; holds and stops turn it off
 - Crossfades between pictures in Escalation, Session and the timed modes
