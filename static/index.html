@@ -14,7 +14,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23b7ecd3'/%3E%3Cpath d='M10 7h3v8c5-5 10-2 9 4l-1 7h-3l1-7c1-4-4-4-6 1l-1 6H9z' fill='%23102e29'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="/styles.css?v=13" />
+    <link rel="stylesheet" href="/styles.css?v=14" />
   </head>
   <body data-mode="home">
     <!-- One sprite for every interface icon; buttons reference it with <use>. -->
@@ -765,8 +765,11 @@
                   <button id="modelGallery" class="ghost-button">Browse all</button>
                   <button id="modelUpdate" class="ghost-button" hidden><svg aria-hidden="true"><use href="#i-refresh" /></svg>New posts</button>
                   <button id="modelDownload" class="ghost-button" aria-haspopup="dialog" hidden><svg aria-hidden="true"><use href="#i-adjust" /></svg>Download settings</button>
+                  <button id="modelTwitterGo" class="ghost-button" hidden><svg aria-hidden="true"><use href="#i-down" /></svg>Twitter posts</button>
+                  <button id="modelTwitter" class="ghost-button" aria-haspopup="dialog" hidden>Twitter / X</button>
                 </div>
                 <p id="modelRule" class="model-rule" hidden></p>
+                <p id="modelTwitterLine" class="model-rule" hidden></p>
                 <div id="modelStats" class="ranked-stats"></div>
                 <section id="modelFolders" class="ranked-section">
                   <div class="ranked-section-head"><h2>Folders</h2></div>
@@ -875,6 +878,26 @@
                   </div>
                   <ol id="dlRules" class="dl-rows" aria-label="Models with settings"></ol>
                   <p id="dlRulesEmpty" class="subtle ranked-empty" hidden>No model has settings yet. Pick one above to download only that model's photos, only some thread pages… Every download of that model then follows them.</p>
+                </section>
+                <section id="dlTwitterSection" class="ranked-section" aria-labelledby="dlTwitterTitle" hidden>
+                  <div class="ranked-section-head">
+                    <h2 id="dlTwitterTitle">Twitter / X</h2>
+                    <button id="twAll" class="text-button" hidden>Download all</button>
+                  </div>
+                  <p class="subtle">A model's own posts on Twitter / X, into its <b>Twitter</b> folder. Per model: photos and videos, only photos or only videos, a few new files at a time. Separate from its SimpCity settings. No login needed; a private account shows nothing.</p>
+                  <div class="settings-card dl-rule-card">
+                    <div class="dl-fields tw-add">
+                      <label class="setup-path"><span>Model</span><input id="twAddModel" type="text" list="twModelList" placeholder="A model, or a new name" autocomplete="off" autocapitalize="off" spellcheck="false" /></label>
+                      <label class="setup-path"><span>Twitter / X link</span><input id="twAddHandle" type="text" placeholder="https://x.com/name or @name" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" /></label>
+                    </div>
+                    <datalist id="twModelList"></datalist>
+                    <p id="twAddHint" class="subtle" aria-live="polite"></p>
+                    <div class="setup-actions">
+                      <button id="twAddGo" class="primary-button small-button" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#i-plus" /></svg>Add</button>
+                    </div>
+                  </div>
+                  <ol id="twAccounts" class="dl-rows" aria-label="Models with a Twitter account"></ol>
+                  <p id="twEmpty" class="subtle ranked-empty" hidden>No model has a Twitter account yet. Add one above, or use Twitter / X on a model's page.</p>
                 </section>
                 <section id="dlLaterSection" class="ranked-section" hidden>
                   <div class="ranked-section-head">
@@ -2211,6 +2234,37 @@
       </div>
     </div>
 
+    <!-- One model's Twitter / X account and what to take from it: saved on the server. -->
+    <div id="twDialog" class="launcher dl-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="twDialogTitle" aria-describedby="twDialogMeta">
+      <div class="launcher-sheet">
+        <div class="launcher-head">
+          <div><span class="eyebrow">Twitter / X</span><h2 id="twDialogTitle"></h2><p id="twDialogMeta" class="subtle"></p></div>
+          <button id="twDialogClose" class="icon-button" aria-label="Close"><svg aria-hidden="true"><use href="#i-close" /></svg></button>
+        </div>
+        <div class="dl-options">
+          <label class="setup-path"><span>Account</span><input id="twHandle" type="text" placeholder="https://x.com/name or @name" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" /></label>
+          <div class="setup-path">
+            <span id="twOnlyLabel">Take</span>
+            <div id="twOnly" class="segmented" role="group" aria-labelledby="twOnlyLabel">
+              <button type="button" class="segment" data-only="" aria-pressed="false">Photos and videos</button>
+              <button type="button" class="segment" data-only="images" aria-pressed="false">Photos</button>
+              <button type="button" class="segment" data-only="videos" aria-pressed="false">Videos</button>
+            </div>
+          </div>
+          <label class="setup-path"><span>Max new files</span><input id="twMax" type="number" min="0" max="100000" step="1" placeholder="all" inputmode="numeric" aria-describedby="twMaxHint" /></label>
+          <p id="twMaxHint" class="subtle dl-options-hint">Per download, newest posts first. Files you already have or deleted don't count.</p>
+          <button id="twReposts" type="button" class="switch-row" role="switch" aria-checked="false"><span>Reposts too (posts by others they reposted)</span><i aria-hidden="true"></i></button>
+          <p id="twReadback" class="drawer-summary dl-options-readback" aria-live="polite"></p>
+        </div>
+        <div class="setup-actions dl-sheet-actions">
+          <button id="twSave" class="primary-button">Save</button>
+          <button id="twGo" class="ghost-button"><svg aria-hidden="true"><use href="#i-down" /></svg>Save and download</button>
+          <button id="twRemove" class="text-button dl-rule-remove" hidden>Remove account</button>
+          <button id="twCancel" class="ghost-button">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 
     <div id="cleanupViewer" class="cleanup-viewer" role="dialog" aria-modal="true" aria-label="File" hidden>
@@ -2330,47 +2384,48 @@
       </div>
     </div>
 
-    <script src="/js/01-core.js?v=13" defer></script>
-    <script src="/js/02-decks.js?v=13" defer></script>
-    <script src="/js/03-shell.js?v=13" defer></script>
-    <script src="/js/04-escalation.js?v=13" defer></script>
-    <script src="/js/05-media.js?v=13" defer></script>
-    <script src="/js/06-ratings.js?v=13" defer></script>
-    <script src="/js/07-session.js?v=13" defer></script>
-    <script src="/js/08-gallery.js?v=13" defer></script>
-    <script src="/js/09-controls.js?v=13" defer></script>
-    <script src="/js/10-collection.js?v=13" defer></script>
-    <script src="/js/11-mosaic.js?v=13" defer></script>
-    <script src="/js/12-feed.js?v=13" defer></script>
-    <script src="/js/13-settings.js?v=13" defer></script>
-    <script src="/js/14-picking.js?v=13" defer></script>
-    <script src="/js/15-folders.js?v=13" defer></script>
-    <script src="/js/16-workspace.js?v=13" defer></script>
-    <script src="/js/17-seen.js?v=13" defer></script>
-    <script src="/js/18-duel.js?v=13" defer></script>
-    <script src="/js/19-rediscover.js?v=13" defer></script>
-    <script src="/js/20-dangerous.js?v=13" defer></script>
-    <script src="/js/21-ui.js?v=13" defer></script>
-    <script src="/js/22-play.js?v=13" defer></script>
-    <script src="/js/23-toy.js?v=13" defer></script>
-    <script src="/js/24-privacy.js?v=13" defer></script>
-    <script src="/js/25-marks.js?v=13" defer></script>
-    <script src="/js/26-highlights.js?v=13" defer></script>
-    <script src="/js/27-ladder.js?v=13" defer></script>
-    <script src="/js/28-spotlight.js?v=13" defer></script>
-    <script src="/js/29-beat.js?v=13" defer></script>
-    <script src="/js/30-redlight.js?v=13" defer></script>
-    <script src="/js/31-dice.js?v=13" defer></script>
-    <script src="/js/32-models.js?v=13" defer></script>
+    <script src="/js/01-core.js?v=14" defer></script>
+    <script src="/js/02-decks.js?v=14" defer></script>
+    <script src="/js/03-shell.js?v=14" defer></script>
+    <script src="/js/04-escalation.js?v=14" defer></script>
+    <script src="/js/05-media.js?v=14" defer></script>
+    <script src="/js/06-ratings.js?v=14" defer></script>
+    <script src="/js/07-session.js?v=14" defer></script>
+    <script src="/js/08-gallery.js?v=14" defer></script>
+    <script src="/js/09-controls.js?v=14" defer></script>
+    <script src="/js/10-collection.js?v=14" defer></script>
+    <script src="/js/11-mosaic.js?v=14" defer></script>
+    <script src="/js/12-feed.js?v=14" defer></script>
+    <script src="/js/13-settings.js?v=14" defer></script>
+    <script src="/js/14-picking.js?v=14" defer></script>
+    <script src="/js/15-folders.js?v=14" defer></script>
+    <script src="/js/16-workspace.js?v=14" defer></script>
+    <script src="/js/17-seen.js?v=14" defer></script>
+    <script src="/js/18-duel.js?v=14" defer></script>
+    <script src="/js/19-rediscover.js?v=14" defer></script>
+    <script src="/js/20-dangerous.js?v=14" defer></script>
+    <script src="/js/21-ui.js?v=14" defer></script>
+    <script src="/js/22-play.js?v=14" defer></script>
+    <script src="/js/23-toy.js?v=14" defer></script>
+    <script src="/js/24-privacy.js?v=14" defer></script>
+    <script src="/js/25-marks.js?v=14" defer></script>
+    <script src="/js/26-highlights.js?v=14" defer></script>
+    <script src="/js/27-ladder.js?v=14" defer></script>
+    <script src="/js/28-spotlight.js?v=14" defer></script>
+    <script src="/js/29-beat.js?v=14" defer></script>
+    <script src="/js/30-redlight.js?v=14" defer></script>
+    <script src="/js/31-dice.js?v=14" defer></script>
+    <script src="/js/32-models.js?v=14" defer></script>
     <script src="/js/33-downloads.js?v=14" defer></script>
     <script src="/js/34-bookmarks.js?v=14" defer></script>
-    <script src="/js/35-cleanup.js?v=13" defer></script>
-    <script src="/js/36-sortrate.js?v=13" defer></script>
-    <script src="/js/37-removemodel.js?v=13" defer></script>
-    <script src="/js/38-thrill.js?v=13" defer></script>
-    <script src="/js/39-survivor.js?v=13" defer></script>
-    <script src="/js/40-thrill-fx.js?v=13" defer></script>
-    <script src="/js/41-signals.js?v=13" defer></script>
-    <script src="/js/42-smart.js?v=13" defer></script>
+    <script src="/js/35-cleanup.js?v=14" defer></script>
+    <script src="/js/36-sortrate.js?v=14" defer></script>
+    <script src="/js/37-removemodel.js?v=14" defer></script>
+    <script src="/js/38-thrill.js?v=14" defer></script>
+    <script src="/js/39-survivor.js?v=14" defer></script>
+    <script src="/js/40-thrill-fx.js?v=14" defer></script>
+    <script src="/js/41-signals.js?v=14" defer></script>
+    <script src="/js/42-smart.js?v=14" defer></script>
+    <script src="/js/43-twitter.js?v=14" defer></script>
   </body>
 </html>

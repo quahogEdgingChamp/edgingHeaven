@@ -128,7 +128,7 @@ function renderDownloads() {
   el("dlForms").hidden = !usable;
   el("dlStats").hidden = !usable;
   if (!status) {
-    ["dlNow", "dlLaterSection", "dlFailedSection", "dlThreadsSection", "dlRulesSection"].forEach((id) => { el(id).hidden = true; });
+    ["dlNow", "dlLaterSection", "dlFailedSection", "dlThreadsSection", "dlRulesSection", "dlTwitterSection"].forEach((id) => { el(id).hidden = true; });
     el("dlJobs").replaceChildren();
     el("dlJobsEmpty").hidden = !state.features.has("simp");
     return;
@@ -173,6 +173,7 @@ function renderDownloads() {
   renderDownloadFailed(status.failed || []);
   renderDownloadThreads(status.threads || []);
   renderModelRules();
+  renderTwitterAccounts();
   syncDownloadNow();
 }
 
@@ -1469,6 +1470,7 @@ async function uploadCookies(file) {
 function bindDownloads() {
   bindRuleEditor();
   bindDownloadDialog();
+  bindTwitter();
   el("dlThreadGo").addEventListener("click", async () => {
     const urls = el("dlUrls").value.split(/\s+/).filter(Boolean);
     if (!urls.length) {
@@ -1528,6 +1530,7 @@ async function syncModelUpdate(model) {
     button.hidden = !thread;
     el("modelDownload").hidden = !thread || !modelRulesReady();
     syncModelRule(model);
+    syncModelTwitter(model);
     return thread;
   };
   sync();
