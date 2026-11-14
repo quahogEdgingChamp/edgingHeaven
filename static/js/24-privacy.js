@@ -28,6 +28,9 @@ function syncDocumentTitle() {
 /* ---- PIN lock ---- */
 
 const lockPad = { pin: "", busy: false, waitTimer: 0, enabled: false };
+// A mouse or trackpad: a keyboard is likely, so the PIN field takes the focus.
+// Not on a phone, where that would pop its keyboard over the pad.
+const LOCK_TYPES = window.matchMedia("(pointer: fine)");
 
 class LockedError extends Error {
   constructor() {
@@ -47,7 +50,12 @@ function showLockScreen() {
   lockPad.pin = "";
   syncLockPad("Enter your PIN");
   syncDocumentTitle();
+  focusLockInput();
   fetchJson("/api/lock").then((status) => startLockWait(status.retryAfter)).catch(() => {});
+}
+
+function focusLockInput() {
+  if (state.locked && LOCK_TYPES.matches && !el("lockInput").disabled) el("lockInput").focus({ preventScroll: true });
 }
 
 // The server forgets this device's unlock first, so a reload or another tab
@@ -69,6 +77,9 @@ async function requirePinOnOpen() {
     const status = await fetchJson("/api/lock");
     lockPad.enabled = !!status.enabled;
     if (status.enabled && status.unlocked) await postJson("/api/lock/logout", {});
+    // Up before anything else loads, so no key typed meanwhile goes to the
+    // mode shortcuts (1-9) instead of the PIN.
+    if (status.enabled) showLockScreen();
   } catch (error) {
     /* an older server or no connection: loading the library finds out */
   }
@@ -82,6 +93,7 @@ function hideLockScreen() {
 }
 
 function syncLockPad(message) {
+  if (el("lockInput").value !== lockPad.pin) el("lockInput").value = lockPad.pin;
   el("lockDots").replaceChildren(...Array.from({ length: Math.max(4, lockPad.pin.length) }, (_, index) => {
     const dot = document.createElement("i");
     dot.classList.toggle("filled", index < lockPad.pin.length);
@@ -99,12 +111,14 @@ function startLockWait(seconds) {
     pad.querySelectorAll("button").forEach((button) => {
       button.disabled = left > 0;
     });
+    el("lockInput").disabled = left > 0;
     if (left > 0) {
       syncLockPad(`Too many wrong PINs. Try again in ${left}s.`);
       left -= 1;
     } else {
       window.clearInterval(lockPad.waitTimer);
       if (el("lockMessage").textContent.startsWith("Too many")) syncLockPad("Enter your PIN");
+      focusLockInput();
     }
   };
   tick();
@@ -128,6 +142,7 @@ async function submitPin() {
       void el("lockPad").offsetWidth;
       el("lockPad").classList.add("shake");
       if (payload.retryAfter) startLockWait(payload.retryAfter);
+      focusLockInput();
       return;
     }
     hideLockScreen();
@@ -163,13 +178,39 @@ function bindLockScreen() {
     if (document.hidden) lockOnLeave();
   });
   window.addEventListener("pagehide", lockOnLeave);
+  // The field: whatever it holds, digits only, is the PIN.
+  el("lockInput").addEventListener("input", () => {
+    if (lockPad.busy) return;
+    lockPad.pin = el("lockInput").value.replace(/\D/g, "").slice(0, 12);
+    syncLockPad("Enter your PIN");
+  });
+  // Clicking anywhere but a pad button puts the keyboard back on the field.
+  el("lockScreen").addEventListener("mouseup", (event) => {
+    if (!event.target.closest("button")) focusLockInput();
+  });
+  // Keys while locked never reach the app. In the field it types by itself
+  // (Enter unlocks); anywhere else the keys go to the PIN directly. The key's
+  // place (Digit1, Numpad1) counts too: a numpad with Num Lock off, and
+  // layouts whose top row types symbols, still enter digits.
   window.addEventListener("keydown", (event) => {
     if (!state.locked) return;
-    event.preventDefault();
     event.stopImmediatePropagation();
-    if (/^\d$/.test(event.key)) pressLockKey(event.key);
-    else if (event.key === "Backspace") pressLockKey("del");
-    else if (event.key === "Enter") pressLockKey("ok");
+    const inField = event.target === el("lockInput");
+    if (event.key === "Enter" || event.code === "NumpadEnter") {
+      event.preventDefault();
+      pressLockKey("ok");
+      return;
+    }
+    const keyDigit = (/^(?:Digit|Numpad)(\d)$/.exec(event.code) || [])[1];
+    if (inField && /^\d$/.test(event.key)) return;
+    // Numpad 1 with Num Lock off arrives as End: it is still a 1.
+    if (inField && !keyDigit && ["Backspace", "Delete", "Tab", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return; // paste, reload, …
+    event.preventDefault();
+    const digit = /^\d$/.test(event.key) ? event.key : keyDigit;
+    if (digit) pressLockKey(digit);
+    else if (event.key === "Backspace" || event.key === "Delete" || event.code === "NumpadDecimal") pressLockKey("del");
+    if (!inField) focusLockInput();
   }, true);
 }
 

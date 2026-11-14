@@ -122,6 +122,75 @@ with tempfile.TemporaryDirectory(prefix="heaven-lock-") as tmp:
         page.close()
         check("closing the tab leaves this device locked", not server_unlocked(context, url))
 
+        # ---- The phone: the field never takes the focus (no keyboard over the pad)
+        page = context.new_page()
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(url)
+        page.wait_for_selector("#lockScreen:not([hidden])", timeout=10000)
+        check("phone: the PIN field is not focused", page.evaluate("document.activeElement !== el('lockInput')"))
+        enter_pin(page)
+        page.close()
+
+        # ---- A PC: the keyboard enters the PIN however it is typed
+        desk = browser.new_context(viewport={"width": 1280, "height": 900})
+        desk.route("**/media?*", lambda route: route.fulfill(status=200, content_type="image/png", body=png()))
+        page = desk.new_page()
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def dots():
+            return page.evaluate("document.querySelectorAll('#lockDots .filled').length")
+
+        def unlocked():
+            page.wait_for_function("state.libraryReady && el('lockScreen').hidden && !state.locked", timeout=10000)
+            return True
+
+        def key(k, code):
+            # A key as a layout or Num Lock state sends it (the page only sees key and code).
+            page.evaluate("([k, c]) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', "
+                          "{ key: k, code: c, bubbles: true, cancelable: true }))", [k, code])
+
+        # Typed straight away, while the page is still loading: nothing goes to the mode keys.
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_function("typeof state !== 'undefined' && state.locked", timeout=10000)
+        mode = page.evaluate("state.currentMode")
+        page.keyboard.type(PIN)
+        check("PC: the lock is up before the library loads", page.evaluate("!state.libraryReady"))
+        check("PC: digits typed at once fill the PIN, not the mode keys", dots() == 4 and page.evaluate("state.currentMode") == mode,
+              (dots(), page.evaluate("state.currentMode"), mode))
+        check("PC: the PIN field has the keyboard", page.evaluate("document.activeElement === el('lockInput')"))
+        page.keyboard.press("Enter")
+        check("PC: Enter unlocks", unlocked())
+
+        # A wrong PIN: says so, empties, the field keeps the keyboard.
+        page.reload()
+        page.wait_for_selector("#lockScreen:not([hidden])", timeout=10000)
+        page.keyboard.type("1111")
+        page.keyboard.press("Enter")
+        page.wait_for_function("el('lockMessage').textContent !== 'Enter your PIN'")
+        check("PC: a wrong PIN empties the field and keeps the focus",
+              dots() == 0 and page.input_value("#lockInput") == "" and page.evaluate("document.activeElement === el('lockInput')"))
+        page.keyboard.press("Backspace")
+        # Numpad with Num Lock off (keys say End, ArrowDown, …) and a top row that types symbols (AZERTY).
+        for k, code in (("ArrowDown", "Numpad2"), ("'", "Digit4"), ("ArrowRight", "Numpad6"), ("_", "Digit8")):
+            key(k, code)
+        check("PC: Num Lock off and symbol rows still give digits", page.input_value("#lockInput") == PIN, page.input_value("#lockInput"))
+        page.keyboard.press("Backspace")
+        check("PC: Backspace deletes one", dots() == 3)
+        page.keyboard.type("8")
+        key("Enter", "NumpadEnter")
+        check("PC: numpad Enter unlocks", unlocked())
+
+        # After leaving the tab: a click elsewhere on the screen gives the field the keyboard back.
+        hide(page)
+        show(page)
+        page.evaluate("document.activeElement.blur()")
+        page.mouse.click(40, 40)
+        check("PC: a click on the lock screen focuses the field", page.evaluate("document.activeElement === el('lockInput')"))
+        page.keyboard.type(PIN)
+        page.keyboard.press("Enter")
+        check("PC: the keyboard unlocks after coming back", unlocked())
+        desk.close()
+
         # ---- Without a PIN, hiding changes nothing
         lib.clear_pin()
         page = context.new_page()
