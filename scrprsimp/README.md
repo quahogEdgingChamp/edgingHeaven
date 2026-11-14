@@ -255,6 +255,37 @@ cyberdrop-dl fetched everything: `adopt_existing` (below) is only for folders fr
 before that file existed, and must not run after a videos-only or some-pages run
 (it would take the thread's other photos for deleted).
 
+### Twitter / X accounts (`simp twitter`)
+
+A model can have one Twitter account. Saved in `state/twitter.json` (Edging
+Heaven's Downloads → Twitter, or a model page, writes it):
+
+```json
+{"anna": {"handle": "anna_x", "only": "videos", "maxFiles": 40, "reposts": false, "updatedAt": "…"}}
+```
+
+```bash
+simp twitter                        # every model with an account
+simp twitter anna                   # one model
+simp twitter anna --only=images --max-files=20   # for this run only
+simp twitter anna --handle @anna_x  # another account, this run only (no need to save one)
+```
+
+| What | How |
+|---|---|
+| Where it reads | The FxTwitter API (`api.fxtwitter.com/2/profile/<handle>/media`): no login, no cookies sent, the account's posts with media, newest first, ~50 per page, back to the timeline's limit (about 3,200 posts). A private account shows nothing |
+| What it takes | Each post's photos (`?name=orig`, full size) and videos (the highest-bitrate mp4, never the stream). The account's own posts only; `reposts` adds posts it reposted from others. Links in the text and link cards are never followed |
+| Where files go | `<model>/Twitter/<date> <post id> <n>.jpg` / `.mp4`, so they sort by date and show as their own folder in Edging Heaven |
+| Already have | Recorded in the model's `state/done/<model>.jsonl` under the post's permalink (`https://x.com/<handle>/status/<id>/photo/1`) and the media address. Deleted stays deleted (`redownload_missing = false`). A file identical to one already anywhere in the model's folder (from SimpCity too) is not kept twice |
+| `only` / `maxFiles` | Exact: the API says each file's type, and the limit counts new files. Pages are read one at a time and each page's files download before the next, so a limit takes roughly the newest (four downloads run at once, so the very newest can lose the race by a file or two) |
+| Next run | Reads from the newest again. After one run got through the whole timeline (`state/twitter/<model>.json` → `reachedEnd`), two pages in a row with nothing new end the next run. A run cut short by `maxFiles` never counts as having got through, and neither does one that took fewer types or no reposts when this run wants more |
+| Failures | Not recorded in `state/failed/` (no `simp retry`): a failed file is not marked done, so the next `simp twitter` tries it again |
+
+Why not cyberdrop-dl, which has a Twitter crawler: in 10.10 it skips every post
+(`TweetsFilterer.should_skip` always returns "skip") and its search step gets 404s.
+The API also answers the odd request with a false 404, so each page is asked up to
+6 times.
+
 ### Retry failures
 
 ```bash

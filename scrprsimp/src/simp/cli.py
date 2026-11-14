@@ -230,6 +230,19 @@ def _parser() -> argparse.ArgumentParser:
     later.add_argument("models", nargs="*", help="Model slugs (folder names); default: all")
     later.set_defaults(func=cmd_later)
 
+    tw = sub.add_parser(
+        "twitter",
+        help="Download photos and videos from the Twitter / X accounts in state/twitter.json "
+        "(all models, or the ones named) into <model>/Twitter/",
+    )
+    tw.add_argument("models", nargs="*", help="Model folder names; default: every model with an account")
+    tw.add_argument("--handle", default="", help="This account instead of the saved one (one model only)")
+    tw.add_argument("--only", choices=ONLY_CHOICES, default="", help="Only photos or only videos, for this run")
+    tw.add_argument("--max-files", type=_max_files, default=0, metavar="N",
+                    help="At most N new files per model, for this run (0 = the saved setting)")
+    tw.add_argument("--reposts", action="store_true", help="Also posts the account reposted, for this run")
+    tw.set_defaults(func=cmd_twitter)
+
     from .clear import CLEAR_TARGETS
 
     clr = sub.add_parser(
@@ -552,6 +565,60 @@ def cmd_later(args: argparse.Namespace, cfg: Config) -> int:
     return _summarize(done)
 
 
+def cmd_twitter(args: argparse.Namespace, cfg: Config) -> int:
+    from dataclasses import replace
+
+    from .twitter import TwitterError, TwitterRule, build_twitter_client, parse_handle, twitter_model, twitter_rules
+
+    rules = twitter_rules(cfg.resolve(cfg.paths.state_dir), say=console.print)
+    models = list(args.models) or sorted(rules)
+    if args.handle:
+        handle = parse_handle(args.handle)
+        if not handle or len(models) != 1:
+            console.print("[red]--handle takes one Twitter account (@name or its link) and exactly one model.[/]")
+            return 2
+        rules[models[0]] = replace(rules.get(models[0]) or TwitterRule(handle), handle=handle)
+    unknown = [m for m in models if m not in rules]
+    if unknown:
+        console.print(f"[yellow]no Twitter account saved for:[/] {', '.join(unknown)}")
+    models = [m for m in models if m in rules]
+    if not models:
+        console.print("[green]No Twitter accounts to download.[/]")
+        return 1 if unknown else 0
+    done: list[ModelResult] = []
+    unreadable = 0
+    try:
+        with build_twitter_client(cfg) as client:
+            for i, model in enumerate(models, 1):
+                rule = rules[model]
+                rule = replace(rule, only=args.only or rule.only, max_files=args.max_files or rule.max_files,
+                               reposts=args.reposts or rule.reposts)
+                console.print(f"[bold]twitter ({i}/{len(models)})[/] {model}  (@{rule.handle})")
+                try:
+                    done.append(twitter_model(client, cfg, model, rule))
+                except TwitterError as exc:
+                    console.print(f"  [red]{exc}[/]")
+                    unreadable += 1
+    except DriveFull as exc:
+        return _stopped_for_space(done, exc)
+    code = _summarize_twitter(done)
+    if unreadable:
+        console.print(f"  [red]{unreadable} account(s) could not be read.[/]")
+    return 1 if unreadable or unknown else code
+
+
+def _summarize_twitter(results: list[ModelResult]) -> int:
+    ok = sum(r.ok for r in results)
+    failed = sum(len(r.failed) for r in results)
+    console.print(
+        f"[bold]Summary:[/] {len(results)} model(s) · [green]{ok} downloaded[/] · "
+        f"{sum(r.skipped for r in results)} had already · [red]{failed} failed[/] (Twitter)"
+    )
+    if failed:
+        console.print("  Run the Twitter download again to retry them.")
+    return 1 if failed else 0
+
+
 def cmd_clear(args: argparse.Namespace, cfg: Config) -> int:
     from .clear import clear_target, print_clear_menu
 
@@ -589,7 +656,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(2)
     ensure_dir(cfg.resolve(cfg.paths.state_dir))
     # bookmarks --save checks which models are downloaded: it needs the drive too.
-    if args.cmd in {"download", "thread", "retry", "later"} or (args.cmd == "bookmarks" and args.save):
+    if args.cmd in {"download", "thread", "retry", "later", "twitter"} or (args.cmd == "bookmarks" and args.save):
         whereto = cfg.read_whereto()
         # Only create the whereto folder itself, never its parents: a missing
         # parent means the drive isn't mounted.

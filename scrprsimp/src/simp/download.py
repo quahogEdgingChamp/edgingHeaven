@@ -116,6 +116,7 @@ def direct_download_one(
     model: str = "",
     only: str = "",
     budget: Budget | None = None,
+    save_as: str | None = None,
 ) -> tuple[str, str]:
     """
     Download one direct link. Returns (status, detail):
@@ -128,6 +129,9 @@ def direct_download_one(
 
     url= fetches that URL on link's behalf (the image found on its page);
     aliases are more page links that resolved to the same image.
+
+    save_as= stores the file under that path inside dest_dir (e.g.
+    "Twitter/2026-11-13 123 1.jpg") instead of the name the host gives it.
     """
     ensure_dir(dest_dir)
     label = model or dest_dir.name
@@ -176,7 +180,7 @@ def direct_download_one(
                         return _report(label, link, "fail", "web page with no image on it")
                     return "page", image
 
-                name = _filename_from_response(target, r)
+                name = save_as or _filename_from_response(target, r)
                 if any(name.lower().endswith(ext) for ext in blocked):
                     return _report(label, link, "skip", f"{name} (excluded)")
                 if cfg.archives.unpack and archives.is_archive(name):
@@ -205,6 +209,7 @@ def direct_download_one(
                 dest = dest_dir / name
                 tmp = dest_dir / (name + ".part")
                 try:
+                    tmp.parent.mkdir(parents=True, exist_ok=True)
                     digest = hashlib.sha256()
                     with tmp.open("wb") as fh:
                         written = checked = 0
@@ -273,8 +278,13 @@ def download_direct_batch(
     model: str = "",
     only: str = "",
     budget: Budget | None = None,
+    fetch: dict[str, tuple[str, str]] | None = None,
 ) -> DirectResult:
-    """Download non-CDL links with a small thread pool."""
+    """Download non-CDL links with a small thread pool.
+
+    fetch: link URL → (the URL to download it from, path to save it as). The
+    link URL is what the index remembers it by (Twitter: the post's photo
+    permalink, which stays the same when the media address changes)."""
     res = DirectResult()
     if not links:
         return res
@@ -312,11 +322,14 @@ def download_direct_batch(
             if full.is_set():
                 return "stopped", ""
             polite_sleep(0.05, 0.25)
+            save_as = None
+            if fetch and link.url in fetch:
+                url, save_as = fetch[link.url]
             try:
                 return direct_download_one(
                     clients.get(), link, dest_dir, cfg, index,
                     url=url, aliases=aliases or [], model=label,
-                    only=only, budget=budget,
+                    only=only, budget=budget, save_as=save_as,
                 )
             except DriveFull as exc:
                 if not full.is_set():
