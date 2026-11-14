@@ -7,8 +7,9 @@ Pull bookmarked (or named) model threads from SimpCity, crawl them for media, th
 ## Where it runs
 
 simp lives in the Edging Heaven repo as `scrprsimp/` and runs on qwertyserver.
-Normally you don't type any of the commands below: Edging Heaven's **Downloads**
-page starts them (see `../README.md` → Downloads) and shows their output.
+Normally you don't type any of the commands below: Edging Heaven's **Bookmarks**
+page starts them (what to download, per model and from where) and its **Downloads**
+page shows their output (see `../README.md`).
 
 | | On qwertyserver |
 |---|---|
@@ -258,7 +259,7 @@ before that file existed, and must not run after a videos-only or some-pages run
 ### Twitter / X accounts (`simp twitter`)
 
 A model can have one Twitter account. Saved in `state/twitter.json` (Edging
-Heaven's Downloads → Twitter, or a model page, writes it):
+Heaven's Bookmarks → Per model → Twitter / X, or a model page, writes it):
 
 ```json
 {"anna": {"handle": "anna_x", "only": "videos", "maxFiles": 40, "reposts": false, "updatedAt": "…"}}
@@ -381,7 +382,7 @@ and `cp config.example.toml config.toml`.
 
 1. Log into SimpCity in your browser.
 2. Export Netscape cookies (“Get cookies.txt LOCALLY” / Firefox “cookies.txt”).
-3. Upload it on Edging Heaven's Downloads page (**Upload cookies.txt**), or save it
+3. Upload it in Edging Heaven's Bookmarks → Add & login (**Upload cookies.txt**), or save it
    as `cookies/simpcity.txt` next to `config.toml`.
 
 **B. Live browser profile** — in `config.toml`:

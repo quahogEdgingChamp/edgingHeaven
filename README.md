@@ -23,15 +23,20 @@ Small self-hosted media browser for a local folder of photos and videos. It runs
   Ladder / Spotlight run of a minute or more), and a **page per model**
   (top-level folder) with its best files and one-tap Spotlight / Ladder / Duel
 - **Privacy:** an optional server-enforced **PIN lock** and a plain tab title
-- **Downloads** from SimpCity on the server: paste thread links, pull pages of
-  your bookmarks, **New posts** on a model page, retry failures, follow the live
-  output and cancel. The server runs [simp](scrprsimp/README.md) (in `scrprsimp/`)
-  one job at a time and rescans when a job ends. **Bookmarks** shows every SimpCity
-  bookmark with three pictures (your own photos for models you already have).
+- **Bookmarks** is where you choose what to download, per model and from where,
+  in three tabs: **Bookmarks** (every SimpCity bookmark with three pictures, your
+  own photos for models you already have; Download / New posts, Settings, Twitter),
+  **Per model** (Settings per model, Twitter / X accounts, known threads with New
+  posts and Check all) and **Add & login** (paste thread links, pull pages of your
+  bookmark list, the SimpCity login). **New posts** is also on a model page.
+- **Downloads** only reports: what is downloading (live output, progress, Cancel),
+  what arrived, what waits for space or for last, failures (Retry) and every job.
+  The server runs [simp](scrprsimp/README.md) (in `scrprsimp/`) one job at a time
+  and adds new files as they land.
   `.zip` / `.rar` / `.7z` archives from file hosts are unpacked in a sandbox and
   only their photos and videos kept (see "Archives" in the simp README)
-- **Twitter / X per model:** give a model its account (Downloads → Twitter / X,
-  or **Twitter / X** on its model page) and choose photos and videos, only photos
+- **Twitter / X per model:** give a model its account (Bookmarks → Per model →
+  Twitter / X, **Twitter** on its bookmark, or **Twitter / X** on its model page) and choose photos and videos, only photos
   or only videos, at most N new files, reposts or not. **Twitter posts** downloads
   what is new into the model's `Twitter` folder; deleted files stay deleted. No
   login: simp reads the public FxTwitter API (see "Twitter / X accounts" in the
@@ -289,7 +294,7 @@ python3 server.py --media-dir "/path/to/media" --host 0.0.0.0 --port 8420 --data
   five), **photos or videos only**, **at most N new files** per download, **newest
   posts first**. Every download of that model then follows them: New posts, Check
   all, bookmark downloads, a pasted link. Other models are not affected. Set them in
-  Downloads → **Settings per model**, **Download settings** on a model page, or
+  Bookmarks → Per model → **Settings per model**, **Download settings** on a model page, or
   **Settings** on a bookmark; a line on each of those says what is set, and the
   model's jobs carry it in their names. Details:
   - Saved in `<data dir>/scrprsimp/state/model-rules.json`; simp reads it for each
