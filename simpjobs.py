@@ -41,6 +41,17 @@ MAX_FILES = 100000
 # to every download of that model (scrprsimp/src/simp/filters.py).
 RULES_FILE = "model-rules.json"
 RULE_FIELDS = ("threadPages", "only", "maxFiles", "order")
+# A model's Twitter / X account and what to take from it (simp twitter,
+# scrprsimp/src/simp/twitter.py), and each model's last run of it.
+TWITTER_FILE = "twitter.json"
+TWITTER_RUNS = "twitter"
+TWITTER_HANDLE_RE = re.compile(r"[A-Za-z0-9_]{1,15}")
+TWITTER_HOSTS = ("x.com", "twitter.com", "fxtwitter.com", "vxtwitter.com", "fixupx.com", "fixvx.com", "nitter.net")
+# x.com/<these> are pages, not accounts (as simp's twitter.NOT_HANDLES).
+TWITTER_NOT_HANDLES = frozenset({
+    "home", "explore", "search", "notifications", "messages", "settings", "i", "intent", "share",
+    "compose", "login", "logout", "signup", "tos", "privacy", "hashtag", "jobs", "lists", "about",
+})
 JOB_ID_RE = re.compile(r"[a-f0-9]{12}")
 # Preview pictures simp saves: state/previews/<model>/<n>.<ext>
 PREVIEW_NAME_RE = re.compile(r"\d{1,2}\.(?:jpg|png|gif|webp|avif)")
@@ -62,7 +73,7 @@ AUTH_BAD = ("Session looks logged-out", "Cookies file not found", "No cookies fo
 
 ACTIVE = {"queued", "running"}
 # Jobs that write to the drive: refused below the reserve, held when it is reached.
-DRIVE_ACTIONS = {"thread", "update", "bookmarks", "retry", "later"}
+DRIVE_ACTIONS = {"thread", "update", "bookmarks", "retry", "later", "twitter"}
 # Fast hosts first, Bunkr last: downloads run simp with --slow-later, which
 # saves each model's Bunkr links (one file at a time per Bunkr server, slow)
 # in state/later/. A "later" job (`simp later`) downloads them once nothing
@@ -117,6 +128,29 @@ def normalize_thread_url(raw) -> Optional[str]:
     if not url.endswith("/"):
         url += "/"
     return url if THREAD_URL_RE.fullmatch(url) else None
+
+
+def parse_twitter_handle(raw) -> Optional[str]:
+    """'@anna', 'anna', 'https://x.com/anna/media?s=20' -> 'anna'; None for
+    anything that is not one account (the same rules as simp's parse_handle)."""
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if text.startswith("@"):
+        text = text[1:]
+    elif "/" in text or "." in text:
+        parts = urlsplit(text if "://" in text else "https://" + text)
+        host = (parts.hostname or "").lower()
+        host = host[4:] if host.startswith("www.") else host[7:] if host.startswith("mobile.") else host
+        if parts.scheme not in ("http", "https") or host not in TWITTER_HOSTS:
+            return None
+        path = [piece for piece in parts.path.split("/") if piece]
+        if not path:
+            return None
+        text = path[0][1:] if path[0].startswith("@") else path[0]
+    if not TWITTER_HANDLE_RE.fullmatch(text) or text.lower() in TWITTER_NOT_HANDLES:
+        return None
+    return text
 
 
 def thread_slug(url: str) -> str:
@@ -435,6 +469,72 @@ class SimpJobs:
             self._write_rules(state, rules)
         return {"model": model, "rule": rules.get(model), "rules": rules}
 
+    # ---- Twitter / X accounts per model ----
+
+    def twitter_accounts(self, state: Optional[Path] = None) -> dict:
+        """model -> {"handle", "only"?, "maxFiles"?, "reposts"?, "updatedAt"}."""
+        path = (state or self._paths()["state"]) / TWITTER_FILE
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(saved, dict):
+            return {}
+        return {model: entry for model, entry in saved.items() if valid_model(model) and isinstance(entry, dict)
+                and parse_twitter_handle(entry.get("handle"))}
+
+    def twitter_runs(self, state: Path, models) -> dict:
+        """model -> its last Twitter run (when, how many new, got to the end)."""
+        runs = {}
+        for model in models:
+            try:
+                row = json.loads((state / TWITTER_RUNS / f"{model}.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(row, dict):
+                runs[model] = {key: row.get(key) for key in ("handle", "checkedAt", "new", "failed", "reachedEnd", "mediaCount")}
+        return runs
+
+    def _write_twitter(self, state: Path, accounts: dict) -> None:
+        state.mkdir(parents=True, exist_ok=True)
+        tmp = state / (TWITTER_FILE + ".tmp")
+        tmp.write_text(json.dumps(accounts, indent=1, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(state / TWITTER_FILE)
+
+    @staticmethod
+    def twitter_words(entry: dict) -> list:
+        """@anna · videos · at most 40 · with reposts"""
+        words = [f"@{entry['handle']}"]
+        words += [{"images": "photos", "videos": "videos"}[entry["only"]]] if entry.get("only") in ("images", "videos") else []
+        words += [f"at most {entry['maxFiles']}"] if entry.get("maxFiles") else []
+        words += ["with reposts"] if entry.get("reposts") else []
+        return words
+
+    def save_twitter(self, payload: dict) -> dict:
+        """A model's Twitter account and what to take from it; an empty
+        handle forgets the account (files already downloaded stay)."""
+        model = payload.get("model")
+        if not valid_model(model):
+            raise SimpError("Pick a model.")
+        raw = payload.get("handle")
+        state = self._paths()["state"]
+        with self.lock:
+            accounts = self.twitter_accounts(state)
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                accounts.pop(model, None)
+            else:
+                handle = parse_twitter_handle(raw)
+                if handle is None:
+                    raise SimpError("Not a Twitter / X account. Paste its link (https://x.com/name) or @name.")
+                options = self.clean_options({key: payload.get(key) for key in ("only", "maxFiles")})
+                reposts = payload.get("reposts", False)
+                if not isinstance(reposts, bool):
+                    raise SimpError("Reposts is on or off.")
+                accounts[model] = {"handle": handle, **options, **({"reposts": True} if reposts else {}),
+                                   "updatedAt": utc_now_iso()}
+            self._write_twitter(state, accounts)
+        return {"model": model, "account": accounts.get(model), "accounts": accounts}
+
     def _rule_words(self, models: list) -> list:
         """A one-model job's label says that model's saved settings."""
         if len(models) != 1:
@@ -607,6 +707,7 @@ class SimpJobs:
             "later": self._lines(state / "later" / f"{model}.txt"),
             "stagingFiles": files,
             "stagingBytes": size,
+            "twitter": (self.twitter_accounts(state).get(model) or {}).get("handle"),
         }
         records["known"] = any(value for value in records.values())
         return records
@@ -623,7 +724,7 @@ class SimpJobs:
                 return (f"“{running['label']}” is running. Wait for it to end, or cancel it on the Downloads page "
                         "(Bunkr files pick up where they stopped next time), then try again.")
             for job in self.jobs:
-                if job["status"] not in ("queued", "held") or job["action"] not in ("thread", "update", "retry"):
+                if job["status"] not in ("queued", "held") or job["action"] not in ("thread", "update", "retry", "twitter"):
                     continue
                 named = job["args"][1:] if job["action"] == "retry" else job.get("models", [])
                 if model in named:
@@ -659,6 +760,14 @@ class SimpJobs:
             if rules.pop(model, None) is not None:
                 self._write_rules(state, rules)
                 removed.append(f"{RULES_FILE} ({model})")
+            accounts = self.twitter_accounts(state)
+            if accounts.pop(model, None) is not None:
+                self._write_twitter(state, accounts)
+                removed.append(f"{TWITTER_FILE} ({model})")
+            run = state / TWITTER_RUNS / f"{model}.json"
+            if run.is_file():
+                run.unlink()
+                removed.append(f"{TWITTER_RUNS}/{run.name}")
         # A waiting Bunkr job reads the lists when it starts; it just no longer names the model.
         for job in self.jobs:
             if job["action"] == "later" and job["status"] in ("queued", "held") and model in job.get("models", []):
@@ -705,6 +814,10 @@ class SimpJobs:
             # ... saved for single models, applied to every download of them.
             "modelRules": True,
             "rules": self.rules(paths["state"]),
+            # Twitter / X accounts per model (simp twitter).
+            "twitter": True,
+            "twitterAccounts": (accounts := self.twitter_accounts(paths["state"])),
+            "twitterRuns": self.twitter_runs(paths["state"], accounts),
         }
 
     @staticmethod
@@ -982,6 +1095,18 @@ class SimpJobs:
                 raise SimpError("Nothing has failed.", 409)
             models = wanted or failed
             args, label = ["retry", *wanted], "Retry " + (", ".join(wanted) if wanted else "everything that failed")
+        elif action == "twitter":
+            accounts = self.twitter_accounts(paths["state"])
+            wanted = payload.get("models") or []
+            if not isinstance(wanted, list) or any(not isinstance(model, str) or model not in accounts for model in wanted):
+                raise SimpError("Only models with a Twitter account can download from Twitter.")
+            if not accounts:
+                raise SimpError("No model has a Twitter account yet.", 409)
+            models = list(dict.fromkeys(wanted)) or sorted(accounts)
+            # Model names only, after "--": a folder named like an option stays a name.
+            args = ["twitter", "--", *models] if wanted else ["twitter"]
+            label = ("Twitter: " + " · ".join([models[0], *self.twitter_words(accounts[models[0]])])) if len(wanted) == 1 \
+                else "Twitter: " + (", ".join(models) if wanted else f"every account ({len(models)})")
         elif action == "later":
             models = [row["model"] for row in self.later_models(paths["state"])]
             if not models:

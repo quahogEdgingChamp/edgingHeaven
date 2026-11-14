@@ -20,7 +20,8 @@ from unittest import mock
 
 import simpjobs
 from server import AppServer, LOCK_COOKIE, MediaLibrary, RequestHandler
-from simpjobs import SimpJobs, cdl_file_name, cdl_run_paths, decode_tail, normalize_thread_url, thread_slug
+from simpjobs import (SimpJobs, cdl_file_name, cdl_run_paths, decode_tail, normalize_thread_url, parse_twitter_handle,
+                      thread_slug)
 
 # Behaves like simp for what the server looks at: its log lines, exit codes,
 # state/crawl and state/failed, and files in the model folder.
@@ -98,6 +99,17 @@ elif cmd == "retry":
     for model in args[1:] or [p.stem for p in (root / "state" / "failed").glob("*.jsonl")]:
         (root / "state" / "failed" / f"{model}.jsonl").unlink()
     print("Summary: 1 model(s) · 2 downloaded · 0 already had · 0 failed (direct)")
+elif cmd == "twitter":
+    accounts = json.loads((root / "state" / "twitter.json").read_text())
+    for model in [arg for arg in args[1:] if arg != "--"] or sorted(accounts):
+        folder = target / model / "Twitter"
+        folder.mkdir(parents=True, exist_ok=True)
+        print(f"Model folder: {target / model}", flush=True)
+        (folder / "2026-11-13 1001 1.jpg").write_bytes(b"\xff\xd8\xff tweet")
+        (root / "state" / "twitter").mkdir(exist_ok=True)
+        (root / "state" / "twitter" / f"{model}.json").write_text(json.dumps(
+            {"handle": accounts[model]["handle"], "checkedAt": "2026-11-14T05:00:00+00:00", "new": 1, "failed": 0, "reachedEnd": True}))
+    print("Summary: 1 model(s) · 1 downloaded · 0 had already · 0 failed (Twitter)")
 elif cmd == "download":
     print("Summary: 3 model(s) · 9 downloaded · 0 already had · 2 failed (direct)")
     sys.exit(1)
@@ -196,6 +208,15 @@ class HelperTests(unittest.TestCase):
                     "https://simpcity.cr/threads/a b.1/"):
             self.assertIsNone(normalize_thread_url(bad), bad)
         self.assertEqual(thread_slug(ok), "some-model")
+
+    def test_twitter_handles(self):
+        for raw, handle in (("@anna_b", "anna_b"), ("anna_b", "anna_b"), ("https://x.com/anna_b/media?s=20", "anna_b"),
+                            ("twitter.com/anna_b/status/1", "anna_b"), ("https://mobile.twitter.com/anna_b", "anna_b"),
+                            ("www.x.com/@anna_b", "anna_b"), (" https://fixupx.com/anna_b ", "anna_b")):
+            self.assertEqual(parse_twitter_handle(raw), handle, raw)
+        for bad in ("https://x.com/home", "https://x.com/", "https://x.com.evil.example/a", "https://evil.example/a",
+                    "ftp://x.com/a", "a b", "a" * 16, "-o", "", None, 5):
+            self.assertIsNone(parse_twitter_handle(bad), bad)
         self.assertEqual(thread_slug("https://simpcity.su/threads/a%3Cb%3E.9/"), "a_b")
 
     def test_cyberdrop_command_lines(self):
@@ -383,6 +404,56 @@ class JobTests(SimpCase):
                     {"url": "https://evil.com/threads/a.1/", "only": "videos"}, {"model": "anna", "threadPages": "0"},
                     {"model": "anna", "only": "gifs"}, {"model": "anna", "maxFiles": "5"}):
             self.assertEqual(self.call("/api/simp/rules", bad)[0], 400, bad)
+
+    def test_twitter_accounts_per_model(self):
+        """A model's Twitter account: saved in simp's state folder, shown in the
+        status, downloaded by a twitter job whose files join the library."""
+        status, body = self.call("/api/simp/twitter", {"model": "old-model", "handle": "https://x.com/Anna_X/media?s=20",
+                                                       "only": "videos", "maxFiles": 40})
+        self.assertEqual(status, 200, body)
+        self.assertEqual({k: v for k, v in body["account"].items() if k != "updatedAt"},
+                         {"handle": "Anna_X", "only": "videos", "maxFiles": 40})
+        self.call("/api/simp/twitter", {"model": "bob", "handle": "@bob", "reposts": True})
+        saved = json.loads((self.root / "state" / "twitter.json").read_text())
+        self.assertEqual((saved["old-model"]["handle"], saved["bob"]["reposts"]), ("Anna_X", True))
+        status = self.call("/api/simp/status")[1]
+        self.assertTrue(status["twitter"])
+        self.assertEqual(sorted(status["twitterAccounts"]), ["bob", "old-model"])
+        for bad in ({"model": "../x", "handle": "anna"}, {"model": ".hidden", "handle": "anna"}, {"handle": "anna"},
+                    {"model": "a", "handle": "https://evil.example/anna"}, {"model": "a", "handle": "x.com/home"},
+                    {"model": "a", "handle": "--only=videos"}, {"model": "a", "handle": "anna", "only": "gifs"},
+                    {"model": "a", "handle": "anna", "maxFiles": "5"}, {"model": "a", "handle": "anna", "reposts": "yes"}):
+            self.assertEqual(self.call("/api/simp/twitter", bad)[0], 400, bad)
+
+        # One model: its name only, after "--" (simp reads the account from the file).
+        job = self.call("/api/simp/jobs", {"action": "twitter", "models": ["old-model"]})[1]["job"]
+        self.assertEqual(job["args"], ["twitter", "--", "old-model"])
+        self.assertEqual(job["label"], "Twitter: old-model · @Anna_X · videos · at most 40")
+        self.assertEqual(self.finished(job["id"])["status"], "done")
+        self.assertIn("old-model/Twitter/2026-11-13 1001 1.jpg", self.call(f"/api/simp/jobs/{job['id']}/arrivals")[1]["paths"])
+        runs = self.call("/api/simp/status")[1]["twitterRuns"]
+        self.assertEqual((runs["old-model"]["new"], runs["old-model"]["reachedEnd"]), (1, True))
+        # Every account at once.
+        job = self.call("/api/simp/jobs", {"action": "twitter"})[1]["job"]
+        self.assertEqual((job["args"], job["label"], job["models"]), (["twitter"], "Twitter: every account (2)", ["bob", "old-model"]))
+        self.finished(job["id"])
+        for bad in ({"action": "twitter", "models": ["nobody"]}, {"action": "twitter", "models": "bob"}):
+            self.assertEqual(self.call("/api/simp/jobs", bad)[0], 400, bad)
+
+        # No handle forgets the account; downloaded files stay.
+        body = self.call("/api/simp/twitter", {"model": "bob", "handle": ""})[1]
+        self.assertIsNone(body["account"])
+        self.assertTrue((self.media / "bob" / "Twitter").is_dir())
+        # Remove a model: from the drive keeps the account, a full reset forgets it.
+        with self.jobs.lock:
+            self.jobs.forget_model("old-model", full=False)
+        self.assertIn("old-model", self.jobs.twitter_accounts())
+        self.assertEqual(self.call("/api/model-reset?model=old-model")[1]["records"]["twitter"], "Anna_X")
+        with self.jobs.lock:
+            self.jobs.forget_model("old-model", full=True)
+        self.assertEqual(self.jobs.twitter_accounts(), {})
+        self.assertFalse((self.root / "state" / "twitter" / "old-model.json").exists())
+        self.assertEqual(self.call("/api/simp/jobs", {"action": "twitter"})[0], 409)
 
     def test_a_full_reset_forgets_the_settings(self):
         self.call("/api/simp/rules", {"model": "old-model", "only": "images"})

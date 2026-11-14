@@ -2013,6 +2013,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, **simp.save_cookies(payload.get("text"))})
             elif payload is not None and parsed.path == "/api/simp/rules":
                 self._send_json({"ok": True, **simp.save_rule(payload)})
+            elif payload is not None and parsed.path == "/api/simp/twitter":
+                self._send_json({"ok": True, **simp.save_twitter(payload)})
             else:
                 self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
         except SimpError as error:
